@@ -1,0 +1,446 @@
+import axios from "axios";
+import { supabase } from "../lib/supabaseClient";
+import { trialDeviceHeaders } from "../lib/trialDevice";
+
+// API base URL strategy:
+//   - If VITE_API_BASE_URL is set, use it (production / explicit override).
+//   - Otherwise use a relative empty base so requests hit the SAME origin
+//     the frontend is served from. In dev, Vite's proxy forwards those
+//     paths to the FastAPI backend on 127.0.0.1:8000, which means the
+//     Cloudflare tunnel only needs to expose the frontend port.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 60000,
+});
+
+const AUTH_REQUIRED_EVENT = "podpilot:auth-required";
+const PROTECTED_API_PREFIXES = [
+  "/api",
+  "/designs",
+  "/upload-jobs",
+  "/upload-logs",
+  "/trademark",
+  "/me",
+];
+
+let currentAccessToken = null;
+
+export class AuthSessionMissingError extends Error {
+  constructor(message = "Please sign in again.") {
+    super(message);
+    this.name = "AuthSessionMissingError";
+    this.code = "AUTH_SESSION_MISSING";
+    this.isAuthSessionMissing = true;
+  }
+}
+
+export function isAuthSessionMissingError(error) {
+  return Boolean(error?.isAuthSessionMissing || error?.code === "AUTH_SESSION_MISSING");
+}
+
+function notifyAuthRequired(reason) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_REQUIRED_EVENT, {
+      detail: { reason },
+    }),
+  );
+}
+
+function getRequestPath(url = "") {
+  try {
+    return new URL(url, window.location.origin).pathname;
+  } catch {
+    return String(url || "");
+  }
+}
+
+function isProtectedApiRequest(url = "") {
+  const path = getRequestPath(url);
+  if (path === "/api/auth/check-email") return false;
+  return PROTECTED_API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+async function getLatestAccessToken({ required = false } = {}) {
+  if (!supabase) {
+    if (required) {
+      notifyAuthRequired("supabase_not_configured");
+      throw new AuthSessionMissingError();
+    }
+    return null;
+  }
+
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token || null;
+    currentAccessToken = token;
+    if (required && !token) {
+      notifyAuthRequired("missing_session");
+      throw new AuthSessionMissingError();
+    }
+    return token;
+  } catch (error) {
+    if (isAuthSessionMissingError(error)) throw error;
+    console.warn("[PodPilot] Could not read Supabase session:", error?.message || error);
+    if (required) {
+      notifyAuthRequired("session_read_failed");
+      throw new AuthSessionMissingError();
+    }
+    return null;
+  }
+}
+
+if (supabase) {
+  supabase.auth.getSession().then(({ data }) => {
+    currentAccessToken = data.session?.access_token || null;
+  }).catch((error) => {
+    console.warn("[PodPilot] Could not hydrate Supabase token:", error?.message || error);
+    currentAccessToken = null;
+  });
+
+  supabase.auth.onAuthStateChange((_event, nextSession) => {
+    currentAccessToken = nextSession?.access_token || null;
+  });
+}
+
+async function withProtectedAuth(config = {}) {
+  const token = await getLatestAccessToken({ required: true });
+  const headers = {
+    ...(config.headers || {}),
+    Authorization: `Bearer ${token}`,
+  };
+  return { ...config, headers };
+}
+
+async function protectedGet(url, config = {}) {
+  return api.get(url, await withProtectedAuth(config));
+}
+
+// Inject the freshest Supabase access token on every request that did not
+// explicitly go through the protected helper. Protected helpers cancel before
+// the network when no session exists, which avoids dashboard 401 spam.
+api.interceptors.request.use(async (config) => {
+  config.headers = config.headers || {};
+  if (config.headers?.Authorization) return config;
+  const token = await getLatestAccessToken({ required: isProtectedApiRequest(config.url) });
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  } else if (currentAccessToken) {
+    config.headers.Authorization = `Bearer ${currentAccessToken}`;
+  }
+  return config;
+});
+
+// ── Designs ────────────────────────────────────────────────────────────────
+
+export async function listDesigns(marketplace) {
+  const params = marketplace ? { marketplace } : {};
+  const response = await protectedGet("/designs", { params });
+  return response.data;
+}
+
+export async function getDesign(designId) {
+  const response = await api.get(`/designs/${designId}`);
+  return response.data;
+}
+
+export async function createDesign(payload) {
+  const response = await api.post("/designs", payload);
+  return response.data;
+}
+
+export async function updateDesign(designId, patch) {
+  const response = await api.patch(`/designs/${designId}`, patch);
+  return response.data;
+}
+
+export async function batchUpdateDesigns(designs) {
+  // Each item must have `id` plus any updatable fields (title, description,
+  // primary_tag, supporting_tags, copy_link, adult_content, color_settings,
+  // product_settings).
+  const response = await api.post("/designs/batch-update", designs);
+  return response.data;
+}
+
+export async function deleteDesign(designId) {
+  const response = await api.delete(`/designs/${designId}`);
+  return response.data;
+}
+
+export async function batchDeleteDesigns(designIds) {
+  const response = await api.post("/designs/batch-delete", {
+    design_ids: Array.isArray(designIds) ? designIds : [],
+  });
+  return response.data;
+}
+
+export async function uploadDesignImage(designId, file, onUploadProgress = null) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await api.post(`/designs/${designId}/image`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress,
+  });
+  return response.data;
+}
+
+export async function importDesigns({ excelFile, imageFiles = [], marketplace = "redbubble" }) {
+  // One-shot: backend parses the xlsx, persists rows in Supabase, uploads
+  // each matching image to R2, and returns the created designs (with
+  // signed image_url already attached).
+  const formData = new FormData();
+  formData.append("file", excelFile);
+  formData.append("marketplace", marketplace);
+  imageFiles.forEach((file) => formData.append("images", file));
+
+  const response = await api.post("/designs/import", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 180000,
+  });
+  return response.data;
+}
+
+export async function uploadStandaloneImages(files, marketplace = "redbubble", onUploadProgress = null) {
+  const formData = new FormData();
+  formData.append("marketplace", marketplace);
+  files.forEach((file) => formData.append("files", file));
+  const response = await api.post("/designs/import/images", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress,
+  });
+  return response.data;
+}
+
+export async function updateDesignStatus(designId, payload) {
+  const response = await api.post(`/designs/${designId}/status`, payload);
+  return response.data;
+}
+
+export async function getDesignSignedImageUrl(designId) {
+  const response = await api.get(`/designs/${designId}/image-url`);
+  return response.data;
+}
+
+// ── Upload jobs ────────────────────────────────────────────────────────────
+
+export async function generateListingContent(designId, platform, currentMetadata = {}) {
+  const response = await api.post("/api/ai/listing-content", {
+    design_id: designId,
+    platform,
+    current_metadata: currentMetadata,
+  });
+  return response.data;
+}
+
+export async function generateDraftListingContent(platform, currentMetadata = {}, file = null) {
+  const formData = new FormData();
+  formData.append("platform", platform);
+  formData.append("current_metadata", JSON.stringify(currentMetadata || {}));
+  if (file) formData.append("file", file);
+
+  const response = await api.post("/api/ai/listing-content/draft", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 90000,
+  });
+  return response.data;
+}
+
+export async function checkCopyrightRisk(payload) {
+  const response = await api.post("/api/ai/copyright-check", payload, {
+    timeout: 90000,
+  });
+  return response.data;
+}
+
+export async function listUploadJobs({ marketplace, onlyPending } = {}) {
+  const params = {};
+  if (marketplace) params.marketplace = marketplace;
+  if (onlyPending) params.only_pending = true;
+  const response = await api.get("/upload-jobs", { params });
+  return response.data;
+}
+
+export async function listPendingDesigns(marketplace) {
+  const params = marketplace ? { marketplace } : {};
+  const response = await api.get("/upload-jobs/pending", { params });
+  return response.data;
+}
+
+export async function createUploadJob({ marketplace = "redbubble", design_ids = [] } = {}) {
+  const response = await api.post("/upload-jobs", {
+    marketplace,
+    design_ids,
+    total_designs: design_ids.length,
+  });
+  return response.data;
+}
+
+export async function updateUploadJob(jobId, patch) {
+  const response = await api.patch(`/upload-jobs/${jobId}`, patch);
+  return response.data;
+}
+
+// ── Upload logs ────────────────────────────────────────────────────────────
+
+export async function listUploadLogs({ designId, jobId, limit = 200 } = {}) {
+  const params = { limit };
+  if (designId) params.design_id = designId;
+  if (jobId) params.job_id = jobId;
+  const response = await api.get("/upload-logs", { params });
+  return response.data;
+}
+
+export async function createUploadLog(payload) {
+  const response = await api.post("/upload-logs", payload);
+  return response.data;
+}
+
+// ── Identity ───────────────────────────────────────────────────────────────
+
+export async function whoami() {
+  const response = await api.get("/me");
+  return response.data;
+}
+
+// ── Billing / subscription ────────────────────────────────────────────────
+
+export async function getMySubscription() {
+  const response = await protectedGet("/api/me/subscription");
+  return response.data;
+}
+
+export async function getMyPlatformAccess() {
+  const response = await protectedGet("/api/me/platform-access");
+  return response.data;
+}
+
+export async function createBillingPortalSession() {
+  const response = await api.post("/api/billing/customer-portal");
+  return response.data;
+}
+
+export async function getTrialEligibility() {
+  const response = await protectedGet("/api/billing/trial-eligibility", {
+    headers: trialDeviceHeaders(),
+  });
+  return response.data;
+}
+
+export async function startTrialCheckout(planKey) {
+  const response = await api.post(
+    "/api/billing/start-trial",
+    { plan_key: planKey },
+    { headers: trialDeviceHeaders() },
+  );
+  return response.data;
+}
+
+export async function getCheckoutPriceId(planKey, billingCycle) {
+  const response = await api.post("/api/billing/checkout", {
+    plan_key: planKey,
+    billing_cycle: billingCycle,
+  });
+  return response.data;
+}
+
+
+// ── Trademark check ────────────────────────────────────────────────────────
+
+export async function checkTrademarkPhrase(phrase) {
+  const response = await api.get("/api/trademark/check", { params: { phrase } });
+  return response.data;
+}
+
+export async function checkTrademark(terms) {
+  const response = await api.post("/trademark/check", { terms });
+  return response.data;
+}
+
+export async function checkTrademarkForDesign(design) {
+  const response = await api.post("/trademark/check-design", {
+    title: design.title || "",
+    primary_tag: design.primary_tag || design.main_tag || "",
+    main_tag: design.main_tag || "",
+    supporting_tags: design.supporting_tags || "",
+    description: design.description || "",
+  });
+  return response.data;
+}
+
+// ── Backwards-compat shims ─────────────────────────────────────────────────
+// Older components still import these names. Keeping the shims avoids a
+// broad sweep through every component while still routing every call
+// through the new authenticated, user-scoped API.
+
+export async function getDesigns(marketplace) {
+  return listDesigns(marketplace);
+}
+
+export async function getJobs() {
+  const data = await listUploadJobs();
+  return { jobs: data.upload_jobs };
+}
+
+export async function uploadExcel(/* file */) {
+  throw new Error(
+    "uploadExcel() is no longer supported on its own. Call importDesigns({ excelFile, imageFiles, marketplace }) instead.",
+  );
+}
+
+export async function uploadImages(files, marketplace = "redbubble") {
+  // Re-shape the new response so legacy callers that read
+  // `response.files[i].image_url` keep working.
+  const data = await uploadStandaloneImages(files, marketplace);
+  return data;
+}
+
+export async function createJob(designs) {
+  // Map legacy createJob(designs[]) onto the new createUploadJob API.
+  const ids = (designs || []).map((d) => d.id).filter(Boolean);
+  const data = await createUploadJob({ design_ids: ids });
+  return { id: data?.upload_job?.id, ...data };
+}
+
+export async function uploadTeePublicExcel() {
+  throw new Error(
+    "uploadTeePublicExcel() is deprecated. Use importDesigns({ marketplace: 'teepublic', ... }).",
+  );
+}
+
+export async function createTeePublicJob(designs) {
+  const ids = (designs || []).map((d) => d.id).filter(Boolean);
+  const data = await createUploadJob({ marketplace: "teepublic", design_ids: ids });
+  return { id: data?.upload_job?.id, ...data };
+}
+
+export async function getTeePublicJobs() {
+  const data = await listUploadJobs({ marketplace: "teepublic" });
+  return { jobs: data.upload_jobs };
+}
+
+export function logFailingRequest(error) {
+  if (!error) return;
+  const config = error.config || {};
+  const response = error.response || {};
+  const endpoint = config.url || "unknown";
+  const statusCode = response.status || "unknown";
+  const errorMessage = response.data?.detail || error.message || "unknown";
+  const hasAuthHeader = !!(config.headers && config.headers.Authorization);
+
+  console.error("[PodPilot Request Failure]", {
+    endpoint,
+    statusCode,
+    errorMessage,
+    hasAuthHeader,
+  });
+}
+
+export async function checkEmailExists(email) {
+  const response = await api.post("/api/auth/check-email", { email });
+  return response.data;
+}
+
+export default api;
+export { API_BASE_URL };

@@ -1,0 +1,64 @@
+User-agent: *
+Allow: /
+
+# Private app, auth, billing, and workspace routes must not be indexed.
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /redbubble
+Disallow: /teepublic
+Disallow: /billing
+Disallow: /subscription
+Disallow: /checkout
+Disallow: /queue
+Disallow: /settings
+Disallow: /login
+Disallow: /reset-password
+Disallow: /email-confirmed
+
+# AI crawlers may read public marketing, help, legal, and blog pages.
+User-agent: GPTBot
+Allow: /
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /redbubble
+Disallow: /teepublic
+Disallow: /billing
+Disallow: /subscription
+Disallow: /checkout
+Disallow: /queue
+Disallow: /settings
+Disallow: /login
+Disallow: /reset-password
+Disallow: /email-confirmed
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /redbubble
+Disallow: /teepublic
+Disallow: /billing
+Disallow: /subscription
+Disallow: /checkout
+Disallow: /queue
+Disallow: /settings
+Disallow: /login
+Disallow: /reset-password
+Disallow: /email-confirmed
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /redbubble
+Disallow: /teepublic
+Disallow: /billing
+Disallow: /subscription
+Disallow: /checkout
+Disallow: /queue
+Disallow: /settings
+Disallow: /login
+Disallow: /reset-password
+Disallow: /email-confirmed
+
+Sitemap: https://podpilot.space/sitemap.xml

@@ -1,0 +1,25 @@
+{
+  "name": "redbubble-automation-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@paddle/paddle-js": "^1.6.4",
+    "@supabase/supabase-js": "^2.105.4",
+    "@tabler/icons-react": "^3.44.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "axios": "^1.7.9",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.5",
+    "vite": "^6.0.7",
+    "xlsx": "^0.18.5"
+  }
+}

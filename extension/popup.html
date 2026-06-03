@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PodPilot</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- Toast (fixed, visible across views) -->
+  <div id="ppToast" class="pp-toast" hidden role="status" aria-live="polite">
+    <div class="pp-toast-icon" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <div class="pp-toast-body">
+      <strong id="ppToastTitle">Upload Complete</strong>
+      <span id="ppToastMessage">Your upload has finished.</span>
+    </div>
+    <button id="ppToastClose" type="button" class="pp-toast-close" aria-label="Dismiss">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingView" class="view view-loading">
+    <img src="icons/icon48.png" alt="" class="loading-spinner" />
+    <span>Loading...</span>
+  </div>
+
+  <!-- Login -->
+  <div id="loginView" class="view view-login" hidden>
+    <div class="login-box">
+      <img src="icons/icon128.png" alt="PodPilot" class="login-logo" />
+      <h1 class="login-title">PodPilot</h1>
+      <p class="login-subtitle">Welcome back to your PodPilot dashboard</p>
+
+      <form id="loginForm" autocomplete="on">
+        <label class="field-label">Email</label>
+        <input id="loginEmail" type="email" placeholder="your.email@example.com" autocomplete="email" required />
+
+        <label class="field-label">Password</label>
+        <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" required />
+
+        <button id="loginBtn" type="submit" class="btn-signin">Sign In</button>
+        <button id="googleLoginBtn" type="button" class="btn-google">
+          <img src="icons/google-logo.svg" alt="" class="google-logo-icon" />
+          Continue with Google
+        </button>
+      </form>
+
+      <div id="loginError" class="login-error"></div>
+
+      <div class="login-divider"></div>
+
+      <p class="login-alt">Don't have an account?</p>
+      <a href="http://localhost:5173" target="_blank" rel="noopener" class="btn-create">Create Account</a>
+
+      <p class="login-footer">Secure login • <a href="#">Privacy Policy</a></p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboardView" class="view view-dashboard" hidden>
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <img src="icons/icon48.png" alt="" class="topbar-logo" />
+        <div class="topbar-brand">
+          <strong>PodPilot</strong>
+          <small id="designCountLabel">0 designs</small>
+          <span id="cacheStatusLabel" class="cache-status-label" style="font-size: 10px; font-weight: 500; margin-left: 6px; vertical-align: middle;" hidden></span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button id="refreshBtn" class="icon-btn" title="Refresh">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+        <div class="account-dropdown">
+          <button id="accountBtn" class="account-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span id="accountName">Account</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="accountMenu" class="account-menu" hidden>
+            <div class="menu-header">Account</div>
+            <div class="menu-section">Signed in as</div>
+            <div class="menu-email" id="menuEmail">—</div>
+            <button id="signOutBtn" class="menu-signout">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Billing banner (hidden unless subscription is blocking uploads) -->
+    <div id="billingBanner" class="billing-banner" hidden role="status"></div>
+
+    <!-- Marketplace tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-pill active" data-tab="redbubble">
+        <img src="icons/redbubble.svg" alt="" class="pill-icon" />
+        Redbubble Upload
+      </button>
+      <button class="nav-pill" data-tab="teepublic">
+        <img src="icons/teepublic.svg" alt="" class="pill-icon" />
+        TeePublic Upload
+      </button>
+    </nav>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="search-wrap">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="searchInput" type="search" placeholder="Search designs..." />
+        </div>
+        <div class="filter-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <select id="filterSelect">
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="uploaded">Uploaded</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <label class="background-upload-toggle" title="Keep upload automation running without focusing the upload tab after it starts.">
+          <input id="backgroundUploadToggle" type="checkbox" checked />
+          <span>Run in background</span>
+        </label>
+        <div class="info-tooltip-wrap">
+          <button type="button" class="info-tooltip-btn" aria-label="Upload Info">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </button>
+          <div class="info-tooltip-content">
+            Uploads may sometimes take a little longer depending on your image size, internet speed, and marketplace processing time. Keep the tab open while PodPilot works.
+          </div>
+        </div>
+        <button id="uploadBtn" class="btn-upload">
+          <span class="upload-btn-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <span class="upload-btn-loader" aria-hidden="true"></span>
+          <span class="upload-btn-label">Upload</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="uploadLaunchPanel" class="upload-launch-panel" hidden role="status" aria-live="polite">
+      <div class="upload-launch-mark" aria-hidden="true">
+        <span></span>
+      </div>
+      <div class="upload-launch-copy">
+        <strong id="uploadLaunchTitle">Preparing upload</strong>
+        <span id="uploadLaunchMeta">Checking selected designs...</span>
+      </div>
+      <div class="upload-launch-rail" aria-hidden="true">
+        <span></span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-header">
+        <div class="th-check"><input id="selectAll" type="checkbox" /></div>
+        <div class="th-image">Image</div>
+        <div class="th-details">Title & Details</div>
+        <div class="th-status">Status</div>
+      </div>
+      <div class="table-body" id="tableBody">
+        <div class="table-empty">No designs to show.</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="table-footer">
+      <div class="footer-left">
+        <span id="totalLabel">0 designs</span>
+        <span class="footer-sep">|</span>
+        <span id="selectedLabel">0 selected</span>
+      </div>
+      <div class="footer-right">
+        <button id="prevPage" class="page-btn">‹</button>
+        <span id="pageLabel">1/1</span>
+        <button id="nextPage" class="page-btn">›</button>
+        <select id="rowsPerPage" class="rows-select">
+          <option value="5">5 / page</option>
+          <option value="10" selected>10 / page</option>
+          <option value="25">25 / page</option>
+        </select>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Floating image preview shown on row-thumbnail hover -->
+  <div id="hoverPreview" class="hover-preview" hidden aria-hidden="true">
+    <img id="hoverPreviewImg" alt="" />
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="image-cache.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

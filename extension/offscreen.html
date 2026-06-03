@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PodPilot offscreen</title>
+  </head>
+  <body>
+    <!-- Hidden offscreen document used by background.js to play
+         the cha-ching.mp3 success sound. MV3 service workers cannot
+         create Audio() reliably, so we delegate playback here. -->
+    <script src="offscreen.js"></script>
+  </body>
+</html>

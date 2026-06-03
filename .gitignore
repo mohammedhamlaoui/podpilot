@@ -1,0 +1,9 @@
+backend/.venv/
+backend/uploads/excels/*
+backend/uploads/images/*
+frontend/node_modules/
+frontend/dist/
+*.pyc
+__pycache__/
+.env
+.env.*

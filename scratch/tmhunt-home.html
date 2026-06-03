@@ -1,0 +1,202 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="description" content="Clothing Trademark Search">
+    <meta property="og:image" content="http://tmhunt.com/assets/images/share.png" />
+    <meta property="og:description" content="Clothing Trademark Search" />
+    <meta property="og:url"content="http://tmhunt.com/" />
+    <meta property="og:title" content="TMhunt.com" />
+    <title>TMhunt - Clothing Trademark Search</title>
+    <link rel="icon" href="assets/images/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+    <link rel="stylesheet" href="http://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+    <link rel="stylesheet" href="assets/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="assets/css/buttons.bootstrap4.min.css">
+    <link href="assets/css/tmhunt.css" rel="stylesheet">
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-75895518-2"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'UA-75895518-2');
+    </script>
+
+    <!-- Facebook Pixel Code -->
+    <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '1628094707510053'); // Insert your pixel ID here.
+    fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1628094707510053&ev=PageView&noscript=1"
+    /></noscript>
+    <!-- DO NOT MODIFY -->
+    <!-- End Facebook Pixel Code -->
+
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+
+</head>
+<body>
+<div class="wrapper">
+    <div class="container">
+        <div class="page-header">
+            <nav class="navbar navbar-toggleable-md navbar-light">
+                <button class="navbar-toggler navbar-toggler-right" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <a class="navbar-brand" href="http://tmhunt.com"><img src="assets/images/logo.png"></a>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav ml-auto">
+                        <li class="nav-item active">
+                            <a class="nav-link" href="/">Home</a>
+                        </li>
+                        <li class="nav-item dropdown ">
+                            <a class="nav-link dropdown-toggle" data-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">Reports</a>
+                            <div class="dropdown-menu">
+                                <a class="dropdown-item " href="/filed.php">Filed Last Week</a>
+                                <a class="dropdown-item " href="/registered.php">Registered Last Week</a>
+                                <a class="dropdown-item " href="/opposition.php">Published for Opposition</a>
+                            </div>
+                        </li>
+
+                        <li class="nav-item ">
+                            <a class="nav-link" href="/help.php">Help</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </div>
+    <p class="lead">Search for Clothing Trademarks:</p>
+
+    <!-- Bootstrap CSS -->
+    <!-- jQuery first, then Bootstrap JS. -->
+    <!-- Nav tabs -->
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" href="#query" role="tab" data-toggle="tab">Multi Search</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#ngrams" role="tab" data-toggle="tab">Split Search</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#wildcard" role="tab" data-toggle="tab">Wildcard Search</a>
+        </li>
+    </ul>
+
+    <!-- Tab panes -->
+    <div class="tab-content">
+        <div role="tabpanel" class="tab-pane fade in active show" id="query">
+            <div class="form-group">
+                <textarea class="form-control query-input" placeholder="Enter one query per line" rows="8"></textarea>
+                <div class="btn-group" style="margin: 10px 0;">
+
+                    <div>
+                        <input type="radio" name="filterType" class="radio-custom" id="exactMatch" autocomplete="off" checked>
+                        <label for="exactMatch" class="radio-custom-label">Exact Match</label>
+                    </div>
+                    <div>
+                        <input type="radio" name="filterType" class="radio-custom" id="partialMatch" autocomplete="off">
+                        <label for="partialMatch" class="radio-custom-label">Partial Match</label>
+                    </div>
+
+                </div>
+                <div class="alert alert-danger query-error hidden" role="alert"></div>
+                <button class="btn btn-primary submit searchBtn"><i class="ion-load-c spin"></i> Search</button>
+            </div>
+        </div>
+        <div role="tabpanel" class="tab-pane fade" id="ngrams">
+            <div class="block-inline">                
+                <textarea class="form-control n-gram" placeholder="Enter one query per line (max 10) to split it and search for its individual parts" rows="8"></textarea>
+                <div class="alert alert-danger ngram-error hidden" role="alert"></div>
+                <button type="submit" class="btn btn-primary search-ngram searchBtn" disabled="disabled"><i class="ion-load-c spin"></i> Search</button>
+            </div></div>
+
+        <div role="tabpanel" class="tab-pane fade" id="wildcard">
+            <div class="block-inline">
+                <textarea class="form-control wildcard" placeholder="Enter one query per line (max 100) using an asterisk as a wildcard character, e.g. IN * WE TRUST" rows="8"></textarea>
+                <div class="alert alert-danger wildcard-error hidden" role="alert"></div>
+                <button type="submit" class="btn btn-primary search-wildcard searchBtn" disabled="disabled"><i class="ion-load-c spin"></i> Search</button>
+            </div></div>
+    </div>
+
+<div class="btn-group buttons-filter" role="group" aria-label="Button group with nested dropdown" style="display: none;">
+
+    <div class="btn-group">
+        <button class="btn btn-secondary dropdown-toggle status-button" type="button" id="dropdownMenu2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            Status
+        </button>
+        <div class="dropdown-menu" aria-labelledby="dropdownMenu2">
+            <button class="dropdown-item status" data-search="all" type="button">All</button>
+            <button class="dropdown-item status" data-search="live" type="button">Live</button>
+            <button class="dropdown-item status" data-search="dead" type="button">Dead</button>
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn btn-secondary dropdown-toggle type-button" type="button" id="dropdownMenu1" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            Type
+        </button>
+        <div class="dropdown-menu" aria-labelledby="dropdownMenu1">
+            <button class="dropdown-item type" data-search="all" type="button">All</button>
+            <button class="dropdown-item type" data-search="Design" type="button">Design</button>
+            <button class="dropdown-item type" data-search="Typeset" type="button">Typeset</button>
+            <button class="dropdown-item type" data-search="Text" type="button">Text</button>
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn btn-secondary dropdown-toggle registered-button" type="button" id="dropdownMenu3" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            Registered
+        </button>
+        <div class="dropdown-menu" aria-labelledby="dropdownMenu3">
+            <button class="dropdown-item rdate" data-search="all" type="button">All</button>
+            <button class="dropdown-item rdate" data-search="yes" type="button">Yes</button>
+            <button class="dropdown-item rdate" data-search="not" type="button">No</button>
+        </div>
+    </div>
+    
+    <div class="btn-group">
+        <button class="btn btn-success live-text-button" type="button" id="dropdownMenu5" data-toggle="tooltip" data-placement="top" data-trigger="hover" title="Set filters to Status='Live' and Type='Text'">
+            <span  style="font-size: 0.9em;">Set to Live&Text</span>
+        </button>
+    </div>
+    
+    <div class="btn-group">
+        <button class="btn btn-danger remove-filters-button" type="button" id="dropdownMenu4" data-toggle="tooltip" data-placement="top" data-trigger="hover" title="Reset filters and show all results">
+            <span class="ion-close-round" style="font-size: 0.75em;"></span>
+        </button>
+    </div>
+    
+    
+
+</div></div>
+<div id="result">
+    <table id="table" class="table display table-striped table-bordered"></table>
+</div>
+
+</div>
+<footer class="footer">
+    <div class="container">
+        <p class="text-muted">Last updated:
+            14 May 2026        </p>
+    </div>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tether/1.2.4/js/tether.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/js/bootstrap.min.js" integrity="sha384-vBWWzlZJ8ea9aCX4pEW3rVHjgjt7zpkNpZk+02D9phzyeVkE+jo0ieGizqPLForn" crossorigin="anonymous"></script>
+<script src="assets/js/jquery.dataTables.min.js"></script>
+<script src="assets/js/dataTables.bootstrap4.min.js"></script>
+<script src="assets/js/dataTables.buttons.min.js"></script>
+<script src="assets/js/buttons.bootstrap4.min.js"></script>
+<script src="assets/js/buttons.html5.min.js"></script>
+<script src="assets/js/functions.js"></script>
+</body>
+</html>

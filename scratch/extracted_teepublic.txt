@@ -1,0 +1,74 @@
+Created At: 2026-05-25T13:08:43Z
+Completed At: 2026-05-25T13:08:43Z
+File Path: `file:///c:/Users/dynast/Desktop/chofi%20bntk/my%20project%20autmation/frontend/src/components/TeePublicDesignManager.jsx`
+Total Lines: 1729
+Total Bytes: 73364
+Showing lines 930 to 1729
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+930:                 </button>
+931:                 <button type="button" className="secondary-button icon-only-button" onClick={() => moveCreateIndex(1)} aria-label="Next design">
+932:                   <Icon name="chevronRight" />
+933:                 </button>
+934:               </div>
+935:               <button
+936:                 type="button"
+937:                 className="secondary-button ai-generate-button"
+938:                 onClick={handleCreateAiGenerate}
+939:                 disabled={isAiGenerating || !activeCreateImage}
+940:               >
+941:                 <Icon name={isAiGenerating ? "refresh" : "robot"} />
+942:                 <span>{isAiGenerating ? "Generating..." : "AI Generate"}</span>
+943:               </button>
+944:               <div className="toolbar-menu-wrap">
+945:                 <button
+946:                   type="button"
+947:                   className="secondary-button"
+948:                   onClick={() => setOpenCreateMenu((current) => (current === "copy" ? null : "copy"))}
+949:                 >
+950:                   <Icon name="copy" />
+951:                   <span>Copy</span>
+952:                   <Icon name="chevronDown" />
+953:                 </button>
+954:                 {openCreateMenu === "copy" && (
+955:                   <div className="toolbar-dropdown" role="menu">
+956:                     <button type="button" onClick={() => handleCreateCopy("all")} role="menuitem">
+957:                       <Icon name="copy" />
+958:          
+<truncated 39772 bytes>
+ <div className="pp-modal-overlay" onClick={() => setConfirmDelete(null)}>
+1695:           <div className="pp-modal pp-modal-danger" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+1696:             <h3>{confirmDelete.type === 'many' ? 'Delete selected designs?' : 'Delete this design?'}</h3>
+1697:             <p>
+1698:               {confirmDelete.type === 'many'
+1699:                 ? `Are you sure you want to delete ${confirmDelete.count} selected design${confirmDelete.count === 1 ? '' : 's'}? This will remove them from your dashboard and delete their images from storage if possible.`
+1700:                 : `Are you sure you want to delete "${confirmDelete.name}"? This will remove the design from your dashboard and delete its image from storage if possible.`}
+1701:             </p>
+1702:             <div className="pp-modal-actions">
+1703:               <button type="button" className="secondary-button" onClick={() => setConfirmDelete(null)}>
+1704:                 Cancel
+1705:               </button>
+1706:               <button
+1707:                 type="button"
+1708:                 className="pp-btn-delete"
+1709:                 onClick={async () => {
+1710:                   const target = confirmDelete;
+1711:                   setConfirmDelete(null);
+1712:                   if (target.type === 'many') {
+1713:                     await deleteSelected();
+1714:                   } else {
+1715:                     await deleteDesign(target.id);
+1716:                   }
+1717:                 }}
+1718:               >
+1719:                 {confirmDelete.type === 'many' ? 'Delete Designs' : 'Delete Design'}
+1720:               </button>
+1721:             </div>
+1722:           </div>
+1723:         </div>
+1724:       )}
+1725:     </section>
+1726:   );
+1727: }
+1728: 
+1729: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

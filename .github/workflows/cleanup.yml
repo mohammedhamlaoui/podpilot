@@ -1,0 +1,88 @@
+name: Nightly Storage Cleanup
+
+on:
+  schedule:
+    # Run every night at midnight UTC (00:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allows manual trigger from the GitHub Actions UI for testing
+    inputs:
+      dry_run:
+        description: 'Run in Dry Run mode (simulate only)'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      cutoff_hours:
+        description: 'Cutoff hours for designs'
+        required: true
+        default: '24'
+        type: string
+
+jobs:
+  cleanup:
+    name: Execute Storage Maintenance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate Secrets Setup
+        run: |
+          if [ -z "${{ secrets.PODPILOT_API_URL }}" ]; then
+            echo "::error::PODPILOT_API_URL secret is not set in GitHub Repository Secrets."
+            exit 1
+          fi
+          if [ -z "${{ secrets.ADMIN_CLEANUP_SECRET }}" ]; then
+            echo "::error::ADMIN_CLEANUP_SECRET secret is not set in GitHub Repository Secrets."
+            exit 1
+          fi
+
+      - name: Clean Expired Design Workspaces
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          CUTOFF="${{ github.event.inputs.cutoff_hours || '24' }}"
+          
+          echo "Triggering design cleanup... (dry_run=$DRY_RUN, cutoff_hours=$CUTOFF)"
+          
+          # Perform POST request and fetch HTTP response code and body
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-old-designs?dry_run=$DRY_RUN&cutoff_hours=$CUTOFF" \
+            -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
+            -H "Content-Type: application/json")
+          
+          # Extract body and HTTP status code
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          
+          echo "HTTP Status Code: $HTTP_STATUS"
+          echo "Response Body:"
+          echo "$HTTP_BODY"
+          
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::error::Design cleanup failed with status code $HTTP_STATUS"
+            exit 1
+          fi
+
+      - name: Clean Orphaned R2 Storage Objects
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          
+          echo "Triggering orphan R2 assets cleanup... (dry_run=$DRY_RUN)"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-orphan-r2-objects?dry_run=$DRY_RUN" \
+            -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
+            -H "Content-Type: application/json")
+          
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          
+          echo "HTTP Status Code: $HTTP_STATUS"
+          echo "Response Body:"
+          echo "$HTTP_BODY"
+          
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::error::Orphan R2 assets cleanup failed with status code $HTTP_STATUS"
+            exit 1
+          fi

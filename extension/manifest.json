@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "PodPilot",
+  "version": "0.2.3",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtVY2hqxvdoWt2c4IpFTWfLMhD2T9EBTgyTaVY3AqdNcRbINKVMjfAi87t5tL5350BpDBfJcSb5u/iLUthThzqkqEfrctHJodwcMeCF5xJ0AD84tbCJRqM002VLAhvPFjw5pMqNRDf9PugIFA53tzmrOs90oeZGtVA2EJSijQoRCNPRNKMK4KRidLgh9B+YDU7qUdDEKGykjcuqfWNNw3CQA0kjGIAbRLTd1zohyNu1DjBC2Axf9eeiB7QZoDuFTA6oDIXfbjIXQ+LzdCrmJ5jEhkN4Ck3Nck0mWGgIpI70AWTT4Il189k/RLawIzbXoIXc4+vxprbKI1+cpSrwlk+QIDAQAB",
+  "description": "Multi-user PodPilot upload automation for Redbubble + TeePublic.",
+  "permissions": ["storage", "tabs", "scripting", "activeTab", "notifications", "offscreen", "contextMenus"],
+  "host_permissions": [
+    "https://www.redbubble.com/*",
+    "https://*.redbubble.net/*",
+    "https://www.teepublic.com/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://*.supabase.co/*",
+    "https://*.r2.cloudflarestorage.com/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost/*",
+      "http://127.0.0.1/*",
+      "https://podpilot.space/*",
+      "https://www.podpilot.space/*"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.redbubble.com/portfolio/images/*/duplicate*",
+        "https://www.redbubble.com/portfolio/images/new*",
+        "https://www.redbubble.com/studio/promote/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.teepublic.com/*"
+      ],
+      "js": ["content-teepublic.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "PodPilot",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/cha-ching.mp3", "icons/icon48.png", "icons/icon128.png", "icons/redbubble.svg", "icons/teepublic.svg"],
+      "matches": ["https://www.redbubble.com/*", "https://www.teepublic.com/*"]
+    }
+  ]
+}
