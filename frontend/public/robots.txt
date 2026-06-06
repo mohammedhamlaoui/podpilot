@@ -12,6 +12,7 @@ Disallow: /checkout
 Disallow: /queue
 Disallow: /settings
 Disallow: /login
+Disallow: /signup
 Disallow: /reset-password
 Disallow: /email-confirmed
 
@@ -28,6 +29,7 @@ Disallow: /checkout
 Disallow: /queue
 Disallow: /settings
 Disallow: /login
+Disallow: /signup
 Disallow: /reset-password
 Disallow: /email-confirmed
 
@@ -43,6 +45,7 @@ Disallow: /checkout
 Disallow: /queue
 Disallow: /settings
 Disallow: /login
+Disallow: /signup
 Disallow: /reset-password
 Disallow: /email-confirmed
 
@@ -58,6 +61,7 @@ Disallow: /checkout
 Disallow: /queue
 Disallow: /settings
 Disallow: /login
+Disallow: /signup
 Disallow: /reset-password
 Disallow: /email-confirmed
 

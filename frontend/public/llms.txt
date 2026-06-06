@@ -15,8 +15,6 @@ Uploads run from the user's own browser session. PodPilot is independent softwar
 - Redbubble upload automation: https://podpilot.space/redbubble-upload-automation
 - TeePublic upload automation: https://podpilot.space/teepublic-upload-automation
 - Contact: https://podpilot.space/contact
-- Privacy: https://podpilot.space/privacy
-- Terms: https://podpilot.space/terms
 
 ## What PodPilot Does
 

@@ -16,6 +16,24 @@ const blogNavItems = [
   { label: "Help", href: "/help" },
 ];
 
+const seoAliasMeta = {
+  "/ai-listing-generator": {
+    title: "AI Listing Generator for Redbubble & TeePublic",
+    description:
+      "Generate product titles, descriptions, main tags, and supporting tags for Redbubble and TeePublic listings with PodPilot.",
+  },
+  "/redbubble-upload-automation": {
+    title: "Redbubble Upload Automation Tool",
+    description:
+      "Prepare and upload Redbubble designs faster with PodPilot's browser-based upload automation, AI listings, and queue workflow.",
+  },
+  "/teepublic-upload-automation": {
+    title: "TeePublic Upload Automation Tool",
+    description:
+      "Automate repeated TeePublic upload steps with PodPilot's browser extension, listing editor, and AI metadata tools.",
+  },
+};
+
 
 
 function renderContentWithLinks(text) {
@@ -145,10 +163,13 @@ function BlogIndex({ theme, setTheme }) {
 function BlogArticle({ post, theme, setTheme, canonicalPath }) {
   const canonical = canonicalPath || `/blog/${post.slug}`;
   const canonicalUrl = `https://podpilot.space${canonical}`;
+  const aliasMeta = seoAliasMeta[canonicalPath] || {};
+  const seoTitle = aliasMeta.title || post.title;
+  const seoDescription = aliasMeta.description || post.metaDescription;
 
   useSeo({
-    title: `${post.title}`,
-    description: post.metaDescription,
+    title: seoTitle,
+    description: seoDescription,
     canonical,
     ogImage: `https://podpilot.space${post.image}`,
     ogType: "article",
@@ -156,8 +177,8 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
       {
         "@type": "Article",
         "@id": canonicalUrl,
-        headline: post.title,
-        description: post.metaDescription,
+        headline: seoTitle,
+        description: seoDescription,
         image: `https://podpilot.space${post.image}`,
         author: {
           "@type": "Organization",
