@@ -166,6 +166,50 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
   const aliasMeta = seoAliasMeta[canonicalPath] || {};
   const seoTitle = aliasMeta.title || post.title;
   const seoDescription = aliasMeta.description || post.metaDescription;
+  const articleSchema = {
+    "@type": "Article",
+    "@id": canonicalUrl,
+    headline: seoTitle,
+    description: seoDescription,
+    image: `https://podpilot.space${post.image}`,
+    author: {
+      "@type": "Organization",
+      name: "PodPilot",
+      url: "https://podpilot.space",
+    },
+    publisher: {
+      "@type": "Organization",
+      "@id": "https://podpilot.space/#organization",
+      name: "PodPilot",
+    },
+    url: canonicalUrl,
+    mainEntityOfPage: canonicalUrl,
+    keywords: post.secondaryKeywords?.join(", "),
+  };
+  const breadcrumbSchema = {
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: "https://podpilot.space/" },
+      { "@type": "ListItem", position: 2, name: "Blog", item: "https://podpilot.space/blog" },
+      { "@type": "ListItem", position: 3, name: post.title, item: canonicalUrl },
+    ],
+  };
+  const faqSchema = post.faqs?.length
+    ? {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "@id": `${canonicalUrl}#faq`,
+        mainEntity: post.faqs.map((faq) => ({
+          "@type": "Question",
+          name: faq.q,
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: faq.a,
+          },
+        })),
+      }
+    : null;
+  const jsonLd = faqSchema ? [articleSchema, breadcrumbSchema, faqSchema] : [articleSchema, breadcrumbSchema];
 
   useSeo({
     title: seoTitle,
@@ -173,47 +217,7 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
     canonical,
     ogImage: `https://podpilot.space${post.image}`,
     ogType: "article",
-    jsonLd: [
-      {
-        "@type": "Article",
-        "@id": canonicalUrl,
-        headline: seoTitle,
-        description: seoDescription,
-        image: `https://podpilot.space${post.image}`,
-        author: {
-          "@type": "Organization",
-          name: "PodPilot",
-          url: "https://podpilot.space",
-        },
-        publisher: {
-          "@type": "Organization",
-          "@id": "https://podpilot.space/#organization",
-          name: "PodPilot",
-        },
-        url: canonicalUrl,
-        mainEntityOfPage: canonicalUrl,
-        keywords: post.secondaryKeywords?.join(", "),
-      },
-      {
-        "@type": "BreadcrumbList",
-        itemListElement: [
-          { "@type": "ListItem", position: 1, name: "Home", item: "https://podpilot.space/" },
-          { "@type": "ListItem", position: 2, name: "Blog", item: "https://podpilot.space/blog" },
-          { "@type": "ListItem", position: 3, name: post.title, item: canonicalUrl },
-        ],
-      },
-      ...(post.faqs ? [{
-        "@type": "FAQPage",
-        "mainEntity": post.faqs.map(faq => ({
-          "@type": "Question",
-          "name": faq.q,
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": faq.a
-          }
-        }))
-      }] : [])
-    ],
+    jsonLd,
   });
 
   const related = blogPosts.filter((item) => item.slug !== post.slug).slice(0, 3);

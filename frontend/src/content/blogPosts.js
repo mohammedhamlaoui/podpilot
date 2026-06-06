@@ -561,19 +561,19 @@ export const blogPosts = [
     faqs: [
       {
         q: "Can I use AI for print on demand metadata?",
-        a: "Yes, absolutely! Using AI to write listing titles, descriptions, and tags is a highly recommended and safe way to scale your storefront. AI tools help you write highly-optimized SEO text quickly, saving you hours of copywriting work. Just be sure to review all generated metadata to make sure it matches your designs perfectly before publishing."
+        a: "Yes. AI can help draft listing titles, descriptions, and tags faster, especially when you are preparing many Redbubble or TeePublic listings. You should still review every generated field to make sure it accurately matches your design before publishing."
       },
       {
         q: "Is it safe to automate my POD listings?",
-        a: "Yes, automating listing preparation and using safe browser-native extensions to fill forms is completely secure. Tools like PodPilot operate directly inside your normal browser session, behaving exactly like a human seller and keeping your credentials completely private. This is the safest way to publish listings at scale."
+        a: "PodPilot is designed to run through the user's browser session and does not store marketplace passwords. Sellers should still review each listing and follow marketplace rules before publishing."
       },
       {
         q: "How does an AI listing generator help with SEO?",
-        a: "AI tools analyze search trends and include relevant high-volume keywords and secondary terms in your metadata. This natural keyword density ensures your listings rank higher on marketplace search tools and external engines like Google, maximizing your organic store traffic."
+        a: "An AI listing generator can help you draft clearer titles, descriptions, and tags that include relevant search terms. Rankings are not guaranteed, so sellers should review keyword relevance and listing quality before publishing."
       },
       {
         q: "Should I check AI listings for trademark issues?",
-        a: "Yes, definitely! Even though AI tools write high-quality listing copy, you must always run a trademark checker to ensure no registered brand names or slogans are accidentally included. PodPilot integrates a trademark screening tool directly beside our AI listing creator for absolute safety."
+        a: "Yes. AI-generated listing text should be reviewed for trademark and copyright risk before publishing. PodPilot includes an informational trademark screening workflow, but sellers remain responsible for final review."
       },
       {
         q: "Can I edit the generated AI text?",
@@ -747,11 +747,11 @@ export const blogPosts = [
     faqs: [
       {
         q: "Is Redbubble upload automation allowed?",
-        a: "Yes, using browser-native extensions to fill forms is fully compliant with standard web usage. Unlike risky bots that bypass login protocols or flood platforms with low-quality spam, PodPilot is a secure assistant that runs directly in your browser session, helping you manage your actual designs at a human-like pace."
+        a: "PodPilot is designed to run through the user's browser session and does not store marketplace passwords. Sellers should review Redbubble's current rules and use automation responsibly."
       },
       {
         q: "Will automation get my Redbubble account suspended?",
-        a: "Using a safe, browser-native form-filler like PodPilot does not cause account suspension because it respects security boundaries and does not automate malicious actions. Accounts are typically suspended due to copyright infringements, trademarked tags, or low-resolution design spamming. Proactively screen your tags to stay safe."
+        a: "No tool can guarantee account outcomes. PodPilot helps prepare and fill upload fields through your browser session, but sellers should screen metadata, use original designs, and follow Redbubble rules."
       },
       {
         q: "How many designs can I upload to Redbubble daily?",
@@ -840,7 +840,7 @@ export const blogPosts = [
     faqs: [
       {
         q: "Can I automate uploads to TeePublic?",
-        a: "Yes, you can automate uploads to TeePublic securely. By using PodPilot's browser-native extension, all form-filling, color configurations, and tag entries are processed directly within your own Chrome session. This keeps your login details safe and complies with standard web protocols."
+        a: "PodPilot can help automate repeated TeePublic form-filling steps through the user's browser session and does not store marketplace passwords. Sellers should still review TeePublic's current rules before publishing."
       },
       {
         q: "How does TeePublic's tagging differ from Redbubble's?",
