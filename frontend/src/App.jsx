@@ -374,6 +374,9 @@ function isValidRoute(pathname) {
     "login",
     "signup",
     "pricing",
+    "ai-listing-generator",
+    "redbubble-upload-automation",
+    "teepublic-upload-automation",
     "privacy",
     "terms",
     "help",
@@ -425,6 +428,9 @@ export default function App() {
       "/",
       "/pricing",
       "/blog",
+      "/ai-listing-generator",
+      "/redbubble-upload-automation",
+      "/teepublic-upload-automation",
       "/help",
       "/help-center",
       "/contact",
@@ -438,7 +444,7 @@ export default function App() {
     const publicPathPrefixes = ["/blog"];
     const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "profile"];
     const privatePathPrefixes = ["/dashboard", "/redbubble", "/teepublic", "/billing", "/subscription", "/profile"];
-    const privateExactPaths = ["/checkout", "/login", "/reset-password", "/email-confirmed"];
+    const privateExactPaths = ["/checkout", "/login", "/signup", "/reset-password", "/email-confirmed"];
     const isPublicPath =
       publicExactPaths.includes(pathname) ||
       publicPathPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -846,6 +852,9 @@ export default function App() {
       isPasswordRecovery ||
       window.location.pathname === "/" ||
       window.location.pathname === "/pricing" ||
+      window.location.pathname === "/ai-listing-generator" ||
+      window.location.pathname === "/redbubble-upload-automation" ||
+      window.location.pathname === "/teepublic-upload-automation" ||
       window.location.pathname === "/checkout" ||
       window.location.pathname.startsWith("/blog") ||
       window.location.pathname === "/contact" ||
@@ -1102,6 +1111,22 @@ export default function App() {
 
   if (window.location.pathname === "/pricing") {
     return <PricingPage theme={theme} setTheme={setTheme} subscriptionSummary={subscriptionSummary} />;
+  }
+
+  const seoRouteAliases = {
+    "/ai-listing-generator": "ai-listing-generator-for-print-on-demand",
+    "/redbubble-upload-automation": "redbubble-upload-automation",
+    "/teepublic-upload-automation": "teepublic-upload-automation",
+  };
+  if (seoRouteAliases[window.location.pathname]) {
+    return (
+      <BlogPage
+        theme={theme}
+        setTheme={setTheme}
+        slug={seoRouteAliases[window.location.pathname]}
+        canonicalPath={window.location.pathname}
+      />
+    );
   }
 
   if (window.location.pathname === "/checkout") {

@@ -142,17 +142,20 @@ function BlogIndex({ theme, setTheme }) {
   );
 }
 
-function BlogArticle({ post, theme, setTheme }) {
+function BlogArticle({ post, theme, setTheme, canonicalPath }) {
+  const canonical = canonicalPath || `/blog/${post.slug}`;
+  const canonicalUrl = `https://podpilot.space${canonical}`;
+
   useSeo({
     title: `${post.title}`,
     description: post.metaDescription,
-    canonical: `/blog/${post.slug}`,
+    canonical,
     ogImage: `https://podpilot.space${post.image}`,
     ogType: "article",
     jsonLd: [
       {
         "@type": "Article",
-        "@id": `https://podpilot.space/blog/${post.slug}`,
+        "@id": canonicalUrl,
         headline: post.title,
         description: post.metaDescription,
         image: `https://podpilot.space${post.image}`,
@@ -166,8 +169,8 @@ function BlogArticle({ post, theme, setTheme }) {
           "@id": "https://podpilot.space/#organization",
           name: "PodPilot",
         },
-        url: `https://podpilot.space/blog/${post.slug}`,
-        mainEntityOfPage: `https://podpilot.space/blog/${post.slug}`,
+        url: canonicalUrl,
+        mainEntityOfPage: canonicalUrl,
         keywords: post.secondaryKeywords?.join(", "),
       },
       {
@@ -175,7 +178,7 @@ function BlogArticle({ post, theme, setTheme }) {
         itemListElement: [
           { "@type": "ListItem", position: 1, name: "Home", item: "https://podpilot.space/" },
           { "@type": "ListItem", position: 2, name: "Blog", item: "https://podpilot.space/blog" },
-          { "@type": "ListItem", position: 3, name: post.title, item: `https://podpilot.space/blog/${post.slug}` },
+          { "@type": "ListItem", position: 3, name: post.title, item: canonicalUrl },
         ],
       },
       ...(post.faqs ? [{
@@ -324,7 +327,7 @@ function BlogArticle({ post, theme, setTheme }) {
   );
 }
 
-export default function BlogPage({ theme, setTheme, slug = "" }) {
+export default function BlogPage({ theme, setTheme, slug = "", canonicalPath }) {
   if (!slug) return <BlogIndex theme={theme} setTheme={setTheme} />;
   const post = getBlogPost(slug);
   if (!post) {
@@ -341,5 +344,5 @@ export default function BlogPage({ theme, setTheme, slug = "" }) {
       </BlogShell>
     );
   }
-  return <BlogArticle post={post} theme={theme} setTheme={setTheme} />;
+  return <BlogArticle post={post} theme={theme} setTheme={setTheme} canonicalPath={canonicalPath} />;
 }
