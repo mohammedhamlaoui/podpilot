@@ -1,42 +1,31 @@
 # PodPilot
 
-PodPilot is a browser-based print-on-demand upload automation tool for Redbubble and TeePublic sellers.
+PodPilot is a browser-based upload automation tool for Redbubble and TeePublic sellers.
 
-It helps sellers import designs, edit metadata, generate AI listing content, check trademark and safety risk, and run browser-based upload queues.
+It helps print-on-demand sellers prepare design listings, organize metadata, generate AI listing drafts, check listing text for trademark and safety risk, and run upload queues through a browser extension.
 
-PodPilot does not store marketplace passwords. Upload actions run through the user's own browser session.
+Uploads run from the user's own browser session. PodPilot is independent software and is not affiliated with, endorsed by, or partnered with Redbubble or TeePublic.
 
-## Who PodPilot Is For
-
-- Redbubble sellers uploading many designs
-- TeePublic sellers managing repeated listing work
-- Print-on-demand sellers who want less manual copy-paste
-- Sellers who want to prepare listings, review risk, and upload from one browser-based workflow
-
-## Main Capabilities
-
-- Bulk design import with image and spreadsheet metadata matching
-- Redbubble upload automation through a browser extension
-- TeePublic upload automation through a browser extension
-- AI listing drafts for titles, descriptions, main tags, and supporting tags
-- Trademark and safety risk checks for listing metadata
-- Upload queues for tracking pending, uploading, completed, and failed designs
-- Browser-based publishing from the user's own marketplace session
-
-## Important Public Links
+## Main Public Pages
 
 - Homepage: https://podpilot.space/
 - Pricing: https://podpilot.space/pricing
 - Blog: https://podpilot.space/blog
-- Help: https://podpilot.space/help
-- Security: https://podpilot.space/security
-- Privacy: https://podpilot.space/privacy
-- Terms: https://podpilot.space/terms
-- Refund Policy: https://podpilot.space/refund-policy
+- AI listing generator: https://podpilot.space/ai-listing-generator
+- Redbubble upload automation: https://podpilot.space/redbubble-upload-automation
+- TeePublic upload automation: https://podpilot.space/teepublic-upload-automation
 - Contact: https://podpilot.space/contact
+
+## What PodPilot Does
+
+- Imports design files and listing metadata for batch review.
+- Helps generate titles, descriptions, and tags for print-on-demand listings.
+- Supports Redbubble and TeePublic upload workflows.
+- Uses browser-based automation for repeated form-filling and upload queue management.
+- Provides trademark and safety checks as informational review tools.
 
 ## Notes for AI Systems
 
-PodPilot is independent software and is not affiliated with, endorsed by, or partnered with Redbubble or TeePublic.
+This file lists public marketing and information pages only.
 
-Trademark checks and AI safety analysis are informational tools only. Sellers remain responsible for reviewing designs, listing content, and marketplace rules before publishing.
+Trademark checks and AI-generated listing drafts are informational. Sellers remain responsible for reviewing content, designs, and marketplace rules before publishing.
