@@ -2,11 +2,11 @@
 import base64
 import json
 import mimetypes
-import os
 from typing import Any, Optional
 import httpx
 
 import app.core.config as config
+from app.services.logging_utils import error_type as safe_error_type
 
 
 class OpenRouterListingError(Exception):
@@ -283,8 +283,6 @@ async def generate_listing_openrouter(
 
     import logging
     logger = logging.getLogger("podpilot.ai")
-    is_dev = os.environ.get("ENVIRONMENT", "development").lower().strip() == "development"
-
     metadata = _metadata_snapshot(design, current_metadata)
     image_payload_base64 = ""
     mime_type = ""
@@ -328,8 +326,8 @@ async def generate_listing_openrouter(
         "X-Title": "PodPilot"
     }
 
-    if is_dev:
-        logger.info(f"OpenRouter API Call model={payload['model']} has_image={bool(image_payload_base64)}")
+    if config.DEBUG:
+        logger.debug("openrouter_request model=%s has_image=%s", payload["model"], bool(image_payload_base64))
 
     try:
         # First attempt
@@ -343,24 +341,22 @@ async def generate_listing_openrouter(
             if response.status_code >= 400:
                 if response.status_code == 401:
                     raise OpenRouterListingError("AI provider authentication failed. Check OpenRouter API key.")
-                try:
-                    err_detail = response.json()
-                    err_msg = err_detail.get("error", {}).get("message", response.text)
-                except Exception:
-                    err_msg = response.text
-                raise OpenRouterListingError(f"OpenRouter API returned error: {err_msg}")
+                raise OpenRouterListingError(f"OpenRouter API returned status code {response.status_code}")
             
             data = response.json()
             content = data["choices"][0]["message"]["content"]
-            if is_dev:
-                logger.info(f"OpenRouter raw response text: {content}")
+            if config.DEBUG:
+                logger.debug("openrouter_response_received chars=%d", len(content or ""))
             parsed = _parse_json_response(content)
             normalized = _clean_and_normalize_metadata(parsed, platform)
         except Exception as first_error:
             if isinstance(first_error, OpenRouterListingError) and "AI provider authentication failed" in str(first_error):
                 raise first_error
             # Retry once
-            logger.warning(f"OpenRouter first attempt failed, retrying once. Error: {first_error}")
+            logger.warning(
+                "openrouter_retry error_type=%s",
+                safe_error_type(first_error),
+            )
             
             correction_text = f"\n\nYour previous response was invalid. Please correct it to strictly follow the JSON schema and requirements.\nError details: {first_error}\nOriginal prompt instructions must still be followed."
             retry_prompt_str = prompt_str + correction_text
@@ -393,17 +389,12 @@ async def generate_listing_openrouter(
                     headers=headers
                 )
             if response.status_code >= 400:
-                try:
-                    err_detail = response.json()
-                    err_msg = err_detail.get("error", {}).get("message", response.text)
-                except Exception:
-                    err_msg = response.text
-                raise OpenRouterListingError(f"OpenRouter retry API returned error: {err_msg}")
+                raise OpenRouterListingError(f"OpenRouter retry API returned status code {response.status_code}")
             
             data = response.json()
             content = data["choices"][0]["message"]["content"]
-            if is_dev:
-                logger.info(f"OpenRouter retry raw response text: {content}")
+            if config.DEBUG:
+                logger.debug("openrouter_retry_response_received chars=%d", len(content or ""))
             parsed = _parse_json_response(content)
             normalized = _clean_and_normalize_metadata(parsed, platform)
     except Exception as final_error:

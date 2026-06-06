@@ -49,6 +49,10 @@ export default function HowItWorksVideoSection() {
   }, []);
 
   const activeStep = steps[activeStepIndex];
+  const handleVideoEnded = () => {
+    if (prefersReducedMotion) return;
+    setActiveStepIndex((currentIndex) => (currentIndex + 1) % steps.length);
+  };
 
   return (
     <section className="landing-section how-it-works-video-section" id="how-it-works">
@@ -104,7 +108,7 @@ export default function HowItWorksVideoSection() {
                 key={activeStep.video}
                 autoPlay={!prefersReducedMotion}
                 muted
-                loop
+                onEnded={handleVideoEnded}
                 playsInline
                 preload="metadata"
                 aria-label={activeStep.ariaLabel}

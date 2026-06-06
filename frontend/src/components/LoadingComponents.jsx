@@ -185,56 +185,23 @@ export function SavingOverlay({
   }
 
   return createPortal(
-    <div className="pp-modal-overlay pp-saving-overlay" role="status" aria-live="assertive">
-      <div className="pp-modal pp-saving-card">
-        <div className="pp-saving-spinner-wrap">
-          <div className="pp-saving-spinner-ring"></div>
-          <div className="pp-saving-logo-inner">
-            <img src="/brand/podpilot-logo.svg" alt="PodPilot" className="pp-saving-logo-pulse" />
-          </div>
-        </div>
-        <h3>{message}</h3>
-        <p>{subtext}</p>
-
-        {progress && (
-          <>
-            <div className="import-progress-stats" style={{ margin: "16px 0 6px", width: "100%" }}>
-              <span className="filename" style={{ fontSize: "12px" }}>
-                {currentFileName ? `File: ${currentFileName}` : "Processing..."}
-              </span>
-              <span className="percentage" style={{ fontSize: "13px" }}>{percent}%</span>
-            </div>
-
-            <div className="import-progress-bar-container" style={{ margin: "8px 0 10px", width: "100%" }}>
-              <div 
-                className="import-progress-bar-fill" 
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-
-            <div className="import-progress-meta-info" style={{ margin: "0 0 16px", width: "100%", fontSize: "11px" }}>
-              <span>
-                {totalBytes > 0 
-                  ? `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}`
-                  : ""}
-              </span>
-              {status && (
-                <span className={`status-badge status-${status.toLowerCase()}`}>
-                  {status}
-                </span>
-              )}
-            </div>
-          </>
+    <div className="pp-loading-card-overlay" role="status" aria-live="assertive">
+      <div className="pp-loading-card">
+        <div className="pp-loading-card-spinner" />
+        <h3 className="pp-loading-card-title">{message}</h3>
+        {progress && currentFileName && (
+          <p className="pp-loading-card-title" style={{ fontSize: "14px", fontWeight: "600", marginTop: "-6px" }}>
+            File: {currentFileName} ({percent}%)
+          </p>
         )}
-
-        {!progress && (
-          <div className="pp-saving-progress-bar">
-            <div className="pp-saving-progress-fill" style={{ width: "100%" }}></div>
-          </div>
+        <p className="pp-loading-card-subtitle">{subtext}</p>
+        {progress && totalBytes > 0 && (
+          <p className="pp-loading-card-subtitle" style={{ fontSize: "11px", marginTop: "-10px" }}>
+            {formatBytes(loadedBytes)} / {formatBytes(totalBytes)} {status ? `| ${status}` : ""}
+          </p>
         )}
       </div>
     </div>,
     document.body
   );
 }
-

@@ -57,7 +57,7 @@ export function getAuthErrorMessage(error, fallback = "Authentication failed. Pl
   }
 
   if (text.includes("user already registered")) {
-    return "This email already has an account. Try signing in instead.";
+    return "If an account exists for this email, follow the next steps shown in the app.";
   }
 
   if (text.includes("password should be at least") || text.includes("weak password")) {

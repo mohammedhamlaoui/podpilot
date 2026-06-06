@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PodPilot</title>
+  <title>PodPilot - Print on Demand Upload Automation</title>
+  <meta name="description" content="PodPilot Chrome extension for print on demand sellers. Automate design uploads to Redbubble and TeePublic queues." />
+  <meta name="keywords" content="Redbubble uploader, TeePublic uploader, Print on Demand upload automation, bulk upload designs, PodPilot extension" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
+
   <!-- Toast (fixed, visible across views) -->
   <div id="ppToast" class="pp-toast" hidden role="status" aria-live="polite">
     <div class="pp-toast-icon" aria-hidden="true">
@@ -23,7 +26,7 @@
 
   <!-- Loading -->
   <div id="loadingView" class="view view-loading">
-    <img src="icons/icon48.png" alt="" class="loading-spinner" />
+    <img src="icons/icon48.png" alt="Loading indicator" class="loading-spinner" />
     <span>Loading...</span>
   </div>
 
@@ -31,7 +34,7 @@
   <div id="loginView" class="view view-login" hidden>
     <div class="login-box">
       <img src="icons/icon128.png" alt="PodPilot" class="login-logo" />
-      <h1 class="login-title">PodPilot</h1>
+      <h2 class="login-title">PodPilot</h2>
       <p class="login-subtitle">Welcome back to your PodPilot dashboard</p>
 
       <form id="loginForm" autocomplete="on">
@@ -43,7 +46,7 @@
 
         <button id="loginBtn" type="submit" class="btn-signin">Sign In</button>
         <button id="googleLoginBtn" type="button" class="btn-google">
-          <img src="icons/google-logo.svg" alt="" class="google-logo-icon" />
+          <img src="icons/google-logo.svg" alt="Google logo" class="google-logo-icon" />
           Continue with Google
         </button>
       </form>
@@ -64,7 +67,7 @@
     <!-- Top bar -->
     <header class="topbar">
       <div class="topbar-left">
-        <img src="icons/icon48.png" alt="" class="topbar-logo" />
+        <img src="icons/icon48.png" alt="PodPilot logo" class="topbar-logo" />
         <div class="topbar-brand">
           <strong>PodPilot</strong>
           <small id="designCountLabel">0 designs</small>
@@ -100,11 +103,11 @@
     <!-- Marketplace tabs -->
     <nav class="nav-tabs">
       <button class="nav-pill active" data-tab="redbubble">
-        <img src="icons/redbubble.svg" alt="" class="pill-icon" />
+        <img src="icons/redbubble.svg" alt="Redbubble Logo" class="pill-icon" />
         Redbubble Upload
       </button>
       <button class="nav-pill" data-tab="teepublic">
-        <img src="icons/teepublic.svg" alt="" class="pill-icon" />
+        <img src="icons/teepublic.svg" alt="TeePublic Logo" class="pill-icon" />
         TeePublic Upload
       </button>
     </nav>
@@ -197,7 +200,7 @@
 
   <!-- Floating image preview shown on row-thumbnail hover -->
   <div id="hoverPreview" class="hover-preview" hidden aria-hidden="true">
-    <img id="hoverPreviewImg" alt="" />
+    <img id="hoverPreviewImg" alt="Design preview" />
   </div>
 
   <script src="auth.js"></script>

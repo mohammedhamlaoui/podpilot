@@ -8,8 +8,8 @@ import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import CachedThumbnail from "./CachedThumbnail";
 import DeleteProgressModal from "./DeleteProgressModal";
 
-const ACCEPTED_REPLACEMENT_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const ACCEPTED_REPLACEMENT_EXTENSIONS = /\.(png|jpe?g|webp)$/i;
+const ACCEPTED_REPLACEMENT_TYPES = new Set(["image/png", "image/jpeg"]);
+const ACCEPTED_REPLACEMENT_EXTENSIONS = /\.(png|jpe?g)$/i;
 const MAX_CREATE_DESIGNS = 50;
 const MAX_CREATE_DESIGNS_MESSAGE = "Maximum 50 designs per session.";
 
@@ -171,14 +171,10 @@ function titleFromWords(words) {
 }
 
 function makeCreateDraft(image) {
-  const words = cleanWords(image?.name || "");
-  const title = titleFromWords(words);
-  const tags = Array.from(new Set(words)).slice(0, 12).join(", ");
-
   return {
-    title,
-    tags,
-    description: `${title} design for stickers, shirts, wall art, and TeePublic products.`,
+    title: "",
+    tags: "",
+    description: "",
     adult_content: "No",
   };
 }
@@ -251,6 +247,8 @@ export default function DesignManager({
   const [confirmDelete, setConfirmDelete] = useState(null); // { type: 'one' | 'many', id?, count? }
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState(null);
+  const deleteCancelRequestedRef = useRef(false);
+  const deleteAutoCloseTimerRef = useRef(null);
   const [aiResult, setAiResult] = useState(null);
   const [aiError, setAiError] = useState("");
   const [isAiGenerating, setIsAiGenerating] = useState(false);
@@ -277,6 +275,12 @@ export default function DesignManager({
     handleLockedAction();
     return false;
   }
+
+  useEffect(() => {
+    return () => {
+      if (deleteAutoCloseTimerRef.current) clearTimeout(deleteAutoCloseTimerRef.current);
+    };
+  }, []);
 
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [generatingAllIndex, setGeneratingAllIndex] = useState(0);
@@ -331,7 +335,7 @@ export default function DesignManager({
     event.target.value = "";
     if (!file) return;
     if (!isAcceptedReplacementImage(file)) {
-      setCreateError("Choose a PNG, JPG, JPEG, or WEBP image.");
+      setCreateError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
     }
     if (!activeCreateImage) return;
@@ -426,11 +430,21 @@ export default function DesignManager({
     }));
   }
 
-  async function uploadCreateImages(files) {
+  async function uploadCreateImages(acceptedFiles, fileRejections) {
     if (!requireUnlocked()) return;
-    const imageFiles = files.filter((file) => /^image\/(png|jpeg|jpg|webp)$/i.test(file.type));
-    if (imageFiles.length === 0) {
-      setCreateUploadError("Choose PNG, JPG, JPEG, or WEBP images.");
+    setCreateUploadError("");
+
+    const skippedCount = fileRejections?.length || 0;
+    if (skippedCount > 0) {
+      if (acceptedFiles.length === 0) {
+        setCreateUploadError("Unsupported file type. Please upload PNG or JPEG designs only.");
+        return;
+      } else {
+        setCreateUploadError(`${skippedCount} file${skippedCount === 1 ? ' was' : 's were'} skipped because only PNG and JPEG designs are supported.`);
+      }
+    }
+
+    if (acceptedFiles.length === 0) {
       return;
     }
 
@@ -440,11 +454,15 @@ export default function DesignManager({
       return;
     }
 
-    const acceptedImageFiles = imageFiles.slice(0, remainingSlots);
-    const skippedCount = imageFiles.length - acceptedImageFiles.length;
-    setCreateUploadError(skippedCount > 0
-      ? `${MAX_CREATE_DESIGNS_MESSAGE} ${skippedCount} image${skippedCount === 1 ? "" : "s"} not added.`
-      : "");
+    const acceptedImageFiles = acceptedFiles.slice(0, remainingSlots);
+    const slotsSkippedCount = acceptedFiles.length - acceptedImageFiles.length;
+    if (slotsSkippedCount > 0) {
+      setCreateUploadError((prev) => {
+        const slotsMsg = `${MAX_CREATE_DESIGNS_MESSAGE} ${slotsSkippedCount} image${slotsSkippedCount === 1 ? "" : "s"} not added.`;
+        return prev ? `${prev} ${slotsMsg}` : slotsMsg;
+      });
+    }
+
     setIsCreateUploading(true);
 
     try {
@@ -488,8 +506,7 @@ export default function DesignManager({
     onDrop: uploadCreateImages,
     accept: {
       "image/png": [".png"],
-      "image/jpeg": [".jpg", ".jpeg"],
-      "image/webp": [".webp"]
+      "image/jpeg": [".jpg", ".jpeg"]
     },
     multiple: true,
     noClick: true,
@@ -730,9 +747,9 @@ export default function DesignManager({
         const activeFile = replacement ? replacement.file : (isCleared ? null : image?.file);
         const filename = activeFile ? activeFile.name : (image?.name || "design.png");
 
-        const title = (draft.title || titleFromWords(cleanWords(filename))).trim();
-        const description = (draft.description || `${title} design.`).trim();
-        const safeTags = tags.length > 0 ? tags : cleanWords(filename).slice(0, 6);
+        const title = (draft.title || "").trim();
+        const description = (draft.description || "").trim();
+        const safeTags = tags;
 
         // Find the R2 key from the upload response.
         const saved =
@@ -826,15 +843,9 @@ export default function DesignManager({
     }
   }
 
-  function deleteStageForProgress(completed, total) {
-    if (completed >= total) return "Finalizing cleanup...";
-    const ratio = total > 0 ? completed / total : 0;
-    if (ratio < 0.34) return "Removing image files from Cloudflare R2...";
-    if (ratio < 0.85) return "Removing design records...";
-    return "Finalizing cleanup...";
-  }
-
   function startDeleteProgress(total) {
+    if (deleteAutoCloseTimerRef.current) clearTimeout(deleteAutoCloseTimerRef.current);
+    deleteCancelRequestedRef.current = false;
     setDeleteProgress({
       status: "running",
       total,
@@ -842,11 +853,15 @@ export default function DesignManager({
       percent: 0,
       deletedCount: 0,
       failedCount: 0,
-      stage: "Removing image files from Cloudflare R2...",
+      current: total > 0 ? 1 : 0,
+      canCancel: total > 1,
+      cancelRequested: false,
+      stage: "Removing designs and related files from your workspace.",
     });
   }
 
-  function updateDeleteProgress(completed, total, deletedCount, failedCount = 0) {
+  function updateDeleteProgress(completed, total, deletedCount, failedCount = 0, meta = {}) {
+    const nextCurrent = completed >= total ? total : completed + 1;
     setDeleteProgress({
       status: "running",
       total,
@@ -854,22 +869,51 @@ export default function DesignManager({
       percent: total > 0 ? Math.round((completed / total) * 100) : 100,
       deletedCount,
       failedCount,
-      stage: deleteStageForProgress(completed, total),
+      current: nextCurrent,
+      currentId: meta.currentId || "",
+      canCancel: total > 1 && !deleteCancelRequestedRef.current && completed < total,
+      cancelRequested: deleteCancelRequestedRef.current,
+      stage: deleteCancelRequestedRef.current
+        ? "Finishing the current deletion, then PodPilot will stop."
+        : "Removing designs and related files from your workspace.",
     });
   }
 
-  function finishDeleteProgress(total, deletedCount, failedCount = 0) {
+  function finishDeleteProgress(total, deletedCount, failedCount = 0, { cancelled = false, completed = total } = {}) {
+    const status = cancelled ? "cancelled" : failedCount > 0 ? "error" : "success";
     setDeleteProgress({
-      status: failedCount > 0 ? "error" : "success",
+      status,
       total,
-      completed: total,
-      percent: failedCount > 0 ? Math.round((deletedCount / Math.max(total, 1)) * 100) : 100,
+      completed,
+      percent: status === "success" ? 100 : Math.round((completed / Math.max(total, 1)) * 100),
       deletedCount,
       failedCount,
-      stage: failedCount > 0
-        ? "Some designs could not be deleted. Please try again."
-        : "Finalizing cleanup...",
+      current: Math.min(total, Math.max(1, completed)),
+      canCancel: false,
+      cancelRequested: false,
+      stage: cancelled
+        ? "Deletion stopped. Remaining designs were left untouched."
+        : failedCount > 0
+          ? `${failedCount} design${failedCount === 1 ? "" : "s"} could not be deleted. Please try again.`
+          : `Deleted ${deletedCount} design${deletedCount === 1 ? "" : "s"}.`,
     });
+    if (!cancelled && failedCount === 0) {
+      deleteAutoCloseTimerRef.current = setTimeout(() => {
+        setIsDeleting(false);
+        setDeleteProgress(null);
+        setConfirmDelete(null);
+      }, 700);
+    }
+  }
+
+  function requestDeleteCancel() {
+    deleteCancelRequestedRef.current = true;
+    setDeleteProgress((current) => current ? {
+      ...current,
+      canCancel: false,
+      cancelRequested: true,
+      stage: "Finishing the current deletion, then PodPilot will stop.",
+    } : current);
   }
 
   async function deleteSelected() {
@@ -886,8 +930,12 @@ export default function DesignManager({
       onDesignsChange,
       setSelectedIds,
       updateProgress: updateDeleteProgress,
+      isCancelled: () => deleteCancelRequestedRef.current,
     });
-    finishDeleteProgress(ids.length, result.deletedIds.length, result.failedIds.length);
+    finishDeleteProgress(ids.length, result.deletedIds.length, result.failedIds.length, {
+      cancelled: result.cancelled,
+      completed: result.completed ?? ids.length,
+    });
   }
 
   function toggleVisibleSelection() {
@@ -934,8 +982,7 @@ export default function DesignManager({
   const activeStickerEnabled = activeCreateDraft.stickers_color_enabled === "On";
   const activeStickerColor = validHexColor(activeCreateDraft.sticker_color);
   const completedCreateCount = selectedCreateImages.filter((image) => {
-    const draft = createDrafts[image.id] || makeCreateDraft(image);
-    return draft.title.trim() && draft.description.trim() && parseTags(draft.tags).length > 0 && draft.adult_content.trim();
+    return Boolean(image);
   }).length;
 
   async function handleCreateAiGenerate() {
@@ -1064,6 +1111,10 @@ export default function DesignManager({
           supporting_tags: tags.slice(1).join(", "),
         }, image.file || null);
 
+        if (stopGeneratingAllRef.current) {
+          break;
+        }
+
         setCreateDrafts((currentDrafts) => ({
           ...currentDrafts,
           [image.id]: {
@@ -1076,6 +1127,9 @@ export default function DesignManager({
         setBatchItems(current => current.map(item => item.id === image.id ? { ...item, status: 'success' } : item));
         successCount++;
       } catch (error) {
+        if (stopGeneratingAllRef.current) {
+          break;
+        }
         failedCount++;
         const detail = error.response?.data?.detail;
         const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
@@ -1084,7 +1138,9 @@ export default function DesignManager({
     }
 
     setIsGeneratingAll(false);
-    if (failedCount === 0) {
+    if (stopGeneratingAllRef.current) {
+      setGeneratingAllError("Generation stopped by user.");
+    } else if (failedCount === 0) {
       setShowBatchProgressModal(false);
       showToast(`Generated ${successCount} of ${total} listings successfully.`);
     } else {
@@ -1413,86 +1469,57 @@ export default function DesignManager({
         />
 
         {showBatchProgressModal && createPortal(
-          <div className="pp-modal-overlay ai-listing-overlay">
-            <div className="pp-modal ai-listing-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" style={{ maxWidth: "550px" }}>
-              <div className="ai-listing-modal-head">
-                <span className="ai-listing-icon"><Icon name="robot" /></span>
-                <div>
-                  <h3>Generating listings...</h3>
-                  <p>PodPilot is generating AI listing metadata for all designs in this batch.</p>
-                </div>
-              </div>
-
-              {isGeneratingAll && (
-                <div className="ai-listing-loading" style={{ margin: "1rem 0" }}>
-                  <ProgressLoader
-                    title="Generating listings..."
-                    subtitle={`Design ${generatingAllIndex} of ${generatingAllTotal}`}
-                    value={generatingAllTotal > 0 ? (generatingAllIndex / generatingAllTotal) * 100 : undefined}
-                    steps={["Reading batch", "Generating metadata", "Saving drafts", "Finishing"]}
-                  />
-                </div>
-              )}
-
-              {generatingAllError && (
-                <div className="ai-listing-error" role="alert" style={{ margin: "1rem 0" }}>
-                  {generatingAllError}
-                </div>
-              )}
-
-              <div className="ai-listing-batch-list" style={{ maxHeight: "250px", overflowY: "auto", margin: "1rem 0", border: "1px solid var(--border-color, #e2e8f0)", borderRadius: "6px", padding: "0.5rem" }}>
-                {batchItems.map((item, index) => (
-                  <div key={item.id} className="ai-listing-batch-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem", borderBottom: index < batchItems.length - 1 ? "1px solid var(--border-color, #f1f5f9)" : "none" }}>
-                    <div style={{ display: "flex", flexDirection: "column", maxWidth: "70%" }}>
-                      <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary, #1e293b)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {item.name}
-                      </span>
-                      {item.error && (
-                        <span style={{ fontSize: "12px", color: "var(--danger-color, #ef4444)", marginTop: "2px" }}>
-                          {item.error}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      {item.status === 'pending' && <span style={{ fontSize: "12px", color: "var(--text-secondary, #64748b)" }}>Pending</span>}
-                      {item.status === 'generating' && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                          <span className="pp-spinner" style={{ width: "12px", height: "12px", borderWidth: "2px" }} />
-                          <span style={{ fontSize: "12px", color: "var(--primary-color, #6366f1)" }}>Generating...</span>
-                        </div>
-                      )}
-                      {item.status === 'success' && <span style={{ fontSize: "12px", color: "var(--success-color, #10b981)", fontWeight: "bold" }}>✓ Done</span>}
-                      {item.status === 'failed' && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "12px", color: "var(--danger-color, #ef4444)", fontWeight: "bold" }}>✗ Failed</span>
-                          <button
-                            type="button"
-                            className="primary-button text-button"
-                            style={{ padding: "2px 8px", fontSize: "11px", height: "auto" }}
-                            onClick={() => handleRetryDesignCreate(item)}
-                            disabled={isGeneratingAll || isAiGenerating}
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pp-modal-actions ai-listing-actions">
-                {isGeneratingAll && (
-                  <button type="button" className="secondary-button" onClick={() => { stopGeneratingAllRef.current = true; }}>
+          <div className="pp-loading-card-overlay">
+            <div className="pp-loading-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+              {isGeneratingAll ? (
+                <>
+                  <div className="pp-loading-card-spinner" />
+                  <h3 className="pp-loading-card-title">
+                    Generating listing {generatingAllIndex} of {generatingAllTotal}
+                  </h3>
+                  <p className="pp-loading-card-subtitle">
+                    Please wait while PodPilot prepares your designs.
+                  </p>
+                  <button
+                    type="button"
+                    className="pp-loading-card-btn secondary"
+                    onClick={() => {
+                      stopGeneratingAllRef.current = true;
+                      setIsGeneratingAll(false);
+                      setBatchItems(current => current.map(item => item.status === 'pending' || item.status === 'generating' ? { ...item, status: 'failed', error: 'Canceled by user.' } : item));
+                      setGeneratingAllError("Generation stopped by user.");
+                    }}
+                  >
                     Stop
                   </button>
-                )}
-                {!isGeneratingAll && (
-                  <button type="button" className="primary-button" onClick={() => { setShowBatchProgressModal(false); setGeneratingAllError(""); setBatchItems([]); }}>
+                </>
+              ) : (
+                <>
+                  <h3 className="pp-loading-card-title">Batch Generation Completed</h3>
+                  {generatingAllError && (
+                    <p className="pp-loading-card-subtitle" style={{ color: "var(--danger-color, #ef4444)" }}>
+                      {generatingAllError}
+                    </p>
+                  )}
+                  {batchItems.some(item => item.status === 'failed') && (
+                    <div className="pp-loading-card-failures">
+                      {batchItems.filter(item => item.status === 'failed').map((item) => (
+                        <div key={item.id} className="pp-loading-card-failure-row">
+                          <span className="pp-loading-card-failure-name">{item.name}</span>
+                          <span className="pp-loading-card-failure-reason">{item.error || 'Failed'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="pp-loading-card-btn"
+                    onClick={() => { setShowBatchProgressModal(false); setGeneratingAllError(""); setBatchItems([]); }}
+                  >
                     Close
                   </button>
-                )}
-              </div>
+                </>
+              )}
             </div>
           </div>,
           document.body
@@ -1768,7 +1795,7 @@ export default function DesignManager({
                     <input
                       ref={createReplacementInputRef}
                       type="file"
-                      accept="image/png,image/jpeg,image/webp"
+                      accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                       style={{ display: "none" }}
                       onChange={handleCreateReplacementFileChange}
                     />
@@ -1797,7 +1824,7 @@ export default function DesignManager({
                       >
                         <span className="design-upload-placeholder-icon"><Icon name="upload" /></span>
                         <strong>Upload replacement design</strong>
-                        <small>PNG, JPG, or WEBP</small>
+                        <small>PNG or JPEG only</small>
                       </button>
                     )}
                   </aside>
@@ -2021,7 +2048,7 @@ export default function DesignManager({
             <div>
               <h3>Create TeePublic Designs</h3>
               <span className="form-hint">
-                Metadata is filled from image names. Review, paste copy link, then create.
+                Add images first, then fill listing fields manually or use AI Listing.
               </span>
             </div>
             <button type="button" className="icon-button" onClick={cancelEdit} aria-label="Close editor">
@@ -2032,7 +2059,7 @@ export default function DesignManager({
           {uploadedImages.length === 0 ? (
             <div className="empty-state create-empty-state">
               <strong>Upload images first</strong>
-              <span>Add Design creates metadata from uploaded image files, no Excel needed.</span>
+              <span>Add Design attaches images without generating listing text.</span>
               <button type="button" className="primary-button" onClick={onUploadImagesClick}>
                 Upload Images
               </button>
@@ -2051,14 +2078,16 @@ export default function DesignManager({
                     }
                     onClick={() => toggleCreateImage(image)}
                   >
-                    <CachedThumbnail
-                      design={{ id: image.id, image_r2_key: image.imagePath || image.image_r2_key }}
-                      userId={userId}
-                      cacheVariant="preview"
-                      cacheR2Key={image.imagePath || image.image_r2_key}
-                      src={image.previewUrl}
-                      alt={image.name}
-                    />
+                    <div className="create-image-option-thumb-wrap">
+                      <CachedThumbnail
+                        design={{ id: image.id, image_r2_key: image.imagePath || image.image_r2_key }}
+                        userId={userId}
+                        cacheVariant="preview"
+                        cacheR2Key={image.imagePath || image.image_r2_key}
+                        src={image.previewUrl}
+                        alt={image.name}
+                      />
+                    </div>
                     <span>{image.name}</span>
                   </button>
                 ))}
@@ -2082,7 +2111,7 @@ export default function DesignManager({
                   </div>
 
                   <div className="create-editor" style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-                    <div className="create-preview" style={{ width: '280px', flexShrink: 0, background: '#444', borderRadius: '8px', padding: '20px', aspectRatio: '1/1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="create-preview" style={{ width: '280px', flexShrink: 0, borderRadius: '8px', padding: '20px', aspectRatio: '1/1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <CachedThumbnail
                         design={{ id: activeCreateImage.id, image_r2_key: activeCreateImage.imagePath || activeCreateImage.image_r2_key }}
                         userId={userId}
@@ -2515,13 +2544,16 @@ export default function DesignManager({
           {isDeleting || deleteProgress ? (
             <DeleteProgressModal
               progress={deleteProgress}
+              onCancel={requestDeleteCancel}
               onClose={() => {
+                if (deleteAutoCloseTimerRef.current) clearTimeout(deleteAutoCloseTimerRef.current);
                 setIsDeleting(false);
                 setDeleteProgress(null);
                 setConfirmDelete(null);
               }}
               onRetry={async () => {
                 const target = confirmDelete;
+                deleteCancelRequestedRef.current = false;
                 setIsDeleting(true);
                 if (target.type === 'many') {
                   await deleteSelected();

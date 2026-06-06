@@ -36,8 +36,8 @@ import {
 } from "../utils/teepublicClipboard";
 
 const TABS = ["Info", "Colors", "Products"];
-const ACCEPTED_REPLACEMENT_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const ACCEPTED_REPLACEMENT_EXTENSIONS = /\.(png|jpe?g|webp)$/i;
+const ACCEPTED_REPLACEMENT_TYPES = new Set(["image/png", "image/jpeg"]);
+const ACCEPTED_REPLACEMENT_EXTENSIONS = /\.(png|jpe?g)$/i;
 
 function isAcceptedReplacementImage(file) {
   return Boolean(file && (ACCEPTED_REPLACEMENT_TYPES.has(file.type) || ACCEPTED_REPLACEMENT_EXTENSIONS.test(file.name || "")));
@@ -228,7 +228,7 @@ export default function TeePublicEditor({
     event.target.value = "";
     if (!file) return;
     if (!isAcceptedReplacementImage(file)) {
-      setImageReplacementError("Choose a PNG, JPG, JPEG, or WEBP image.");
+      setImageReplacementError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
     }
     const activeD = designs[activeIndex];
@@ -582,6 +582,9 @@ export default function TeePublicEditor({
 
       try {
         const result = await generateListingContent(item.id, "teepublic", currentMetadata);
+        if (stopGeneratingAllRef.current) {
+          break;
+        }
         const patch = {
           title: result.title || currentMetadata.title,
           description: result.description || currentMetadata.description,
@@ -606,6 +609,9 @@ export default function TeePublicEditor({
         setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'success' } : x));
         successCount++;
       } catch (error) {
+        if (stopGeneratingAllRef.current) {
+          break;
+        }
         failedCount++;
         const detail = error.response?.data?.detail;
         const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
@@ -614,7 +620,9 @@ export default function TeePublicEditor({
     }
 
     setIsGeneratingAll(false);
-    if (failedCount === 0) {
+    if (stopGeneratingAllRef.current) {
+      setGeneratingAllError("Generation stopped by user.");
+    } else if (failedCount === 0) {
       setShowBatchProgressModal(false);
       showToast(`Generated ${successCount} of ${total} listings successfully.`);
     } else {
@@ -1487,86 +1495,57 @@ export default function TeePublicEditor({
                         {null}
 
       {showBatchProgressModal && createPortal(
-        <div className="pp-modal-overlay ai-listing-overlay">
-          <div className="pp-modal ai-listing-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" style={{ maxWidth: "550px" }}>
-            <div className="ai-listing-modal-head">
-              <span className="ai-listing-icon"><Icon name="robot" /></span>
-              <div>
-                <h3>Generating listings...</h3>
-                <p>PodPilot is generating AI listing metadata for all designs in this edit batch.</p>
-              </div>
-            </div>
-
-            {isGeneratingAll && (
-              <div className="ai-listing-loading" style={{ margin: "1rem 0" }}>
-                <ProgressLoader
-                  title="Generating listings..."
-                  subtitle={`Design ${generatingAllIndex} of ${generatingAllTotal}`}
-                  value={generatingAllTotal > 0 ? (generatingAllIndex / generatingAllTotal) * 100 : undefined}
-                  steps={["Reading batch", "Generating metadata", "Saving drafts", "Finishing"]}
-                />
-              </div>
-            )}
-
-            {generatingAllError && (
-              <div className="ai-listing-error" role="alert" style={{ margin: "1rem 0" }}>
-                {generatingAllError}
-              </div>
-            )}
-
-            <div className="ai-listing-batch-list" style={{ maxHeight: "250px", overflowY: "auto", margin: "1rem 0", border: "1px solid var(--border-color, #e2e8f0)", borderRadius: "6px", padding: "0.5rem" }}>
-              {batchItems.map((item, index) => (
-                <div key={item.id} className="ai-listing-batch-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem", borderBottom: index < batchItems.length - 1 ? "1px solid var(--border-color, #f1f5f9)" : "none" }}>
-                  <div style={{ display: "flex", flexDirection: "column", maxWidth: "70%" }}>
-                    <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary, #1e293b)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {item.name}
-                    </span>
-                    {item.error && (
-                      <span style={{ fontSize: "12px", color: "var(--danger-color, #ef4444)", marginTop: "2px" }}>
-                        {item.error}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    {item.status === 'pending' && <span style={{ fontSize: "12px", color: "var(--text-secondary, #64748b)" }}>Pending</span>}
-                    {item.status === 'generating' && (
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span className="pp-spinner" style={{ width: "12px", height: "12px", borderWidth: "2px" }} />
-                        <span style={{ fontSize: "12px", color: "var(--primary-color, #6366f1)" }}>Generating...</span>
-                      </div>
-                    )}
-                    {item.status === 'success' && <span style={{ fontSize: "12px", color: "var(--success-color, #10b981)", fontWeight: "bold" }}>✓ Done</span>}
-                    {item.status === 'failed' && (
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span style={{ fontSize: "12px", color: "var(--danger-color, #ef4444)", fontWeight: "bold" }}>✗ Failed</span>
-                        <button
-                          type="button"
-                          className="primary-button text-button"
-                          style={{ padding: "2px 8px", fontSize: "11px", height: "auto" }}
-                          onClick={() => handleRetryDesignEdit(item)}
-                          disabled={isGeneratingAll || isAiGenerating}
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pp-modal-actions ai-listing-actions">
-              {isGeneratingAll && (
-                <button type="button" className="secondary-button" onClick={() => { stopGeneratingAllRef.current = true; }}>
+        <div className="pp-loading-card-overlay">
+          <div className="pp-loading-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+            {isGeneratingAll ? (
+              <>
+                <div className="pp-loading-card-spinner" />
+                <h3 className="pp-loading-card-title">
+                  Generating listing {generatingAllIndex} of {generatingAllTotal}
+                </h3>
+                <p className="pp-loading-card-subtitle">
+                  Please wait while PodPilot prepares your designs.
+                </p>
+                <button
+                  type="button"
+                  className="pp-loading-card-btn secondary"
+                  onClick={() => {
+                    stopGeneratingAllRef.current = true;
+                    setIsGeneratingAll(false);
+                    setBatchItems(current => current.map(item => item.status === 'pending' || item.status === 'generating' ? { ...item, status: 'failed', error: 'Canceled by user.' } : item));
+                    setGeneratingAllError("Generation stopped by user.");
+                  }}
+                >
                   Stop
                 </button>
-              )}
-              {!isGeneratingAll && (
-                <button type="button" className="primary-button" onClick={() => { setShowBatchProgressModal(false); setGeneratingAllError(""); setBatchItems([]); }}>
+              </>
+            ) : (
+              <>
+                <h3 className="pp-loading-card-title">Batch Generation Completed</h3>
+                {generatingAllError && (
+                  <p className="pp-loading-card-subtitle" style={{ color: "var(--danger-color, #ef4444)" }}>
+                    {generatingAllError}
+                  </p>
+                )}
+                {batchItems.some(item => item.status === 'failed') && (
+                  <div className="pp-loading-card-failures">
+                    {batchItems.filter(item => item.status === 'failed').map((item) => (
+                      <div key={item.id} className="pp-loading-card-failure-row">
+                        <span className="pp-loading-card-failure-name">{item.name}</span>
+                        <span className="pp-loading-card-failure-reason">{item.error || 'Failed'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="pp-loading-card-btn"
+                  onClick={() => { setShowBatchProgressModal(false); setGeneratingAllError(""); setBatchItems([]); }}
+                >
                   Close
                 </button>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>,
         document.body
@@ -1588,7 +1567,7 @@ export default function TeePublicEditor({
           <input
             ref={replacementInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp"
+            accept="image/png,image/jpeg,.png,.jpg,.jpeg"
             className="design-replacement-input"
             onChange={handleReplacementFileChange}
           />
@@ -1615,7 +1594,7 @@ export default function TeePublicEditor({
             >
               <span className="design-upload-placeholder-icon"><Icon name="upload" /></span>
               <strong>Upload replacement design</strong>
-              <small>PNG, JPG, or WEBP</small>
+              <small>PNG or JPEG only</small>
             </button>
           )}
           {imageReplacementError && <small className="design-image-error">{imageReplacementError}</small>}

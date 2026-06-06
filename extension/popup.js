@@ -296,6 +296,17 @@ let lastRenderSignature = "";
 const cacheStatusLabel = $("cacheStatusLabel");
 const ACCESS_CACHE_TTL_MS = 10 * 60 * 1000;
 
+function releasePopupImageObjectUrls() {
+  try {
+    window.PodPilotImageCache?.revokeAllObjectUrls?.();
+  } catch (_) {
+    // Best-effort cleanup for popup-scoped blob URLs.
+  }
+}
+
+window.addEventListener("pagehide", releasePopupImageObjectUrls);
+window.addEventListener("unload", releasePopupImageObjectUrls);
+
 function mapDesignToCache(d) {
   return {
     id: d.id,
@@ -498,9 +509,9 @@ function platformLockedMessage(platform = activeTab) {
   if (accessStatus === "loading") return "Checking access...";
   if (accessStatus === "error") return accessMessage || "Could not verify access.";
   if (!platformAccess?.has_active_plan) {
-    return trialEligibility?.eligible === false
-      ? "You do not have an active subscription. Open PodPilot to choose a plan."
-      : "You do not have an active trial or subscription. Open PodPilot to start your free trial.";
+    return trialEligibility?.eligible === true
+      ? "You do not have an active trial or subscription. Open PodPilot to start your free trial."
+      : "You do not have an active subscription. Open PodPilot to choose a plan.";
   }
   return `${platformLabel(platform)} is locked for your current plan. Upgrade to continue.`;
 }
@@ -640,9 +651,9 @@ function renderAccessBanner() {
   }
 
   if (accessStatus === "inactive") {
-    uploadGateMessage = trialEligibility?.eligible === false
-      ? "You do not have an active subscription. Open PodPilot to choose a plan."
-      : "You do not have an active trial or subscription. Open PodPilot to start your free trial.";
+    uploadGateMessage = trialEligibility?.eligible === true
+      ? "You do not have an active trial or subscription. Open PodPilot to start your free trial."
+      : "You do not have an active subscription. Open PodPilot to choose a plan.";
     setBillingBannerMessage(uploadGateMessage, { tone: "danger", cta: true });
     isUploadGateBlocking = true;
     return;
@@ -907,6 +918,7 @@ async function enterDashboard(session) {
 
   if (hasCache) {
     allDesigns = combinedDesigns;
+    window.PodPilotImageCache?.pruneCacheForDesigns?.(allDesigns, currentUserId);
     designsLoadedByPlatform = {
       redbubble: Boolean(rbCached?.designs?.length),
       teepublic: Boolean(tpCached?.designs?.length)
@@ -969,6 +981,7 @@ async function handleSignIn(e) {
 
 async function handleSignOut() {
   stopPolling();
+  releasePopupImageObjectUrls();
   try { await PodPilotAuth.signOut(); } catch (_) {}
   await sendMsg({ action: "clear_local_state" });
   try { await clearCachedDesigns(currentUserId); } catch (_) {}
@@ -1007,6 +1020,7 @@ async function fetchDesigns() {
     const data = await resp.json();
     const freshDesigns = Array.isArray(data?.designs) ? data.designs : [];
     allDesigns = freshDesigns;
+    window.PodPilotImageCache?.pruneCacheForDesigns?.(allDesigns, currentUserId);
     designsLoadedByPlatform = { redbubble: true, teepublic: true };
     
     // Save to cache per platform
@@ -1257,28 +1271,58 @@ function render() {
     imgDiv.className = "tr-image";
     const thumbnailUrl = window.PodPilotImageCache?.getImageUrl?.(d, "thumbnail") || d.thumbnail_url || d.image_url || "";
     if (thumbnailUrl) {
+      const thumbBox = document.createElement("div");
+      thumbBox.className = "tr-thumb-box is-loading";
+      thumbBox.setAttribute("aria-label", d.title || d.filename || "Design thumbnail");
+      const placeholder = document.createElement("div");
+      placeholder.className = "tr-thumb-empty";
+      placeholder.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>';
       const img = document.createElement("img");
       img.className = "tr-thumb";
       img.alt = "";
       img.loading = "lazy";
       img.decoding = "async";
+      img.addEventListener("load", () => {
+        thumbBox.classList.remove("is-loading", "is-failed");
+        thumbBox.classList.add("is-loaded");
+      });
+      img.addEventListener("error", () => {
+        img.removeAttribute("src");
+        thumbBox.classList.remove("is-loading", "is-loaded");
+        thumbBox.classList.add("is-failed");
+      });
       if (window.PodPilotImageCache?.setImageSourceFromCache) {
-        window.PodPilotImageCache.setImageSourceFromCache(img, d, currentUserId, "thumbnail");
+        window.PodPilotImageCache.setImageSourceFromCache(img, d, currentUserId, "thumbnail").then((src) => {
+          if (!src && img.isConnected) {
+            img.removeAttribute("src");
+            thumbBox.classList.remove("is-loading", "is-loaded");
+            thumbBox.classList.add("is-failed");
+          }
+        });
       } else {
-        img.src = thumbnailUrl;
+        const isProtectedProxy = String(thumbnailUrl || "").startsWith("/api/designs/") ||
+          String(thumbnailUrl || "").startsWith("/designs/");
+        if (isProtectedProxy) {
+          thumbBox.classList.remove("is-loading", "is-loaded");
+          thumbBox.classList.add("is-failed");
+        } else {
+          img.src = thumbnailUrl;
+        }
       }
-      attachHoverPreview(img, () =>
-        window.PodPilotImageCache?.getOrCacheImageForDesign?.(d, currentUserId, "preview") ||
-        img.dataset.cachedImageSrc ||
-        img.currentSrc ||
-        img.src ||
-        thumbnailUrl
-      );
-      imgDiv.appendChild(img);
+      attachHoverPreview(thumbBox, async () => {
+        const cachedPreview = await window.PodPilotImageCache?.getOrCacheImageForDesign?.(d, currentUserId, "preview");
+        if (cachedPreview) return cachedPreview;
+        const currentThumb = img.dataset.cachedImageSrc || img.currentSrc || img.src || "";
+        if (currentThumb) return currentThumb;
+        if (window.PodPilotImageCache?.isProtectedProxyUrl?.(thumbnailUrl)) return "";
+        return thumbnailUrl;
+      });
+      thumbBox.append(placeholder, img);
+      imgDiv.appendChild(thumbBox);
     } else {
       const ph = document.createElement("div");
       ph.className = "tr-thumb-empty";
-      ph.textContent = (d.filename || "?").slice(0, 2).toUpperCase();
+      ph.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>';
       imgDiv.appendChild(ph);
     }
 

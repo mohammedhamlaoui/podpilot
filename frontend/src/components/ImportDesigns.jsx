@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import * as XLSX from "xlsx";
 import { createDesign, uploadStandaloneImages } from "../api/client";
@@ -121,6 +121,7 @@ function findSavedFile(file, savedFiles) {
 }
 
 export default function ImportDesigns({ onImportComplete, onBackToDesigns, existingDesigns = [], isWorkspaceLocked = false, onLockedAction }) {
+  const stopImportRef = useRef(false);
   const [excelFile, setExcelFile] = useState(null);
   const [designs, setDesigns] = useState([]);
   const [imageFiles, setImageFiles] = useState([]);
@@ -224,11 +225,22 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
     }
   };
 
-  const onImageDrop = (acceptedFiles) => {
+  const onImageDrop = (acceptedFiles, fileRejections) => {
     if (!requireUnlocked()) return;
     setError("");
     setSuccess("");
     setAllowPartialImport(false);
+
+    const skippedCount = fileRejections?.length || 0;
+    if (skippedCount > 0) {
+      if (acceptedFiles.length === 0) {
+        setError("Unsupported file type. Please upload PNG or JPEG designs only.");
+        setImageFiles([]);
+        return;
+      } else {
+        setError(`${skippedCount} file${skippedCount === 1 ? ' was' : 's were'} skipped because only PNG and JPEG designs are supported.`);
+      }
+    }
     setImageFiles(acceptedFiles);
   };
 
@@ -272,6 +284,7 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
 
   async function handleImport() {
     if (!requireUnlocked()) return;
+    stopImportRef.current = false;
     setError("");
     setSuccess("");
     setUnmatchedNames([]);
@@ -344,6 +357,7 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
       }));
 
       await runLimitedConcurrency(entries, IMPORT_CONCURRENCY, async (entry) => {
+        if (stopImportRef.current) return;
         try {
           const uploadResp = await withTimeout(
             uploadStandaloneImages([entry.file], "redbubble", (progressEvent) => {
@@ -386,8 +400,8 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
           matched: Boolean(saved.image_r2_key),
           storedName: saved.stored_name || "",
           imagePath: saved.image_r2_key || "",
-          imageUrl: saved.image_url || "",
-          thumbnailUrl: saved.thumbnail_url || "",
+          imageUrl: "",
+          thumbnailUrl: "",
         };
       }));
     }
@@ -426,6 +440,13 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
 
       try {
         const savedByFile = await uploadMatchedEntries(uploadEntries);
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntries, savedByFile);
+          const result = { count: created.length, marketplace: "redbubble", designs: created };
+          onImportComplete(created, uploadedImages, result, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
+        }
         const created = [];
 
         setImportProgress((current) => ({
@@ -439,6 +460,9 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
         }));
 
         for (const design of rowsToCreate) {
+          if (stopImportRef.current) {
+            break;
+          }
           const file = findImageForDesign(design, imageFiles);
           const saved = file ? savedByFile.get(file.name) : null;
           if (file && !saved?.image_r2_key) {
@@ -485,6 +509,14 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
               } : current;
             });
           }
+        }
+
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntries, savedByFile);
+          const result = { count: created.length, marketplace: "redbubble", designs: created };
+          onImportComplete(created, uploadedImages, result, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
         }
 
         setImportProgress((current) => ({ 
@@ -568,6 +600,12 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
       try {
         const uploadEntriesForPath2 = matchedFiles.map(({ file, meta }) => ({ file, meta }));
         const savedByFile = await uploadMatchedEntries(uploadEntriesForPath2);
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntriesForPath2, savedByFile);
+          onImportComplete(created, uploadedImages, null, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
+        }
 
         const created = [];
         setImportProgress((current) => ({
@@ -581,6 +619,9 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
         }));
 
         for (const { file, meta } of matchedFiles) {
+          if (stopImportRef.current) {
+            break;
+          }
           const saved = savedByFile.get(file.name) || {};
           if (!saved.image_r2_key) {
             setImportProgress((current) => {
@@ -630,6 +671,13 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
               } : current;
             });
           }
+        }
+
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntriesForPath2, savedByFile);
+          onImportComplete(created, uploadedImages, null, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
         }
 
         setImportProgress((current) => ({ 
@@ -768,7 +816,9 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
               <div className="selected-image-list">
                 {imageFiles.map((file) => (
                   <div className="selected-image-row" key={`${file.name}-${file.size}`}>
-                    <img src={imagePreviewUrls.get(file.name)} alt={file.name} />
+                    <div className="selected-image-row-img-wrap">
+                      <img src={imagePreviewUrls.get(file.name)} alt={file.name} />
+                    </div>
                     <div>
                       <strong>{file.name}</strong>
                       <span>{formatFileSize(file.size)}</span>
@@ -868,7 +918,9 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
                     <tr key={design.id}>
                       <td>
                         {imageFile ? (
-                          <img className="table-thumb" src={imagePreviewUrls.get(imageFile.name)} alt={design.filename} />
+                          <div className="table-thumb-wrap">
+                            <img className="table-thumb" src={imagePreviewUrls.get(imageFile.name)} alt={design.filename} />
+                          </div>
                         ) : (
                           <div className="table-thumb table-thumb-empty">{design.filename?.slice(0, 2) || "?"}</div>
                         )}
@@ -956,6 +1008,20 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
       <ImportProgressModal
         progress={importProgress}
         onClose={() => setImportProgress(null)}
+        onCancel={() => {
+          stopImportRef.current = true;
+          setImportProgress((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              step: "done",
+              message: `Import stopped by user. ${current.createdCount || 0} designs imported.`,
+              done: true,
+              percent: 100,
+              status: "Failed"
+            };
+          });
+        }}
       />
     </section>
   );

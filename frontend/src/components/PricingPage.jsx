@@ -8,7 +8,7 @@ import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 import { useSeo } from "../utils/useSeo";
-import { getMySubscription } from "../api/client";
+import { getCheckoutConfig, getMySubscription, getTrialEligibility } from "../api/client";
 
 const authHref = "/dashboard";
 
@@ -150,6 +150,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
   const [openFaq, setOpenFaq] = useState(0);
   const [subscription, setSubscription] = useState(subscriptionSummary || null);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [trialEligibility, setTrialEligibility] = useState(null);
 
   useEffect(() => {
     if (subscriptionSummary) {
@@ -207,14 +208,21 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
     if (!isAuthenticated) return;
     let isMounted = true;
     setLoadingSubscription(true);
-    getMySubscription()
-      .then((data) => {
+    Promise.allSettled([getMySubscription(), getTrialEligibility()])
+      .then(([subscriptionResult, trialResult]) => {
         if (isMounted) {
-          setSubscription(data);
+          if (subscriptionResult.status === "fulfilled") {
+            setSubscription(subscriptionResult.value);
+          } else {
+            console.warn("[PricingPage] fetch subscription failed:", subscriptionResult.reason);
+          }
+          if (trialResult.status === "fulfilled") {
+            setTrialEligibility(trialResult.value || null);
+          } else {
+            console.warn("[PricingPage] fetch trial eligibility failed:", trialResult.reason);
+            setTrialEligibility({ eligible: false, reason: "unknown" });
+          }
         }
-      })
-      .catch((err) => {
-        console.warn("[PricingPage] fetch subscription failed:", err);
       })
       .finally(() => {
         if (isMounted) {
@@ -235,20 +243,66 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
   }
 
   async function handleStartCheckout(planId) {
-    if (!planId) return;
+    if (!planId || checkoutPlan) return;
+    setCheckoutPlan(planId);
     
     // Normalize "growth" to "all-platforms" for the URL spec, or keep as is
     const urlPlan = planId === "growth" ? "all-platforms" : planId;
     window.location.href = `/checkout?plan=${urlPlan}&billing=${billingInterval}`;
   }
 
-  function handleBuyAiCredits(packId) {
-    console.log("Buy AI Credits clicked:", packId);
-    setCheckoutNotice({
-      type: "info",
-      message: "AI Listing Credits checkout is coming soon. Stay tuned!",
-    });
+  async function handleBuyAiCredits(packId) {
+    if (!packId || checkoutPlan) return;
+    if (!isAuthenticated || !customerUserId) {
+      setCheckoutNotice({
+        type: "error",
+        message: "Please sign in before buying AI listing credits.",
+      });
+      return;
+    }
+    if (!["ai_credits_1000", "ai_credits_10000"].includes(packId)) {
+      setCheckoutNotice({
+        type: "info",
+        message: "This AI Listing Credits pack is coming soon. Stay tuned!",
+      });
+      return;
+    }
+
+    setCheckoutPlan(packId);
+    try {
+      const data = await getCheckoutConfig({
+        intent_type: "ai_credits",
+        credit_pack_id: packId,
+      });
+      await openPaddleCheckout({
+        priceId: data?.selected_price_id || data?.price_id,
+        checkoutConfig: data,
+        checkoutIntentId: data?.checkout_intent_id,
+        creditPackId: data?.credit_pack_id || packId,
+        plan: data?.credit_pack_id || packId,
+        email: customerEmail || undefined,
+        userId: customerUserId,
+        onCheckoutComplete: () => {
+          setCheckoutNotice({
+            type: "success",
+            message: "AI credits purchased. We are syncing your account...",
+          });
+        },
+        onCheckoutClosed: () => {
+          setCheckoutPlan(null);
+        },
+      });
+    } catch (err) {
+      console.warn("[PricingPage] AI credits checkout failed:", err?.message || err);
+      setCheckoutPlan(null);
+      setCheckoutNotice({
+        type: "error",
+        message: err?.response?.data?.detail || err?.message || "Could not open AI credits checkout.",
+      });
+    }
   }
+
+  const showTrialOffer = isAuthenticated ? trialEligibility?.eligible === true : true;
 
   return (
     <main className="landing-page pricing-page">
@@ -320,11 +374,12 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
               const disabled = (Boolean(checkoutPlan) && !isLoading) || !isConfigured;
 
               const yearlyTotal = plan.planId === "growth" ? "$69.90" : "$49.90";
+              const subscribeLabel = showTrialOffer ? "Start 3-day free trial" : "Subscribe now";
               const buttonText = isAnnual
                 ? (!isAnnualPaddleConfigured(plan.planId)
                     ? "Coming soon"
-                    : (isLoading ? "Opening checkout..." : `Start trial - ${yearlyTotal}/year`))
-                : (isLoading ? "Opening checkout..." : plan.button);
+                    : (isLoading ? "Opening checkout..." : (showTrialOffer ? `Start trial - ${yearlyTotal}/year` : `Subscribe - ${yearlyTotal}/year`)))
+                : (isLoading ? "Opening checkout..." : subscribeLabel);
 
               return (
                 <article className={`landing-pricing-card${plan.featured ? " is-featured" : ""}`} key={plan.name}>
@@ -380,8 +435,9 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                   )}
 
                   {/* Highlighted Trial Line */}
-                  <div className="landing-pricing-trial-highlight" style={{
-                    display: "flex",
+                  {showTrialOffer && (
+                    <div className="landing-pricing-trial-highlight" style={{
+                      display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     gap: "8px",
@@ -399,10 +455,11 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                       : "1px dashed rgba(124, 58, 237, 0.15)",
                     color: "var(--accent, #7c3aed)",
                     boxShadow: plan.featured ? "0 4px 12px rgba(124, 58, 237, 0.08)" : "none"
-                  }}>
-                    <Gift size={16} className="animate-pulse" style={{ color: "var(--accent, #7c3aed)", flexShrink: 0 }} />
-                    <span>3-day free trial included</span>
-                  </div>
+                    }}>
+                      <Gift size={16} className="animate-pulse" style={{ color: "var(--accent, #7c3aed)", flexShrink: 0 }} />
+                      <span>3-day free trial included</span>
+                    </div>
+                  )}
 
                   <ul>
                     {plan.details.map((detail) => (
@@ -490,9 +547,11 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                     type="button"
                     className="landing-btn landing-btn-secondary"
                     onClick={() => handleBuyAiCredits(pack.id)}
+                    disabled={Boolean(checkoutPlan)}
+                    aria-busy={checkoutPlan === pack.id || undefined}
                   >
-                    <span>Buy now</span>
-                    <Icon name="chevronRight" />
+                    <span>{checkoutPlan === pack.id ? "Opening checkout..." : "Buy now"}</span>
+                    {checkoutPlan !== pack.id && <Icon name="chevronRight" />}
                   </button>
                 </article>
               );

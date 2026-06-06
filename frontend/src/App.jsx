@@ -31,8 +31,8 @@ import StorageNoticeModal from "./components/StorageNoticeModal";
 import PreviewModeBanner from "./components/PreviewModeBanner";
 import { EXTENSION_ID } from "./config";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
-import { getMyPlatformAccess, getMySubscription, getTrialEligibility, listDesigns, startTrialCheckout } from "./api/client";
-import { openPaddleCheckout, isPaddleConfigured, isPaidPaddleConfigured } from "./lib/paddle";
+import { getMyPlatformAccess, getMySubscription, getTrialEligibility, listDesigns } from "./api/client";
+import { openPaddleCheckout, isPaddleConfigured } from "./lib/paddle";
 import { getPendingCheckoutPlan, clearPendingCheckoutPlan } from "./lib/pendingCheckout";
 import { debugSubscriptionLog, getSubscriptionFlags, openPricing } from "./lib/subscriptionAccess";
 import {
@@ -148,9 +148,9 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
             const locked = isPlatformRoute(item.id) && !canAccessRoute(item.id, platformAccess);
             const ItemIcon = item.iconComponent;
             const tooltip = locked
-              ? (trialEligibility?.eligible === false
-                  ? `${item.label} preview mode. Choose a plan to use this feature.`
-                  : `${item.label} preview mode. Start your free trial to use this feature.`)
+              ? (trialEligibility?.eligible === true
+                  ? `${item.label} preview mode. Start your free trial to use this feature.`
+                  : `${item.label} preview mode. Choose a plan to use this feature.`)
               : item.label;
             return (
               <button
@@ -989,40 +989,14 @@ export default function App() {
       type: "success",
       message: "Account ready. Opening secure Paddle checkout...",
     });
-    let checkoutPlanId = plan;
-    let trialUsageId;
-    const reservePendingCheckout = async () => {
-      try {
-        const trialStart = await startTrialCheckout(plan);
-        trialUsageId = trialStart?.trial_usage_id || undefined;
-        setTrialEligibility(trialStart || null);
-      } catch (error) {
-        const detail = error?.response?.data?.detail;
-        if (error?.response?.status !== 403) throw error;
-        setTrialEligibility({
-          eligible: false,
-          reason: "trial_already_used",
-          can_start_trial: false,
-        });
-        if (!isPaidPaddleConfigured(plan)) {
-          throw new Error(
-            typeof detail === "string" && detail
-              ? detail
-              : "Free trial already used. Please choose a paid plan to continue.",
-          );
-        }
-        checkoutPlanId = `${plan}_paid`;
-      }
-    };
-    reservePendingCheckout().then(() => {
+    Promise.resolve().then(() => {
       // eslint-disable-next-line no-console
-      console.log(`[Paddle] opening checkout plan=${checkoutPlanId} user_id=${userId}`);
+      console.log(`[Paddle] opening checkout plan=${plan} user_id=${userId}`);
       return openPaddleCheckout({
-      plan: checkoutPlanId,
+      plan,
       billingCycle,
       email: email || undefined,
       userId: userId || undefined,
-      trialUsageId,
       onCheckoutComplete: () => {
         setDashboardToast({
           type: "success",

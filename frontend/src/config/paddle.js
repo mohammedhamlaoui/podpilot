@@ -19,36 +19,13 @@ function read(name) {
 
 const environment = read("VITE_PADDLE_ENVIRONMENT") || "sandbox";
 const clientToken = read("VITE_PADDLE_CLIENT_TOKEN");
-const redbubblePriceId = read("VITE_PADDLE_REDBUBBLE_PRICE_ID");
-const teepublicPriceId = read("VITE_PADDLE_TEEPUBLIC_PRICE_ID");
-const allPlatformsPriceId = read("VITE_PADDLE_ALL_PLATFORMS_PRICE_ID");
-const redbubblePaidPriceId = read("VITE_PADDLE_REDBUBBLE_PAID_PRICE_ID");
-const teepublicPaidPriceId = read("VITE_PADDLE_TEEPUBLIC_PAID_PRICE_ID");
-const allPlatformsPaidPriceId = read("VITE_PADDLE_ALL_PLATFORMS_PAID_PRICE_ID");
 const tokens1000PriceId = read("VITE_PADDLE_AI_TOKENS_1000_PRICE_ID");
 const tokens10000PriceId = read("VITE_PADDLE_AI_TOKENS_10000_PRICE_ID");
-
-// TODO placeholders:
-// REDBUBBLE_ANNUAL_PRICE_ID
-// TEEPUBLIC_ANNUAL_PRICE_ID
-// ALL_PLATFORMS_ANNUAL_PRICE_ID
-const redbubbleAnnualPriceId = read("VITE_PADDLE_REDBUBBLE_ANNUAL_PRICE_ID");
-const teepublicAnnualPriceId = read("VITE_PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID");
-const allPlatformsAnnualPriceId = read("VITE_PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID");
 
 export const PADDLE_CONFIG = Object.freeze({
   environment,            // "sandbox" or "production"
   clientToken,            // Paddle browser client token (public)
   prices: Object.freeze({
-    redbubble: redbubblePriceId,
-    teepublic: teepublicPriceId,
-    all_platforms: allPlatformsPriceId,
-    redbubble_paid: redbubblePaidPriceId,
-    teepublic_paid: teepublicPaidPriceId,
-    all_platforms_paid: allPlatformsPaidPriceId,
-    redbubble_annual: redbubbleAnnualPriceId,
-    teepublic_annual: teepublicAnnualPriceId,
-    all_platforms_annual: allPlatformsAnnualPriceId,
     tokens_1000: tokens1000PriceId,
     tokens_10000: tokens10000PriceId,
   }),
@@ -60,12 +37,7 @@ export const PADDLE_CONFIG = Object.freeze({
  * "Billing temporarily unavailable" state if env is missing.
  */
 export function isPaddleConfigured() {
-  return Boolean(
-    PADDLE_CONFIG.clientToken &&
-    PADDLE_CONFIG.prices.redbubble &&
-    PADDLE_CONFIG.prices.teepublic &&
-    PADDLE_CONFIG.prices.all_platforms
-  );
+  return Boolean(PADDLE_CONFIG.clientToken);
 }
 
 /**
@@ -85,17 +57,11 @@ export function getPaddlePriceId(plan) {
  * Check if the annual price ID is configured for the given plan.
  */
 export function isAnnualPaddleConfigured(plan) {
-  let key = String(plan || "").toLowerCase().trim();
-  if (key === "growth") key = "all_platforms";
-  const annualKey = key.endsWith("_annual") ? key : `${key}_annual`;
-  return Boolean(PADDLE_CONFIG.prices[annualKey]);
+  return Boolean(plan);
 }
 
 export function isPaidPaddleConfigured(plan) {
-  let key = String(plan || "").toLowerCase().trim();
-  if (key === "growth") key = "all_platforms";
-  const paidKey = key.endsWith("_paid") ? key : `${key}_paid`;
-  return Boolean(PADDLE_CONFIG.prices[paidKey]);
+  return Boolean(plan);
 }
 
 // Lightweight one-time warning at module load so devs can spot misconfig
@@ -104,6 +70,6 @@ export function isPaidPaddleConfigured(plan) {
 if (typeof window !== "undefined" && !isPaddleConfigured()) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[PodPilot] Paddle env not fully set. Pricing checkout will be unavailable until VITE_PADDLE_* vars are filled in frontend/.env.",
+    "[PodPilot] Paddle client token is missing. Subscription price IDs are resolved by the backend.",
   );
 }

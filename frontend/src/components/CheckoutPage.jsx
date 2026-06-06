@@ -3,8 +3,7 @@ import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle
 import { useAuth } from "../auth/AuthContext";
 import { openPaddleCheckout, isPaddleConfigured } from "../lib/paddle";
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
-import { getTrialEligibility } from "../api/client";
-import { PADDLE_CONFIG } from "../config/paddle";
+import { getCheckoutConfig } from "../api/client";
 import Icon from "./Icon";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
@@ -136,9 +135,9 @@ export default function CheckoutPage({ theme, setTheme }) {
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [loadingPaddle, setLoadingPaddle] = useState(false);
   const [paddleLoadError, setPaddleLoadError] = useState(false);
-  const [trialEligibility, setTrialEligibility] = useState(null);
-  const [trialEligibilityError, setTrialEligibilityError] = useState(false);
-  const [trialEligibilityLoading, setTrialEligibilityLoading] = useState(true);
+  const [checkoutConfig, setCheckoutConfig] = useState(null);
+  const [checkoutConfigError, setCheckoutConfigError] = useState("");
+  const [checkoutConfigLoading, setCheckoutConfigLoading] = useState(true);
   const initializationAttempted = useRef(false);
   const fallbackTimerRef = useRef(null);
 
@@ -156,47 +155,13 @@ export default function CheckoutPage({ theme, setTheme }) {
     window.location.href = "/login";
   }, [authLoading, billing, isAuthenticated, plan]);
 
-  const CHECKOUT_PRICE_IDS = {
-    redbubble: {
-      monthly: PADDLE_CONFIG.prices.redbubble,
-      annual: PADDLE_CONFIG.prices.redbubble_annual
-    },
-    teepublic: {
-      monthly: PADDLE_CONFIG.prices.teepublic,
-      annual: PADDLE_CONFIG.prices.teepublic_annual
-    },
-    "all-platforms": {
-      monthly: PADDLE_CONFIG.prices.all_platforms,
-      annual: PADDLE_CONFIG.prices.all_platforms_annual
-    }
-  };
-
-  const PAID_CHECKOUT_PRICE_IDS = {
-    redbubble: {
-      monthly: PADDLE_CONFIG.prices.redbubble_paid,
-      annual: ""
-    },
-    teepublic: {
-      monthly: PADDLE_CONFIG.prices.teepublic_paid,
-      annual: ""
-    },
-    "all-platforms": {
-      monthly: PADDLE_CONFIG.prices.all_platforms_paid,
-      annual: ""
-    }
-  };
-
   const planInfo = PLANS_INFO[plan] || PLANS_INFO["all-platforms"];
   const billingInfo = planInfo[billing] || planInfo.annual;
-  const isTrialEligible = !trialEligibilityLoading && trialEligibility?.eligible === true && trialEligibility?.reason === "new_user";
-  const hasEligibilityDecision = !trialEligibilityLoading;
-  const selectedPriceId = hasEligibilityDecision
-    ? (
-        isTrialEligible
-          ? CHECKOUT_PRICE_IDS[plan]?.[billing]
-          : (PAID_CHECKOUT_PRICE_IDS[plan]?.[billing] || CHECKOUT_PRICE_IDS[plan]?.[billing])
-      ) || ""
-    : "";
+  const isTrialEligible = !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
+  const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
+  const checkoutButtonLabel = checkoutConfig?.button_label || (isTrialEligible ? "Start 3-day free trial" : "Subscribe now");
+  const trialDays = Number(checkoutConfig?.trial_days || 0);
+  const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
   console.log("[Checkout] selectedPriceId=", selectedPriceId);
 
   useSeo({
@@ -208,37 +173,42 @@ export default function CheckoutPage({ theme, setTheme }) {
 
 
 
-  // Request trial eligibility on mount
+  // Request backend-owned checkout config on mount and whenever URL selection changes.
   useEffect(() => {
     if (!customerUserId) {
-      setTrialEligibilityLoading(false);
+      setCheckoutConfigLoading(false);
       return;
     }
 
     let active = true;
-    const checkEligibility = async () => {
+    const loadCheckoutConfig = async () => {
       try {
-        setTrialEligibilityLoading(true);
-        setTrialEligibilityError(false);
-        const data = await getTrialEligibility();
+        setCheckoutConfigLoading(true);
+        setCheckoutConfigError("");
+        const data = await getCheckoutConfig(plan, billing);
         if (active) {
-          setTrialEligibility(data);
-          setTrialEligibilityLoading(false);
+          setCheckoutConfig(data || null);
+          setCheckoutConfigLoading(false);
         }
       } catch (err) {
-        console.warn("[Checkout] Trial eligibility check failed:", err);
+        console.warn("[Checkout] checkout config failed:", err);
         if (active) {
-          setTrialEligibilityError(true);
-          setTrialEligibilityLoading(false);
+          setCheckoutConfig(null);
+          setCheckoutConfigError(err?.response?.data?.detail || err?.message || "Could not prepare checkout.");
+          setCheckoutConfigLoading(false);
         }
       }
     };
 
-    checkEligibility();
+    loadCheckoutConfig();
     return () => {
       active = false;
     };
-  }, [customerUserId]);
+  }, [billing, customerUserId, plan]);
+
+  useEffect(() => {
+    initializationAttempted.current = false;
+  }, [checkoutIntentId, selectedPriceId]);
 
   function getTrialDueDate() {
     const date = new Date();
@@ -253,6 +223,7 @@ export default function CheckoutPage({ theme, setTheme }) {
   // Run checkout opening
   useEffect(() => {
     if (!selectedPriceId || !isAuthenticated || !customerUserId) return;
+    if (initializationAttempted.current) return;
 
     const target = document.querySelector(".paddle-checkout-frame");
     console.log("[Checkout] inline useEffect running");
@@ -260,29 +231,42 @@ export default function CheckoutPage({ theme, setTheme }) {
     console.log("[Paddle] frame target found=", Boolean(target));
 
     if (!target) return;
+    initializationAttempted.current = true;
 
     openPaddleCheckout({
       priceId: selectedPriceId,
+      checkoutConfig,
+      checkoutIntentId,
+      trialEligible: isTrialEligible,
       plan,
       email: userEmail,
       userId: customerUserId,
       billingCycle: billing,
       mode: "inline",
-      frameTarget: "paddle-checkout-frame"
+      frameTarget: "paddle-checkout-frame",
+      onCheckoutComplete: () => {
+        setCheckoutSuccess(true);
+      },
+      onCheckoutClosed: () => {
+        initializationAttempted.current = false;
+      },
     }).catch((err) => {
       console.error("[Paddle] Inline checkout failure", err);
+      initializationAttempted.current = false;
       setPaddleLoadError(true);
       setCheckoutNotice({
         type: "error",
         message: err.message || "Could not open checkout. Please try again.",
       });
     });
-  }, [billing, customerUserId, isAuthenticated, plan, selectedPriceId, userEmail]);
+  }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
 
 
 
   // Handle overlay checkout fallback
   const handleOverlayFallback = async () => {
+    if (loadingPaddle || !selectedPriceId) return;
+    setLoadingPaddle(true);
     try {
       setCheckoutNotice({
         type: "info",
@@ -290,6 +274,9 @@ export default function CheckoutPage({ theme, setTheme }) {
       });
       await openPaddleCheckout({
         priceId: selectedPriceId,
+        checkoutConfig,
+        checkoutIntentId,
+        trialEligible: isTrialEligible,
         plan,
         email: customerEmail || undefined,
         userId: customerUserId || undefined,
@@ -298,9 +285,13 @@ export default function CheckoutPage({ theme, setTheme }) {
         onCheckoutComplete: () => {
           setCheckoutSuccess(true);
         },
+        onCheckoutClosed: () => {
+          setLoadingPaddle(false);
+        },
       });
     } catch (err) {
       console.error("[Paddle] Overlay fallback failure", err);
+      setLoadingPaddle(false);
       setCheckoutNotice({
         type: "error",
         message: err.message || "Could not open overlay checkout. Please try again.",
@@ -360,12 +351,12 @@ export default function CheckoutPage({ theme, setTheme }) {
                   {isTrialEligible && (
                     <div className="checkout-trial-badge">
                       <Sparkles size={14} className="animate-pulse" />
-                      <span>3-Day Free Trial Included</span>
+                      <span>{trialDays || 3}-Day Free Trial Included</span>
                     </div>
                   )}
-                  {trialEligibilityError && (
+                  {checkoutConfigError && (
                     <div className="checkout-trial-warning">
-                      <span>Could not verify trial eligibility. Standard checkout shown.</span>
+                      <span>{checkoutConfigError}</span>
                     </div>
                   )}
                   <p className="checkout-billing-note">
@@ -473,14 +464,12 @@ export default function CheckoutPage({ theme, setTheme }) {
                     <button
                       type="button"
                       onClick={handleOverlayFallback}
-                      disabled={trialEligibilityLoading || !selectedPriceId}
+                      disabled={checkoutConfigLoading || loadingPaddle || !selectedPriceId}
                       className="checkout-fallback-btn"
                     >
-                      {trialEligibilityLoading
+                      {checkoutConfigLoading || loadingPaddle
                         ? "Preparing secure checkout..."
-                        : isTrialEligible
-                          ? "Start your free trial in secure checkout"
-                          : "Continue to checkout"}
+                        : checkoutButtonLabel}
                     </button>
                   </div>
                 </div>
@@ -511,6 +500,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                       <button
                         type="button"
                         onClick={handleOverlayFallback}
+                        disabled={loadingPaddle || !selectedPriceId}
                         className="landing-btn landing-btn-primary"
                         style={{ marginTop: "12px", minHeight: "38px", padding: "0 16px" }}
                       >
@@ -519,7 +509,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     </div>
                   )}
 
-                  {trialEligibilityLoading && (
+                  {checkoutConfigLoading && (
                     <div className="paddle-loading-skeleton" role="status" aria-live="polite">
                       <div className="paddle-skeleton-header">
                         <span className="skeleton-pill wide" />
@@ -535,14 +525,15 @@ export default function CheckoutPage({ theme, setTheme }) {
                     </div>
                   )}
 
-                  {!trialEligibilityLoading && !selectedPriceId && (
+                  {!checkoutConfigLoading && !selectedPriceId && (
                     <div className="paddle-error-state">
                       <HelpCircle size={36} />
-                      <h4>Missing Paddle price ID for this plan.</h4>
+                      <h4>Checkout is temporarily unavailable.</h4>
+                      <p>{checkoutConfigError || "Paddle price ID is missing for this plan."}</p>
                     </div>
                   )}
 
-                  {!trialEligibilityLoading && !paddleReady && selectedPriceId && (
+                  {!checkoutConfigLoading && !paddleReady && selectedPriceId && (
                     <div className="paddle-error-state">
                       <HelpCircle size={36} />
                       <h4>Payment System Unavailable</h4>

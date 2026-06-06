@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import * as XLSX from "xlsx";
 import { createDesign, uploadStandaloneImages } from "../api/client";
@@ -117,6 +117,7 @@ function parseAdultContent(value) {
 }
 
 export default function TeePublicImport({ onImportComplete, onBackToDesigns, existingDesigns = [], isWorkspaceLocked = false, onLockedAction }) {
+  const stopImportRef = useRef(false);
   const [excelFile, setExcelFile] = useState(null);
   const [designs, setDesigns] = useState([]);
   const [imageFiles, setImageFiles] = useState([]);
@@ -219,11 +220,22 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
     }
   };
 
-  const onImageDrop = (acceptedFiles) => {
+  const onImageDrop = (acceptedFiles, fileRejections) => {
     if (!requireUnlocked()) return;
     setError("");
     setSuccess("");
     setAllowPartialImport(false);
+
+    const skippedCount = fileRejections?.length || 0;
+    if (skippedCount > 0) {
+      if (acceptedFiles.length === 0) {
+        setError("Unsupported file type. Please upload PNG or JPEG designs only.");
+        setImageFiles([]);
+        return;
+      } else {
+        setError(`${skippedCount} file${skippedCount === 1 ? ' was' : 's were'} skipped because only PNG and JPEG designs are supported.`);
+      }
+    }
     setImageFiles(acceptedFiles);
   };
 
@@ -267,6 +279,7 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
 
   async function handleImport() {
     if (!requireUnlocked()) return;
+    stopImportRef.current = false;
     setError("");
     setSuccess("");
     setUnmatchedNames([]);
@@ -339,6 +352,7 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
       }));
 
       await runLimitedConcurrency(entries, IMPORT_CONCURRENCY, async (entry) => {
+        if (stopImportRef.current) return;
         try {
           const uploadResp = await withTimeout(
             uploadStandaloneImages([entry.file], "teepublic", (progressEvent) => {
@@ -381,8 +395,8 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
           matched: Boolean(saved.image_r2_key),
           storedName: saved.stored_name || "",
           imagePath: saved.image_r2_key || "",
-          imageUrl: saved.image_url || "",
-          thumbnailUrl: saved.thumbnail_url || "",
+          imageUrl: "",
+          thumbnailUrl: "",
         };
       }));
     }
@@ -421,6 +435,13 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
 
       try {
         const savedByFile = await uploadMatchedEntries(uploadEntries);
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntries, savedByFile);
+          const result = { count: created.length, marketplace: "teepublic", designs: created };
+          onImportComplete(created, uploadedImages, result, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
+        }
         const created = [];
 
         setImportProgress((current) => ({
@@ -434,6 +455,9 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
         }));
 
         for (const design of rowsToCreate) {
+          if (stopImportRef.current) {
+            break;
+          }
           const file = findImageForDesign(design, imageFiles);
           const saved = file ? savedByFile.get(file.name) : null;
           if (file && !saved?.image_r2_key) {
@@ -479,6 +503,14 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
               } : current;
             });
           }
+        }
+
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntries, savedByFile);
+          const result = { count: created.length, marketplace: "teepublic", designs: created };
+          onImportComplete(created, uploadedImages, result, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
         }
 
         setImportProgress((current) => ({ 
@@ -562,6 +594,12 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
       try {
         const uploadEntriesForPath2 = matchedFiles.map(({ file, meta }) => ({ file, meta }));
         const savedByFile = await uploadMatchedEntries(uploadEntriesForPath2);
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntriesForPath2, savedByFile);
+          onImportComplete(created, uploadedImages, null, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
+        }
 
         const created = [];
         setImportProgress((current) => ({
@@ -575,6 +613,9 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
         }));
 
         for (const { file, meta } of matchedFiles) {
+          if (stopImportRef.current) {
+            break;
+          }
           const saved = savedByFile.get(file.name) || {};
           if (!saved.image_r2_key) {
             setImportProgress((current) => {
@@ -624,6 +665,13 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
               } : current;
             });
           }
+        }
+
+        if (stopImportRef.current) {
+          const uploadedImages = await buildUploadedImages(uploadEntriesForPath2, savedByFile);
+          onImportComplete(created, uploadedImages, null, { files: Array.from(savedByFile.values()) });
+          setIsImporting(false);
+          return;
         }
 
         setImportProgress((current) => ({ 
@@ -954,6 +1002,20 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
       <ImportProgressModal
         progress={importProgress}
         onClose={() => setImportProgress(null)}
+        onCancel={() => {
+          stopImportRef.current = true;
+          setImportProgress((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              step: "done",
+              message: `Import stopped by user. ${current.createdCount || 0} designs imported.`,
+              done: true,
+              percent: 100,
+              status: "Failed"
+            };
+          });
+        }}
       />
     </section>
   );

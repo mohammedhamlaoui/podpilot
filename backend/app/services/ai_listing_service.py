@@ -10,6 +10,9 @@ from urllib.parse import quote
 
 import httpx
 
+from app.core.config import DEBUG
+from app.services.logging_utils import error_type as safe_error_type, short_id
+
 from app.core.config import AI_MODEL, AI_PROVIDER, GEMINI_API_KEY, OPENROUTER_API_KEY, AI_LISTING_PROVIDER
 
 
@@ -318,7 +321,14 @@ async def generate_listing_content(
     fallback_used = False
     openrouter_ms = 0
 
-    is_dev = os.environ.get("ENVIRONMENT", "development").lower().strip() == "development"
+    design_id = short_id(design.get("id"))
+    logger.info(
+        "ai_generate_started design_id=%s platform=%s configured_provider=%s has_image=%s",
+        design_id,
+        platform,
+        AI_LISTING_PROVIDER,
+        bool(image_url or image_bytes),
+    )
 
     # OpenRouter routing
     if AI_LISTING_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
@@ -334,9 +344,11 @@ async def generate_listing_content(
                 image_mime_type=image_mime_type,
             )
             openrouter_ms = int((time.perf_counter() - start_time) * 1000)
-            logger.info(f"[AI TIMING] openrouter_ms={openrouter_ms}")
-            logger.info(f"[AI TIMING] fallback_used=false")
-            logger.info("AI listing generation succeeded: ai_provider=openrouter fallback_used=false")
+            logger.info(
+                "ai_generate_succeeded design_id=%s provider=openrouter fallback_used=false duration_ms=%d",
+                design_id,
+                openrouter_ms,
+            )
             return {
                 "title": result["title"],
                 "description": result["description"],
@@ -349,13 +361,12 @@ async def generate_listing_content(
                 raise AIListingError(str(error)) from error
             openrouter_ms = int((time.perf_counter() - start_time) * 1000)
             fallback_used = True
-            error_type = type(error).__name__
             logger.warning(
-                f"OpenRouter generation failed, falling back to Gemini. "
-                f"ai_provider=openrouter fallback_used=true error_type={error_type}"
+                "ai_generate_provider_failed design_id=%s provider=openrouter fallback_used=true duration_ms=%d error_type=%s",
+                design_id,
+                openrouter_ms,
+                safe_error_type(error),
             )
-            logger.info(f"[AI TIMING] openrouter_ms={openrouter_ms}")
-            logger.info(f"[AI TIMING] fallback_used=true")
 
     # Gemini Fallback / Default
     if not GEMINI_API_KEY:
@@ -398,8 +409,8 @@ async def generate_listing_content(
         },
     }
 
-    if is_dev:
-        logger.info(f"Gemini API Call model={model} has_image={bool(image_payload)}")
+    if DEBUG:
+        logger.debug("gemini_request model=%s has_image=%s", model, bool(image_payload))
 
     try:
         # First Attempt
@@ -410,13 +421,17 @@ async def generate_listing_content(
                 raise AIListingError(f"Gemini API returned status code {response.status_code}")
             data = response.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
-            if is_dev:
-                logger.info(f"Gemini raw response text: {text}")
+            if DEBUG:
+                logger.debug("gemini_response_received chars=%d", len(text or ""))
             parsed = _parse_json_response(text)
             normalized = _clean_and_normalize_metadata(parsed, platform)
         except Exception as first_error:
             # Correction Retry (Once)
-            logger.warning(f"Gemini first attempt failed, retrying once. Error: {first_error}")
+            logger.warning(
+                "ai_generate_retry provider=gemini design_id=%s error_type=%s",
+                design_id,
+                safe_error_type(first_error),
+            )
             
             correction_text = f"\n\nYour previous response was invalid. Please correct it to strictly follow the JSON schema and requirements.\nError details: {first_error}\nOriginal prompt instructions must still be followed."
             retry_prompt_str = prompt_str + correction_text
@@ -447,18 +462,25 @@ async def generate_listing_content(
                 raise AIListingError(f"Gemini retry API returned status code {response.status_code}")
             data = response.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
-            if is_dev:
-                logger.info(f"Gemini retry raw response text: {text}")
+            if DEBUG:
+                logger.debug("gemini_retry_response_received chars=%d", len(text or ""))
             parsed = _parse_json_response(text)
             normalized = _clean_and_normalize_metadata(parsed, platform)
     except Exception as final_error:
+        logger.warning(
+            "ai_generate_failed design_id=%s provider=gemini fallback_used=%s error_type=%s",
+            design_id,
+            fallback_used,
+            safe_error_type(final_error),
+        )
         raise AIListingError(f"AI listing generation failed. Error: {final_error}") from final_error
 
     provider_log = "openrouter" if fallback_used else "gemini"
     logger.info(
-        f"AI listing generation succeeded: ai_provider={provider_log} fallback_used={fallback_used}"
+        "ai_generate_succeeded design_id=%s provider=%s fallback_used=%s openrouter_ms=%d",
+        design_id,
+        provider_log,
+        fallback_used,
+        openrouter_ms,
     )
-    if AI_LISTING_PROVIDER != "openrouter":
-        logger.info("[AI TIMING] openrouter_ms=0")
-        logger.info(f"[AI TIMING] fallback_used={fallback_used}")
     return normalized

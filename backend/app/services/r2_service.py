@@ -13,6 +13,7 @@ signed URLs instead.
 from __future__ import annotations
 
 import io
+import logging
 import mimetypes
 import os
 import warnings
@@ -32,6 +33,10 @@ from app.core.config import (
     R2_SECRET_ACCESS_KEY,
     R2_SIGNED_URL_TTL_SECONDS,
 )
+from app.services.logging_utils import error_type, safe_r2_key
+
+
+logger = logging.getLogger("podpilot.r2")
 
 
 _client = boto3.client(
@@ -53,6 +58,10 @@ Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 class R2Error(Exception):
     """Raised when an R2 operation fails. Wraps boto exceptions."""
+
+
+class R2NotFound(R2Error):
+    """Raised when an R2 object does not exist."""
 
 
 class ImageValidationError(ValueError):
@@ -175,7 +184,20 @@ def upload_bytes(
             ContentType=content_type,
         )
     except (BotoCoreError, ClientError) as error:
+        logger.warning(
+            "r2_upload_failed key=%s bytes=%s content_type=%s error_type=%s",
+            safe_r2_key(key),
+            len(data or b""),
+            content_type,
+            error_type(error),
+        )
         raise R2Error(f"R2 upload failed for {key}: {error}") from error
+    logger.info(
+        "r2_upload_succeeded key=%s bytes=%s content_type=%s",
+        safe_r2_key(key),
+        len(data or b""),
+        content_type,
+    )
     return key
 
 
@@ -196,14 +218,25 @@ def upload_fileobj(
             ExtraArgs=extra_args,
         )
     except (BotoCoreError, ClientError) as error:
+        logger.warning(
+            "r2_upload_failed key=%s content_type=%s error_type=%s",
+            safe_r2_key(key),
+            content_type,
+            error_type(error),
+        )
         raise R2Error(f"R2 upload failed for {key}: {error}") from error
+    logger.info(
+        "r2_upload_succeeded key=%s content_type=%s",
+        safe_r2_key(key),
+        content_type,
+    )
     return key
 
 
 def signed_get_url(key: str, ttl_seconds: Optional[int] = None) -> str:
     """Return a short-lived presigned GET URL for `key`.
 
-    The extension uses these to download images without ever seeing R2
+    Upload automation uses these to download images without ever seeing R2
     credentials. The TTL defaults to R2_SIGNED_URL_TTL_SECONDS (1 hour).
     """
     ttl = ttl_seconds if ttl_seconds is not None else R2_SIGNED_URL_TTL_SECONDS
@@ -222,8 +255,31 @@ def get_object_bytes(key: str) -> bytes:
     try:
         response = _client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
         return response["Body"].read()
-    except (BotoCoreError, ClientError) as error:
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code", "")
+        if code in ("404", "NoSuchKey", "NotFound"):
+            raise R2NotFound(f"R2 object not found for {key}") from error
         raise R2Error(f"R2 get failed for {key}: {error}") from error
+    except BotoCoreError as error:
+        raise R2Error(f"R2 get failed for {key}: {error}") from error
+
+
+def get_object_stream(key: str) -> dict:
+    """Open an R2 object for streaming through the API."""
+    try:
+        response = _client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+        return {
+            "body": response["Body"],
+            "content_type": response.get("ContentType") or mimetypes.guess_type(key)[0] or "application/octet-stream",
+            "content_length": response.get("ContentLength"),
+        }
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code", "")
+        if code in ("404", "NoSuchKey", "NotFound"):
+            raise R2NotFound(f"R2 object not found for {key}") from error
+        raise R2Error(f"R2 stream failed for {key}: {error}") from error
+    except BotoCoreError as error:
+        raise R2Error(f"R2 stream failed for {key}: {error}") from error
 
 
 def delete_object(key: str) -> bool:
@@ -244,7 +300,13 @@ def delete_object(key: str) -> bool:
     # Object exists — delete it.
     try:
         _client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+        logger.info("r2_delete_succeeded key=%s", safe_r2_key(key))
     except (BotoCoreError, ClientError) as error:
+        logger.warning(
+            "r2_delete_failed key=%s error_type=%s",
+            safe_r2_key(key),
+            error_type(error),
+        )
         raise R2Error(f"R2 delete failed for {key}: {error}") from error
     return True
 

@@ -51,9 +51,9 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
   const pricingUrl = getPricingUrl();
   const canUseRedbubble = Boolean(platformAccess?.redbubble);
   const canUseTeePublic = Boolean(platformAccess?.teepublic);
-  const lockedTitle = trialEligibility?.eligible === false
-    ? "Choose a plan to use this feature"
-    : "Start your free trial to use this feature";
+  const lockedTitle = trialEligibility?.eligible === true
+    ? "Start your free trial to use this feature"
+    : "Choose a plan to use this feature";
 
   const stats = useMemo(() => {
     const all = [...(redbubbleDesigns || []), ...(teepublicDesigns || [])];

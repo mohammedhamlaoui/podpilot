@@ -18,9 +18,11 @@ export default function CachedThumbnail({
   ...imgProps
 }) {
   const variant = cacheVariant === "preview" ? "preview" : "thumbnail";
-  const r2Key = cacheR2Key || (variant === "preview"
+  const storageKey = cacheR2Key || (variant === "preview"
     ? design?.image_r2_key
     : design?.thumbnail_r2_key || design?.image_r2_key);
+  const thumbnailSrc = src || getCachedThumbnailUrl(design) || fallbackSrc || "";
+  const r2Key = storageKey || design?.id || thumbnailSrc;
   const cacheKey = useMemo(
     () =>
       buildImageCacheKey({
@@ -31,9 +33,18 @@ export default function CachedThumbnail({
       }),
     [design?.id, r2Key, userId, variant],
   );
-  const thumbnailSrc = src || getCachedThumbnailUrl(design) || fallbackSrc || "";
-  const shouldCache = Boolean(r2Key && /^https?:\/\//i.test(thumbnailSrc));
-  const [displaySrc, setDisplaySrc] = useState(() => (shouldCache ? getMemoryCachedImageUrl(cacheKey) || thumbnailSrc : thumbnailSrc));
+  const isProtectedProxySrc =
+    String(thumbnailSrc || "").startsWith("/api/") ||
+    String(thumbnailSrc || "").startsWith("/designs/");
+  const shouldCache = Boolean(
+    r2Key &&
+    (/^https?:\/\//i.test(thumbnailSrc) ||
+      isProtectedProxySrc)
+  );
+  const [displaySrc, setDisplaySrc] = useState(() => {
+    if (!shouldCache) return thumbnailSrc;
+    return getMemoryCachedImageUrl(cacheKey) || (isProtectedProxySrc ? "" : thumbnailSrc);
+  });
   const displayCacheKeyRef = useRef(cacheKey);
   const failedFallbackKeyRef = useRef("");
 
@@ -53,14 +64,17 @@ export default function CachedThumbnail({
       setDisplaySrc((current) => (current === memorySrc ? current : memorySrc));
     } else if (displayCacheKeyRef.current !== cacheKey) {
       displayCacheKeyRef.current = cacheKey;
-      setDisplaySrc(thumbnailSrc);
+      setDisplaySrc(isProtectedProxySrc ? "" : thumbnailSrc);
     } else {
-      setDisplaySrc((current) => (current === thumbnailSrc ? current : thumbnailSrc));
+      setDisplaySrc((current) => {
+        const nextSrc = isProtectedProxySrc ? "" : thumbnailSrc;
+        return current === nextSrc ? current : nextSrc;
+      });
     }
 
     if (!thumbnailSrc) return () => { cancelled = true; };
 
-    getOrCacheImageUrl(cacheKey, thumbnailSrc, { fetchRemote: false }).then((cachedSrc) => {
+    getOrCacheImageUrl(cacheKey, thumbnailSrc, { fetchRemote: isProtectedProxySrc }).then((cachedSrc) => {
       if (!cancelled && cachedSrc) {
         displayCacheKeyRef.current = cacheKey;
         setDisplaySrc((current) => (current === cachedSrc ? current : cachedSrc));
@@ -70,7 +84,7 @@ export default function CachedThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, shouldCache, thumbnailSrc, variant]);
+  }, [cacheKey, isProtectedProxySrc, shouldCache, thumbnailSrc, variant]);
 
   if (!displaySrc) return <span className={`${className} cached-thumb-placeholder`} aria-hidden="true" />;
 
@@ -86,6 +100,7 @@ export default function CachedThumbnail({
         imgProps.onError?.(event);
         if (
           thumbnailSrc &&
+          !isProtectedProxySrc &&
           displaySrc !== thumbnailSrc &&
           failedFallbackKeyRef.current !== cacheKey
         ) {

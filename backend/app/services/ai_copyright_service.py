@@ -17,7 +17,12 @@ class AICopyrightRiskError(Exception):
     """Safe user-facing error for AI copyright risk checks."""
 
 
+class AICopyrightImageTooLarge(AICopyrightRiskError):
+    """Raised when inline image data exceeds the API size limit."""
+
+
 MAX_INLINE_IMAGE_BYTES = 15 * 1024 * 1024
+MAX_INLINE_IMAGE_BASE64_CHARS = (MAX_INLINE_IMAGE_BYTES * 4 + 2) // 3
 ALLOWED_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
 VALID_RESULTS = {"SAFE", "NOT_SAFE", "NEEDS_REVIEW"}
 
@@ -153,6 +158,8 @@ def parse_image_base64(image_base64: str) -> Optional[tuple[bytes, str]]:
 
     if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
         raise AICopyrightRiskError("Only PNG, JPG, JPEG, or WEBP images are supported.")
+    if len(raw) > MAX_INLINE_IMAGE_BASE64_CHARS:
+        raise AICopyrightImageTooLarge("Image is too large for AI risk check.")
 
     try:
         image_bytes = base64.b64decode(raw, validate=True)
@@ -160,7 +167,7 @@ def parse_image_base64(image_base64: str) -> Optional[tuple[bytes, str]]:
         raise AICopyrightRiskError("Invalid image data.") from error
 
     if len(image_bytes) > MAX_INLINE_IMAGE_BYTES:
-        raise AICopyrightRiskError("Image is too large for AI risk check.")
+        raise AICopyrightImageTooLarge("Image is too large for AI risk check.")
     if not image_bytes:
         raise AICopyrightRiskError("Image is empty.")
     return image_bytes, mime_type

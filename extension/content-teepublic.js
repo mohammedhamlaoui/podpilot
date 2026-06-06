@@ -64,6 +64,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     'pillows', 'totes', 'tapestries', 'pins', 'magnets', 'socks',
   ];
   const TP_UPLOAD_STATE_KEY = 'podpilot_teepublic_upload_state';
+  const TP_PUBLISH_REDIRECT_TIMEOUT_MS = 5 * 60 * 1000;
 
   // Known TeePublic colors per product canvas (from MerchGhost reference)
   const TP_COLORS = {
@@ -137,8 +138,11 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
   let isStopped = false;
   let overlayEl = null;
   let currentDesign = null;
+  let overlayQueueCurrent = 0;
+  let overlayQueueTotal = 0;
   let lastStoredTpState = null;
   let suppressImageProcessingOverlay = false;
+  window.__podpilotTpPrefetchCache = window.__podpilotTpPrefetchCache || new Map();
 
   async function getStoredTpUploadState() {
     try {
@@ -171,7 +175,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
         updatedAt: now,
       };
       lastStoredTpState = next;
-      if (next.publishClicked === true || ['publish_click', 'success_detected', 'done', 'stopped', 'error'].includes(next.stage)) {
+      if (partialState.publishClicked === true || ['publish_click', 'success_detected', 'done', 'stopped', 'error'].includes(next.stage)) {
         suppressImageProcessingOverlay = true;
       }
       await chrome.storage.local.set({ [TP_UPLOAD_STATE_KEY]: next });
@@ -187,6 +191,9 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
           currentIndex: next.currentIndex,
           stage: next.stage,
           imageInjected: next.imageInjected === true,
+          awaitingPublishRedirect: next.awaitingPublishRedirect === true,
+          publishClickedForDesignId: next.publishClickedForDesignId || null,
+          publishClickedAt: next.publishClickedAt || null,
           startedAt: next.startedAt,
           updatedAt: next.updatedAt,
         },
@@ -223,6 +230,20 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     return Boolean(completedDesignIds[id] || failedDesignIds[id] || terminalHandled[id]);
   }
 
+  function isAwaitingPublishRedirectForDesign(state, designId) {
+    const id = String(designId || '').trim();
+    const publishDesignId = String(state?.publishClickedForDesignId || '').trim();
+    if (!state?.active) return false;
+    if (state.awaitingPublishRedirect !== true) return false;
+    if (!id || !publishDesignId || publishDesignId !== id) return false;
+    const processingId = String(state.processingDesignId || '').trim();
+    const currentId = String(state.currentDesignId || state.designId || '').trim();
+    if (publishDesignId !== processingId && publishDesignId !== currentId) return false;
+    const clickedAt = Number(state.publishClickedAt || 0);
+    return Number.isFinite(clickedAt) && clickedAt > 0 &&
+      Date.now() - clickedAt <= TP_PUBLISH_REDIRECT_TIMEOUT_MS;
+  }
+
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   function getTpUploadReadyState() {
@@ -235,6 +256,20 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       fileInputReady,
       titleReady,
     };
+  }
+
+  function prepareForTpNavigation() {
+    window.onbeforeunload = null;
+    try {
+      window.removeEventListener('beforeunload', window.__ppBeforeUnload, { capture: true });
+      window.removeEventListener('beforeunload', window.__ppBeforeUnload);
+    } catch (_) {}
+    try {
+      window.teepublicSubmitActive = false;
+      window.automaticSubmitInProgress = false;
+      window.manualSubmitInProgress = false;
+    } catch (_) {}
+    return { ok: true };
   }
 
   function isTeePublicPublishedUrl(url = window.location.href) {
@@ -265,10 +300,23 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     }
   }
 
+  function isTeePublicDesignEditUrl(url = window.location.href) {
+    try {
+      const parsed = new URL(url);
+      if (!/(\.|^)teepublic\.com$/i.test(parsed.hostname)) return false;
+      return /^\/designs\/[^/]+\/edit\/?$/.test(parsed.pathname);
+    } catch (_) {
+      return false;
+    }
+  }
+
   function isTeePublicFinalPage() {
+    const uploadReady = getTpUploadReadyState();
+    if (isTeePublicDesignEditUrl() && uploadReady.ready) return false;
     if (isTeePublicPublishedUrl()) return true;
     const bodyText = document.body?.innerText || '';
-    return /\bManage\b/i.test(bodyText) &&
+    return isTeePublicDesignEditUrl() &&
+      /\bManage\b/i.test(bodyText) &&
       (/View In Uploader/i.test(bodyText) || /Deactivate/i.test(bodyText) || /\d+\s+Designs?\s+Sold/i.test(bodyText));
   }
 
@@ -295,9 +343,19 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
   function shouldSuppressOverlay(stage, sub) {
     const finalPage = isTeePublicFinalPage();
     if (finalPage) {
-      suppressImageProcessingOverlay = true;
-      debugLog('[PodPilot-TP] Final TeePublic page detected; suppressing progress overlay');
-      return true;
+      const designId = lastStoredTpState?.processingDesignId ||
+        lastStoredTpState?.currentDesignId ||
+        lastStoredTpState?.designId ||
+        currentDesign?.id ||
+        currentDesign?.design_id ||
+        '';
+      if (isAwaitingPublishRedirectForDesign(lastStoredTpState, designId)) {
+        suppressImageProcessingOverlay = true;
+        debugLog('[PodPilot-TP] Final TeePublic page detected; suppressing progress overlay');
+        return true;
+      }
+      debugLog('[TP Success] edit page ignored because no pending publish redirect');
+      return false;
     }
     if (isImageProcessingOverlay(stage, sub) && hasPublishStarted()) {
       debugLog('[PodPilot-TP] Skipped image-processing overlay because publish already clicked');
@@ -308,26 +366,57 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
 
   async function reportFinalSuccessIfNeeded(reason = 'final_page_detected') {
     const state = await getStoredTpUploadState();
-    if (!state?.active && reason !== 'published_url') return false;
-    if (!isTeePublicFinalPage() && reason !== 'published_url') return false;
+    const finalPage = isTeePublicFinalPage() || reason === 'published_url';
+    if (!finalPage) return false;
+
+    const designId = state?.processingDesignId ||
+      state?.currentDesignId ||
+      state?.designId ||
+      currentDesign?.id ||
+      currentDesign?.design_id ||
+      '';
+    if (!isAwaitingPublishRedirectForDesign(state, designId)) {
+      debugLog('[TP Success] edit page ignored because no pending publish redirect');
+      if (state?.awaitingPublishRedirect === true) {
+        await setStoredTpUploadState({
+          awaitingPublishRedirect: false,
+          publishClickedForDesignId: null,
+          publishClickedAt: null,
+        });
+      }
+      return false;
+    }
+    if (isDesignTerminalHandled(state, designId)) {
+      debugLog(`[TP Terminal] duplicate ignored design_id=${designId}`);
+      return true;
+    }
 
     suppressImageProcessingOverlay = true;
+    debugLog(`[TP Success] redirect detected with pending publish design_id=${designId}`);
     debugLog('[PodPilot-TP] Success detected; cleaning TeePublic overlay', { reason });
-    removeProgressOverlay();
+    if (overlayQueueTotal <= 1) {
+      removeProgressOverlay();
+    }
     await setStoredTpUploadState({
       active: true,
       stage: 'success_detected',
       publishClicked: true,
       imageInjected: true,
+      designId,
     });
     chrome.runtime.sendMessage({
+      action: 'tp_publish_success',
+      design_id: designId,
+      reason: 'redirect_detected',
+      published_url: window.location.href,
+    }, () => { void chrome.runtime.lastError; });
+    chrome.runtime.sendMessage({
       action: 'upload_result',
-      design_id: state?.designId || currentDesign?.id || currentDesign?.design_id || '',
+      design_id: designId,
       status: 'success',
       error_message: '',
       published_url: window.location.href,
     }, () => { void chrome.runtime.lastError; });
-    await clearStoredTpUploadState();
     return true;
   }
 
@@ -840,7 +929,6 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       isStopped = true;
       isPaused = false;
       updateOverlayStatus();
-      clearStoredTpUploadState();
       chrome.runtime.sendMessage({ action: 'stop_queue' }, () => { void chrome.runtime.lastError; });
     });
   }
@@ -850,6 +938,10 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       removeProgressOverlay();
       return;
     }
+    setOverlayContent(stage, sub, percent);
+  }
+
+  function setOverlayContent(stage, sub, percent) {
     if (!overlayEl) createOverlay();
     const stageEl = overlayEl.querySelector('#pp-tp-stage');
     const subEl = overlayEl.querySelector('#pp-tp-sub');
@@ -870,6 +962,8 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
   }
 
   function updateOverlayDesignCount(current, total) {
+    overlayQueueCurrent = Number(current) || overlayQueueCurrent || 0;
+    overlayQueueTotal = Number(total) || overlayQueueTotal || 0;
     if (!overlayEl) return;
     const el = overlayEl.querySelector('#pp-tp-design-count');
     if (el) el.textContent = `Design ${current} of ${total}`;
@@ -901,22 +995,35 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
 
 
   // ─── Image Upload ───────────────────────────────────────────────────────────
-  async function uploadImage(imageUrl) {
+  async function uploadImage(imageUrl, design = currentDesign) {
     updateOverlay('Uploading artwork...', 'Sending design file to TeePublic', 20);
     debugLog('[PodPilot-TP] uploadImage source:', imageUrl?.startsWith('data:') ? 'data-url' : 'remote-url');
 
     let file;
+    const designId = getDesignTerminalId(design);
+    const cachedPrefetch = designId ? window.__podpilotTpPrefetchCache.get(designId) : null;
+    if (cachedPrefetch?.file) {
+      file = cachedPrefetch.file;
+      debugLog(`[TP Upload] using prefetched file design_id=${designId}`);
+    } else if (design?._tpPrefetchedImage === true) {
+      debugLog(`[TP Upload] using prefetched file design_id=${designId}`);
+    } else {
+      debugLog(`[TP Upload] no prefetch available, fetching now design_id=${designId}`);
+    }
+
     const conversionTimer = debugTimerStart("image blob/file conversion duration", {
       marketplace: "teepublic",
-      source: imageUrl?.startsWith('data:') ? "base64" : "remote-blob",
+      source: file ? "prefetched-file" : (imageUrl?.startsWith('data:') ? "base64" : "remote-blob"),
     });
-    if (imageUrl.startsWith('data:')) {
+    if (file) {
+      // Prefetched content-script cache already gave us a File.
+    } else if (imageUrl.startsWith('data:')) {
       const parts = imageUrl.split(',');
       const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
       const binary = atob(parts[1]);
       const arr = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-      file = new File([arr], 'design.png', { type: mime });
+      file = new File([arr], design?.imageFilename || design?.filename || 'design.png', { type: mime });
     } else {
       const fetchTimer = debugTimerStart("image URL fetch duration", {
         marketplace: "teepublic",
@@ -934,7 +1041,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
         mimeType: blob.type || 'image/png',
         bytes: blob.size,
       });
-      file = new File([blob], 'design.png', { type: blob.type || 'image/png' });
+      file = new File([blob], design?.imageFilename || design?.filename || 'design.png', { type: blob.type || 'image/png' });
     }
     debugTimerEnd(conversionTimer, { bytes: file.size, mimeType: file.type });
 
@@ -958,6 +1065,10 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     await setStoredTpUploadState({
       active: true,
       stage: 'injecting_image',
+      publishClicked: false,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
       imageInjected: false,
       designId: currentDesign?.id || currentDesign?.design_id || '',
     });
@@ -975,6 +1086,10 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     await setStoredTpUploadState({
       active: true,
       stage: 'waiting_image_processing',
+      publishClicked: false,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
       imageInjected: true,
       designId: currentDesign?.id || currentDesign?.design_id || '',
     });
@@ -1671,6 +1786,19 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       publishBtn.disabled = false;
       publishBtn.removeAttribute('disabled');
 
+      const designId = getDesignTerminalId(design);
+      await setStoredTpUploadState({
+        active: true,
+        stage: 'publish_click',
+        publishClicked: true,
+        awaitingPublishRedirect: true,
+        publishClickedForDesignId: designId,
+        publishClickedAt: Date.now(),
+        imageInjected: true,
+        designId,
+      });
+      debugLog(`[TP Publish] clicked publish design_id=${designId}`);
+
       const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, view: window });
       publishBtn.dispatchEvent(clickEvent);
       await sleep(100);
@@ -1701,7 +1829,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     debugLog('[PodPilot-TP] ✓ Publish clicked');
   }
 
-  function waitForSuccess(timeoutMs = 60000) {
+  function waitForSuccess(timeoutMs = TP_PUBLISH_REDIRECT_TIMEOUT_MS) {
     return new Promise((resolve) => {
       const startTime = Date.now();
       const interval = setInterval(() => {
@@ -1712,13 +1840,24 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
           clearInterval(interval);
           suppressImageProcessingOverlay = true;
           debugLog('[PodPilot-TP] Success detected; cleaning TeePublic overlay');
-          removeProgressOverlay();
+          if (overlayQueueTotal > 1) {
+            const isLastDesign = overlayQueueCurrent >= overlayQueueTotal;
+            setOverlayContent(
+              isLastDesign ? 'Final design published' : 'Design published',
+              isLastDesign ? 'Waiting for queue completion...' : 'Moving to next design...',
+              isLastDesign ? 98 : 95
+            );
+          } else {
+            removeProgressOverlay();
+          }
           setStoredTpUploadState({
             active: true,
             stage: 'success_detected',
             publishClicked: true,
             imageInjected: true,
-          }).finally(() => resolve(result));
+          })
+            .then(() => reportFinalSuccessIfNeeded('redirect_detected'))
+            .finally(() => resolve(result));
         }
 
         if (isTeePublicFinalPage()) {
@@ -1727,7 +1866,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
           return;
         }
 
-        if (!url.includes('quick_create') && !url.includes('design/new')) {
+        if (isTeePublicPublishedUrl(url) || /teepublic\.com\/account\/uploads\/active/i.test(url)) {
           finishSuccess({ success: true, url });
           return;
         }
@@ -1746,7 +1885,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
 
         if (elapsed >= timeoutMs) {
           clearInterval(interval);
-          if (!url.includes('quick_create') && !url.includes('design/new')) {
+          if (isTeePublicPublishedUrl(url) || /teepublic\.com\/account\/uploads\/active/i.test(url)) {
             debugLog('[PodPilot-TP] Timeout but URL changed — assuming success');
             finishSuccess({ success: true, url });
           } else {
@@ -1768,15 +1907,20 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
     currentDesign = design;
     isStopped = false;
     isPaused = false;
+    suppressImageProcessingOverlay = false;
 
     createOverlay();
     updateOverlay('Preparing upload...', 'Starting TeePublic automation', 5);
-    await setStoredTpUploadState({
-      active: true,
-      stage: 'page_ready',
-      imageInjected: false,
-      designId: design.id || design.design_id || '',
-    });
+      await setStoredTpUploadState({
+        active: true,
+        stage: 'page_ready',
+        publishClicked: false,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
+        imageInjected: false,
+        designId: design.id || design.design_id || '',
+      });
     debugLog('[PodPilot-TP] === Starting upload for:', design.title || design.filename || design.id);
     debugLog('[PodPilot-TP] product_settings:', JSON.stringify(design.product_settings));
     debugLog('[PodPilot-TP] color_settings:', JSON.stringify(design.color_settings));
@@ -1793,9 +1937,9 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       }
       if (design.image_url || design.imageBase64) {
         const imageSource = design.imageBase64
-          ? `data:image/png;base64,${design.imageBase64}`
+          ? `data:${design.imageMimeType || 'image/png'};base64,${design.imageBase64}`
           : design.image_url;
-        await uploadImage(imageSource);
+        await uploadImage(imageSource, design);
       } else {
         throw new Error('No image provided for upload');
       }
@@ -1818,8 +1962,11 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       await handlePause();
       await setStoredTpUploadState({
         active: true,
-        stage: 'publish_click',
-        publishClicked: true,
+        stage: 'publish_ready',
+        publishClicked: false,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         imageInjected: true,
         designId: design.id || design.design_id || '',
       });
@@ -1831,12 +1978,24 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       const result = await waitForSuccess();
 
       if (result.success) {
-        updateOverlay('Upload complete!', 'Design published successfully', 100);
+        if (overlayQueueTotal > 1) {
+          const isLastDesign = overlayQueueCurrent >= overlayQueueTotal;
+          setOverlayContent(
+            isLastDesign ? 'Final design published' : 'Design published',
+            isLastDesign ? 'Waiting for queue completion...' : 'Moving to next design...',
+            isLastDesign ? 98 : 95
+          );
+        } else {
+          updateOverlay('Upload complete!', 'Design published successfully', 100);
+        }
         debugLog('[PodPilot-TP] ═══ Upload SUCCESS:', result.url);
         await setStoredTpUploadState({
           active: true,
           stage: 'done',
           publishClicked: true,
+          awaitingPublishRedirect: false,
+          publishClickedForDesignId: null,
+          publishClickedAt: null,
           imageInjected: true,
           designId: design.id || design.design_id || '',
         });
@@ -1846,6 +2005,9 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
         await setStoredTpUploadState({
           active: true,
           stage: 'error',
+          awaitingPublishRedirect: false,
+          publishClickedForDesignId: null,
+          publishClickedAt: null,
           imageInjected: false,
           designId: design.id || design.design_id || '',
         });
@@ -1858,6 +2020,9 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       await setStoredTpUploadState({
         active: true,
         stage: isStopped ? 'stopped' : 'error',
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         imageInjected: false,
         designId: design.id || design.design_id || '',
       });
@@ -1878,6 +2043,11 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
 
     if (message.action === 'tp_upload_page_ready') {
       sendResponse(getTpUploadReadyState());
+      return;
+    }
+
+    if (message.action === 'tp_prepare_navigation') {
+      sendResponse(prepareForTpNavigation());
       return;
     }
 
@@ -1953,7 +2123,7 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
   const params = new URLSearchParams(window.location.search);
   if (params.get('auto') === '1') {
     createOverlay();
-    updateOverlay('Preparing upload...', 'Waiting for background to send design data', 5);
+    setOverlayContent('Preparing upload...', 'Waiting for background to send design data', 5);
 
     // Notify background that the TeePublic page is ready
     setTimeout(() => {
@@ -1963,6 +2133,15 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       );
     }, 1000);
   }
+
+  getStoredTpUploadState().then((state) => {
+    if (!state?.active) return;
+    if (!overlayEl) createOverlay();
+    const current = Number(state.currentIndex || 0) + 1;
+    const total = Number(state.queueTotal || 0);
+    if (total > 0) updateOverlayDesignCount(current, total);
+    setOverlayContent('Preparing upload...', 'Waiting for background to send design data', 5);
+  }).catch(() => {});
 
   // ─── TeePublic Date Badge, Tags Copy, Circular Buttons & Client-Side Age Sorting (PodPilot Purple Style) ───
   let f = "none";

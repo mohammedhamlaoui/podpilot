@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createUploadJob, listUploadJobs } from "../api/client";
+import { createUploadSession, listUploadJobs } from "../api/client";
 import { canonicalizeSettings } from "../config/teepublicOptions";
 import { EXTENSION_ID } from "../config";
 
@@ -9,6 +9,8 @@ function statusLabel(status) {
   if (status === "uploaded") return "Done";
   if (status === "failed") return "Error";
   if (status === "uploading") return "Uploading";
+  if (status === "ready") return "Ready";
+  if (status === "preparing") return "Preparing for upload...";
   return "Pending";
 }
 
@@ -17,9 +19,10 @@ function makeRows(designs) {
     id: design.id,
     title: design.title || design.filename || "Untitled design",
     filename: design.filename || "",
-    status: statusLabel(design.status),
+    status: statusLabel(design.upload_ready === true && design.status === "pending" ? "ready" : design.status),
     rawStatus: design.status,
     message: design.error_message || "",
+    uploadReady: design.upload_ready === true,
   }));
 }
 
@@ -57,6 +60,10 @@ function normalizeDesignForExtension(design, image) {
     color_settings: colorSettings,
     product_settings: productSettings,
     marketplace: "teepublic",
+    mime_type: design.mime_type || "image/png",
+    image_key: design.image_key || design.image_r2_key || "",
+    upload_ready: design.upload_ready === true,
+    prepared_queue: design.upload_ready === true,
   };
 }
 
@@ -162,18 +169,23 @@ export default function TeePublicQueue({ designs, uploadedImages, onRefresh }) {
     setError("");
 
     try {
-      const job = await createUploadJob({
-        marketplace: "teepublic",
-        design_ids: uploadable.map((d) => d.id),
-      });
+      const session = await createUploadSession("teepublic", uploadable.map((d) => d.id));
+      const preparedItems = Array.isArray(session?.items) ? session.items : [];
+      const notReady = preparedItems.filter((item) => item.upload_ready !== true);
+      if (notReady.length > 0) {
+        setError(`Preparing for upload: ${notReady.slice(0, 5).map((item) => item.filename || item.design_id).join(", ")}`);
+        onRefresh?.();
+        return;
+      }
 
-      const extPayload = uploadable.map((d) => normalizeDesignForExtension(d, findImage(d, uploadedImages)));
+      const extPayload = preparedItems.map((item) => normalizeDesignForExtension(item, findImage(item, uploadedImages)));
       const extensionResponse = await sendExtensionMessage({
         action: "start_teepublic_queue",
         designs: extPayload,
+        uploadSessionId: session.session_id || "",
       });
 
-      setJobInfo(job);
+      setJobInfo({ upload_job: { id: session.session_id, marketplace: "teepublic", total_designs: preparedItems.length } });
       setExtensionStatus(extensionResponse.state?.status || "running");
       onRefresh?.();
     } catch (startError) {

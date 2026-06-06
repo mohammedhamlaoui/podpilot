@@ -3,7 +3,7 @@ import { getPricingUrl } from "../lib/subscriptionAccess";
 
 export default function PreviewModeBanner({ trialEligibility = null }) {
   const pricingUrl = getPricingUrl();
-  const trialEligible = trialEligibility?.eligible !== false;
+  const trialEligible = trialEligibility?.eligible === true;
 
   return (
     <section className="pp-preview-banner" aria-label="Preview mode">

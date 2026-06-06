@@ -5,9 +5,9 @@ Every endpoint that touches user data declares
 `user.id`. The verified `user_id` is the only identity ever trusted Ã¢â‚¬â€
 client-supplied user_ids are ignored.
 
-Files (Excel sheets, design images) live in Cloudflare R2. The backend
-hands back signed GET URLs to the browser/extension; secrets never leave
-the server.
+Files (Excel sheets, design images) live in Cloudflare R2. Normal dashboard
+image views go through authenticated API proxy URLs; upload automation can
+still request short-lived signed URLs when it needs direct browser access.
 """
 from __future__ import annotations
 
@@ -15,20 +15,22 @@ import hmac
 import hashlib
 import json
 import logging
+import mimetypes
+import threading
+from contextlib import contextmanager
 import httpx
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("podpilot.routes")
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.auth import AuthUser, get_current_user
 from app.core.config import (
     SUPPORTED_MARKETPLACES,
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY,
     EMAIL_BLOCK_DISPOSABLE,
     EMAIL_VERIFICATION_PROVIDER,
     EMAIL_VERIFICATION_API_KEY,
@@ -44,10 +46,16 @@ from app.schemas.job import (
     UploadLogIn,
     design_to_response,
 )
-from app.services import r2_service, supabase_service, subscription_service
-from app.services.ai_copyright_service import AICopyrightRiskError, check_copyright_risk
+from app.services import rate_limiter, r2_service, supabase_service, subscription_service
+from app.services.ai_copyright_service import (
+    AICopyrightImageTooLarge,
+    AICopyrightRiskError,
+    MAX_INLINE_IMAGE_BASE64_CHARS,
+    check_copyright_risk,
+)
 from app.services.ai_listing_service import AIListingError, generate_listing_content
 from app.services.excel_parser import ExcelParserError, parse_excel_designs
+from app.services.logging_utils import error_type as safe_error_type, safe_r2_key, short_id, short_user_id
 
 
 router = APIRouter()
@@ -56,6 +64,9 @@ MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_EXCEL_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_BATCH_UPLOAD_BYTES = 200 * 1024 * 1024
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+UPLOAD_SESSION_SIGNED_URL_TTL_SECONDS = 60 * 60
+FILE_PROXY_CACHE_CONTROL = "private, max-age=300"
+FILE_PROXY_CHUNK_BYTES = 1024 * 1024
 
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
@@ -77,6 +88,15 @@ class DesignBatchDeleteIn(BaseModel):
     design_ids: list[str] = Field(default_factory=list)
 
 
+class UploadSessionCreateIn(BaseModel):
+    design_ids: list[str] = Field(default_factory=list)
+
+
+class UploadSessionItemStatusIn(BaseModel):
+    status: str = Field(pattern="^(queued|preparing|ready|uploading|uploaded|failed|skipped)$")
+    error_message: Optional[str] = Field(default=None, max_length=4000)
+
+
 class AICopyrightCheckIn(BaseModel):
     platform: str = "redbubble"
     design_id: Optional[str] = None
@@ -88,7 +108,10 @@ class AICopyrightCheckIn(BaseModel):
     detected_trademark_terms: list[str] | str = Field(default_factory=list)
     image_url: Optional[str] = None
     image_r2_key: Optional[str] = None
-    image_base64: Optional[str] = None
+    image_base64: Optional[str] = Field(
+        default=None,
+        max_length=MAX_INLINE_IMAGE_BASE64_CHARS + 128,
+    )
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -114,6 +137,53 @@ def _require_active_subscription(user_id: str) -> None:
         raise HTTPException(
             status_code=403,
             detail=subscription_service.SUBSCRIPTION_REQUIRED_DETAIL,
+        )
+
+
+def _require_trademark_access(user_id: str) -> None:
+    rate_limiter.enforce_user_limit(user_id, rate_limiter.TRADEMARK_CHECK)
+    _require_active_subscription(user_id)
+
+
+_AI_GENERATION_LOCK = threading.Lock()
+_ACTIVE_AI_GENERATION_USERS: set[str] = set()
+
+
+@contextmanager
+def _ai_generation_slot(user_id: str):
+    """Allow at most one active provider-backed AI generation per user."""
+    key = str(user_id or "").strip()
+    with _AI_GENERATION_LOCK:
+        if key in _ACTIVE_AI_GENERATION_USERS:
+            logger.info(
+                "ai_generation_rejected_concurrent user=%s",
+                short_user_id(user_id),
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="An AI generation is already running for this account. Please wait for it to finish.",
+            )
+        _ACTIVE_AI_GENERATION_USERS.add(key)
+    try:
+        yield
+    finally:
+        with _AI_GENERATION_LOCK:
+            _ACTIVE_AI_GENERATION_USERS.discard(key)
+
+
+def _reserve_ai_token(user_id: str) -> dict[str, Any]:
+    return subscription_service.reserve_ai_token(user_id)
+
+
+def _refund_ai_token(user_id: str, reservation: dict[str, Any], *, reason: str) -> None:
+    try:
+        subscription_service.refund_ai_token_reservation(user_id, reservation)
+    except Exception as refund_error:
+        logger.error(
+            "ai_token_refund_failed user=%s reason=%s error_type=%s",
+            short_user_id(user_id),
+            reason,
+            safe_error_type(refund_error),
         )
 
 
@@ -185,17 +255,19 @@ async def _read_validated_excel_upload(file: UploadFile) -> bytes:
 
 async def _read_validated_image_upload(file: UploadFile) -> tuple[bytes, str]:
     extension = Path(file.filename or "").suffix.lower()
-    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+    allowed_extensions = {".png", ".jpg", ".jpeg"}
+    if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail="Only PNG, JPG, JPEG, or WEBP images are supported.",
+            detail="Unsupported file type. Please upload PNG or JPEG designs only.",
         )
 
     content_type = _normalized_content_type(file)
-    if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+    allowed_content_types = {"image/png", "image/jpeg"}
+    if content_type and content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
-            detail="Only PNG, JPG, JPEG, or WEBP images are supported.",
+            detail="Unsupported file type. Please upload PNG or JPEG designs only.",
         )
 
     contents = await _read_upload_limited(
@@ -207,9 +279,15 @@ async def _read_validated_image_upload(file: UploadFile) -> tuple[bytes, str]:
         raise HTTPException(status_code=400, detail="Image file is empty.")
 
     try:
-        r2_service.validate_image_bytes(contents)
+        width, height, image_format = r2_service.validate_image_bytes(contents)
     except r2_service.ImageValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if image_format not in {"PNG", "JPEG"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Please upload PNG or JPEG designs only.",
+        )
 
     return contents, content_type or IMAGE_CONTENT_TYPE_BY_EXTENSION[extension]
 
@@ -261,28 +339,193 @@ def _require_live_cleanup_confirmation(
         raise HTTPException(status_code=400, detail="Live cleanup requires confirm=true")
 
 
-def _design_with_signed_url(row: dict) -> dict:
+def _design_file_proxy_url(row: dict[str, Any], kind: str) -> str:
+    design_id = str(row.get("id") or "").strip()
+    if not design_id:
+        return ""
+    return f"/api/designs/{design_id}/{kind}"
+
+
+def _design_with_file_urls(row: dict) -> dict:
     image_key = row.get("image_r2_key")
-    signed_url = None
-    if image_key:
-        try:
-            signed_url = r2_service.signed_get_url(image_key)
-        except r2_service.R2Error:
-            signed_url = None
-
     thumbnail_key = row.get("thumbnail_r2_key")
-    thumbnail_signed = None
-    if thumbnail_key:
-        try:
-            thumbnail_signed = r2_service.signed_get_url(thumbnail_key)
-        except r2_service.R2Error:
-            thumbnail_signed = None
 
-    return design_to_response(
+    response = design_to_response(
         row,
-        image_signed_url=signed_url,
-        thumbnail_signed_url=thumbnail_signed,
+        image_url=_design_file_proxy_url(row, "image") if image_key else None,
+        thumbnail_url=_design_file_proxy_url(row, "thumbnail") if thumbnail_key else None,
     )
+    marketplace = row.get("marketplace") or "redbubble"
+    response["upload_ready"] = _is_upload_ready(row, marketplace)
+    response["mime_type"] = _guess_design_mime_type(row)
+    for key_name in ("image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key", "image_key"):
+        response.pop(key_name, None)
+    return response
+
+
+def _r2_body_iterator(body: Any):
+    try:
+        while True:
+            chunk = body.read(FILE_PROXY_CHUNK_BYTES)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+
+
+def _stream_design_file(design_id: str, user: AuthUser, *, kind: str) -> StreamingResponse:
+    design = supabase_service.get_design_for_user(design_id, user.id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found.")
+    _require_marketplace_access(user.id, design.get("marketplace") or "redbubble")
+
+    column = "thumbnail_r2_key" if kind == "thumbnail" else "image_r2_key"
+    key = str(design.get(column) or "").strip()
+    if not key:
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    try:
+        obj = r2_service.get_object_stream(key)
+    except r2_service.R2NotFound as error:
+        raise HTTPException(status_code=404, detail="File not found.") from error
+    except r2_service.R2Error as error:
+        logger.warning(
+            "design_file_proxy_failed user=%s design_id=%s kind=%s key=%s error_type=%s",
+            short_user_id(user.id),
+            short_id(design_id),
+            kind,
+            safe_r2_key(key),
+            safe_error_type(error),
+        )
+        raise HTTPException(status_code=502, detail="Could not load file.") from error
+
+    headers = {"Cache-Control": FILE_PROXY_CACHE_CONTROL}
+    content_length = obj.get("content_length")
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
+
+    return StreamingResponse(
+        _r2_body_iterator(obj["body"]),
+        media_type=obj.get("content_type") or _guess_design_mime_type(design),
+        headers=headers,
+    )
+
+
+def _guess_design_mime_type(row: dict[str, Any]) -> str:
+    filename = str(row.get("filename") or row.get("image_r2_key") or "")
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed in ALLOWED_IMAGE_CONTENT_TYPES:
+        return guessed
+    key_guess, _ = mimetypes.guess_type(str(row.get("image_r2_key") or ""))
+    if key_guess in ALLOWED_IMAGE_CONTENT_TYPES:
+        return key_guess
+    return "image/png"
+
+
+def _normalize_design_filename(row: dict[str, Any]) -> str:
+    filename = _safe_name(str(row.get("filename") or "design.png")).strip()
+    if Path(filename).suffix.lower() in ALLOWED_IMAGE_EXTENSIONS:
+        return filename
+    image_key_name = Path(str(row.get("image_r2_key") or "")).name
+    if image_key_name and Path(image_key_name).suffix.lower() in ALLOWED_IMAGE_EXTENSIONS:
+        return _safe_name(image_key_name)
+    return f"{Path(filename).stem or 'design'}.png"
+
+
+def _is_upload_ready(row: dict[str, Any], marketplace: str) -> bool:
+    if not row.get("image_r2_key") or not row.get("thumbnail_r2_key"):
+        return False
+    if not _normalize_design_filename(row):
+        return False
+    if not str(row.get("title") or "").strip():
+        return False
+    if not str(row.get("description") or "").strip():
+        return False
+    if not str(row.get("primary_tag") or "").strip():
+        return False
+    if marketplace == "redbubble" and not str(row.get("copy_link") or "").strip():
+        return False
+    return True
+
+
+def _design_to_upload_queue_item(row: dict[str, Any], marketplace: str) -> dict[str, Any]:
+    image_key = str(row.get("image_r2_key") or "").strip()
+    thumbnail_key = str(row.get("thumbnail_r2_key") or "").strip()
+    image_url = ""
+    thumbnail_url = ""
+    if image_key:
+        image_url = r2_service.signed_get_url(
+            image_key,
+            ttl_seconds=UPLOAD_SESSION_SIGNED_URL_TTL_SECONDS,
+        )
+    if thumbnail_key:
+        thumbnail_url = r2_service.signed_get_url(
+            thumbnail_key,
+            ttl_seconds=UPLOAD_SESSION_SIGNED_URL_TTL_SECONDS,
+        )
+
+    primary_tag = str(row.get("primary_tag") or "").strip()
+    supporting_tags = row.get("supporting_tags") or []
+    if isinstance(supporting_tags, list):
+        supporting_tags_out = ", ".join(str(tag) for tag in supporting_tags if tag)
+    else:
+        supporting_tags_out = str(supporting_tags or "")
+
+    upload_ready = _is_upload_ready(row, marketplace)
+    filename = _normalize_design_filename(row)
+    return {
+        "design_id": str(row.get("id") or ""),
+        "id": str(row.get("id") or ""),
+        "title": str(row.get("title") or "").strip(),
+        "description": str(row.get("description") or "").strip(),
+        "main_tag": primary_tag,
+        "primary_tag": primary_tag,
+        "supporting_tags": supporting_tags_out,
+        "filename": filename,
+        "mime_type": _guess_design_mime_type({**row, "filename": filename}),
+        "image_key": image_key,
+        "image_r2_key": image_key,
+        "image_path": image_key,
+        "image_url": image_url,
+        "upload_url": image_url,
+        "thumbnail_url": thumbnail_url,
+        "thumbnail_r2_key": thumbnail_key or None,
+        "copy_link": str(row.get("copy_link") or "").strip(),
+        "adult_content": bool(row.get("adult_content")),
+        "color_settings": row.get("color_settings") or {},
+        "product_settings": row.get("product_settings") or {},
+        "marketplace": marketplace,
+        "upload_ready": upload_ready,
+        "status": "ready" if upload_ready else "preparing",
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _prepared_queue_for_user(
+    *,
+    user_id: str,
+    marketplace: str,
+    design_ids: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    if design_ids:
+        rows = []
+        for design_id in design_ids:
+            row = supabase_service.get_design_for_user(str(design_id), user_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Design not found: {design_id}")
+            if (row.get("marketplace") or "redbubble") != marketplace:
+                raise HTTPException(status_code=400, detail="Design does not belong to this platform.")
+            rows.append(row)
+    else:
+        rows = supabase_service.list_designs_for_user(
+            user_id,
+            marketplace=marketplace,
+            statuses=("pending", "uploading"),
+        )
+    return [_design_to_upload_queue_item(row, marketplace) for row in rows]
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Health Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -335,12 +578,25 @@ async def preview_excel_import(
     Nothing is written to the `designs` table yet Ã¢â‚¬â€ that happens via
     /designs/import/confirm once the user clicks "Import" in the UI.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXCEL_IMPORT)
     marketplace = _validate_marketplace(marketplace)
     _require_marketplace_access(user.id, marketplace)
+    logger.info(
+        "excel_import_preview_started user=%s marketplace=%s filename=%s",
+        short_user_id(user.id),
+        marketplace,
+        _safe_name(file.filename or "sheet.xlsx"),
+    )
     contents = await _read_validated_excel_upload(file)
     try:
         parsed = parse_excel_designs(contents)
     except ExcelParserError as error:
+        logger.warning(
+            "excel_import_preview_failed user=%s marketplace=%s error_type=%s",
+            short_user_id(user.id),
+            marketplace,
+            safe_error_type(error),
+        )
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     import_id = r2_service.new_import_id()
@@ -352,7 +608,13 @@ async def preview_excel_import(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except r2_service.R2Error as error:
-        raise HTTPException(status_code=502, detail=f"R2 upload failed: {error}") from error
+        logger.warning(
+            "excel_import_preview_failed user=%s marketplace=%s error_type=%s",
+            short_user_id(user.id),
+            marketplace,
+            safe_error_type(error),
+        )
+        raise HTTPException(status_code=502, detail="R2 upload failed.") from error
 
     upload_job = supabase_service.insert_upload_job(
         user_id=user.id,
@@ -361,6 +623,14 @@ async def preview_excel_import(
         status="pending",
     )
     job_id = upload_job.get("id")
+    logger.info(
+        "excel_import_preview_succeeded user=%s marketplace=%s rows=%d job_id=%s excel_key=%s",
+        short_user_id(user.id),
+        marketplace,
+        len(parsed),
+        short_id(job_id),
+        safe_r2_key(excel_key),
+    )
 
     return {
         "marketplace": marketplace,
@@ -390,8 +660,16 @@ def confirm_excel_import(
     payload: DesignsImportConfirmIn,
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXCEL_IMPORT)
     payload.marketplace = _validate_marketplace(payload.marketplace)
     _require_marketplace_access(user.id, payload.marketplace)
+    logger.info(
+        "excel_import_confirm_started user=%s marketplace=%s designs=%d job_id=%s",
+        short_user_id(user.id),
+        payload.marketplace,
+        len(payload.designs or []),
+        short_id(payload.upload_job_id),
+    )
     if not payload.designs:
         raise HTTPException(status_code=400, detail="Confirm at least one design.")
 
@@ -412,10 +690,17 @@ def confirm_excel_import(
             {"total_designs": len(inserted)},
         )
 
+    logger.info(
+        "excel_import_confirm_succeeded user=%s marketplace=%s inserted=%d job_id=%s",
+        short_user_id(user.id),
+        payload.marketplace,
+        len(inserted),
+        short_id(payload.upload_job_id),
+    )
     return {
         "count": len(inserted),
         "marketplace": payload.marketplace,
-        "designs": [design_to_response(row) for row in inserted],
+        "designs": [_design_with_file_urls(row) for row in inserted],
     }
 
 
@@ -434,12 +719,26 @@ async def import_excel_with_images(
     The frontend Import page uses this so the user only has to click
     "Import" once.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXCEL_IMPORT)
     marketplace = _validate_marketplace(marketplace)
     _require_marketplace_access(user.id, marketplace)
+    logger.info(
+        "excel_image_import_started user=%s marketplace=%s image_count=%d filename=%s",
+        short_user_id(user.id),
+        marketplace,
+        len(images or []),
+        _safe_name(file.filename or "sheet.xlsx"),
+    )
     contents = await _read_validated_excel_upload(file)
     try:
         parsed = parse_excel_designs(contents)
     except ExcelParserError as error:
+        logger.warning(
+            "excel_image_import_failed user=%s marketplace=%s error_type=%s",
+            short_user_id(user.id),
+            marketplace,
+            safe_error_type(error),
+        )
         raise HTTPException(status_code=400, detail=str(error)) from error
     batch_total = _add_to_batch_total(0, len(contents))
 
@@ -453,7 +752,7 @@ async def import_excel_with_images(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except r2_service.R2Error as error:
-        raise HTTPException(status_code=502, detail=f"R2 upload failed: {error}") from error
+        raise HTTPException(status_code=502, detail="R2 upload failed.") from error
 
     # Build a {lowercase_filename: bytes/extension} map of the uploaded images.
     image_blobs: dict[str, tuple[bytes, str, str]] = {}
@@ -523,8 +822,9 @@ async def import_excel_with_images(
                 row["thumbnail_r2_key"] = thumbnail_key
             except Exception as thumbnail_err:
                 logger.warning(
-                    "Failed to generate thumbnail for import user_id=%s design_filename=%s: %s",
-                    user.id, raw["filename"], thumbnail_err
+                    "thumbnail_generation_failed route=excel_image_import user=%s error_type=%s",
+                    short_user_id(user.id),
+                    safe_error_type(thumbnail_err),
                 )
 
         rows.append(row)
@@ -533,7 +833,14 @@ async def import_excel_with_images(
         try:
             r2_service.upload_bytes(key, blob, content_type=content_type)
         except r2_service.R2Error as error:
-            raise HTTPException(status_code=502, detail=f"R2 upload failed: {error}") from error
+            logger.warning(
+                "excel_image_import_failed user=%s marketplace=%s key=%s error_type=%s",
+                short_user_id(user.id),
+                marketplace,
+                safe_r2_key(key),
+                safe_error_type(error),
+            )
+            raise HTTPException(status_code=502, detail="R2 upload failed.") from error
 
     inserted = supabase_service.insert_designs(rows)
     job = supabase_service.insert_upload_job(
@@ -542,30 +849,42 @@ async def import_excel_with_images(
         total_designs=len(inserted),
         status="pending",
     )
+    logger.info(
+        "excel_image_import_succeeded user=%s marketplace=%s inserted=%d images=%d job_id=%s",
+        short_user_id(user.id),
+        marketplace,
+        len(inserted),
+        len(images or []),
+        short_id(job.get("id") if job else None),
+    )
 
     return {
         "count": len(inserted),
         "marketplace": marketplace,
         "excel_r2_key": excel_key,
         "upload_job_id": str(job.get("id")) if job and job.get("id") else None,
-        "designs": [_design_with_signed_url(row) for row in inserted],
+        "designs": [_design_with_file_urls(row) for row in inserted],
     }
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Manual single-design create / edit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-def _bg_generate_thumbnail(
+def _generate_thumbnail_for_design(
     user_id: str,
     design_id: str,
     marketplace: str,
     filename: str,
     image_key: str,
-):
+) -> Optional[dict[str, Any]]:
     try:
-        logger.info(f"[Thumbnail] route=create_design background task started")
+        logger.info(
+            "thumbnail_generation_started route=create_design user=%s design_id=%s image_key=%s",
+            short_user_id(user_id),
+            short_id(design_id),
+            safe_r2_key(image_key),
+        )
         image_bytes = r2_service.get_object_bytes(image_key)
         thumbnail_bytes = r2_service.generate_thumbnail_bytes(image_bytes)
-        logger.info(f"[Thumbnail] generated bytes={len(thumbnail_bytes)}")
 
         new_thumb_key = r2_service.design_thumbnail_key(
             user_id=user_id,
@@ -579,7 +898,6 @@ def _bg_generate_thumbnail(
             thumbnail_bytes,
             content_type="image/webp",
         )
-        logger.info("[Thumbnail] uploaded %s", _safe_r2_key_for_log(new_thumb_key))
 
         updated = supabase_service.update_design(
             design_id,
@@ -587,26 +905,32 @@ def _bg_generate_thumbnail(
             {"thumbnail_r2_key": new_thumb_key}
         )
         if updated:
-            logger.info("[Thumbnail] db updated thumbnail %s", _safe_r2_key_for_log(new_thumb_key))
+            logger.info(
+                "thumbnail_generation_succeeded route=create_design user=%s design_id=%s thumbnail_key=%s bytes=%d",
+                short_user_id(user_id),
+                short_id(design_id),
+                safe_r2_key(new_thumb_key),
+                len(thumbnail_bytes),
+            )
+            return updated
         else:
-            logger.error(f"[Thumbnail] db update failed for design_id={design_id} - update_design returned None")
+            logger.warning("thumbnail_db_update_missing design_id=%s", short_id(design_id))
     except Exception as error:
-        logger.error(
-            "[Thumbnail] db update failed for design_id=%s error_type=%s",
-            design_id,
-            _safe_error_type(error),
+        logger.warning(
+            "thumbnail_generation_failed route=create_design design_id=%s error_type=%s",
+            short_id(design_id),
+            safe_error_type(error),
         )
+    return None
 
 
 @router.post("/designs")
 def create_design(
     payload: DesignCreateIn,
-    background_tasks: BackgroundTasks,
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     payload.marketplace = _validate_marketplace(payload.marketplace)
     _require_marketplace_access(user.id, payload.marketplace)
-    logger.info("[Thumbnail] route=create_design")
     row = payload.to_db_row(user_id=user.id)
     inserted = supabase_service.insert_designs([row])
     if not inserted:
@@ -618,19 +942,27 @@ def create_design(
     thumbnail_key = design_row.get("thumbnail_r2_key")
 
     has_thumb_in_payload = "thumbnail_r2_key" in row and bool(row["thumbnail_r2_key"])
-    logger.info(f"[Thumbnail] insert payload includes thumbnail_r2_key={has_thumb_in_payload}")
+    logger.info(
+        "design_create_succeeded user=%s design_id=%s marketplace=%s has_image=%s has_thumbnail=%s",
+        short_user_id(user.id),
+        short_id(design_id),
+        design_row.get("marketplace") or payload.marketplace,
+        bool(image_key),
+        bool(has_thumb_in_payload or thumbnail_key),
+    )
 
     if image_key and not thumbnail_key:
-        background_tasks.add_task(
-            _bg_generate_thumbnail,
+        updated = _generate_thumbnail_for_design(
             user_id=user.id,
             design_id=str(design_id),
             marketplace=design_row.get("marketplace") or "redbubble",
             filename=design_row.get("filename") or "image.png",
             image_key=image_key,
         )
+        if updated:
+            design_row = updated
 
-    return _design_with_signed_url(design_row)
+    return _design_with_file_urls(design_row)
 
 
 @router.patch("/designs/{design_id}")
@@ -648,7 +980,7 @@ def update_design_endpoint(
     _require_marketplace_access(user.id, existing.get("marketplace") or "redbubble")
 
     updated = supabase_service.update_design(design_id, user.id, patch)
-    return _design_with_signed_url(updated or existing)
+    return _design_with_file_urls(updated or existing)
 
 
 @router.post("/designs/batch-update")
@@ -682,9 +1014,9 @@ def batch_update_designs(
         updated = supabase_service.update_design(str(design_id), user.id, patch)
         if updated:
             updated_count += 1
-            results.append(_design_with_signed_url(updated))
+            results.append(_design_with_file_urls(updated))
         else:
-            results.append(_design_with_signed_url(existing))
+            results.append(_design_with_file_urls(existing))
     return {"updated": updated_count, "designs": results}
 
 
@@ -700,14 +1032,14 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
         result["reason"] = "Design not found."
-        delete_logger.info("[Delete] failed design_id=%s reason=%s", design_id, result["reason"])
+        delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), result["reason"])
         return result
 
     try:
         _require_marketplace_access(user.id, design.get("marketplace") or "redbubble")
     except HTTPException as error:
         result["reason"] = str(error.detail)
-        delete_logger.info("[Delete] failed design_id=%s reason=%s", design_id, result["reason"])
+        delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), result["reason"])
         return result
 
     deleted_r2_keys: list[str] = []
@@ -724,12 +1056,12 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
                 deleted_r2_keys.append(key)
             else:
                 missing_r2_keys.append(key)
-                delete_logger.info("[Delete] storage missing but ignored design_id=%s", design_id)
+                delete_logger.info("[Delete] storage missing but ignored design_id=%s", short_id(design_id))
         except r2_service.R2Error as err:
             storage_warnings.append(_safe_error_type(err))
             delete_logger.warning(
                 "[Delete] storage delete failed but db delete will continue design_id=%s key=%s error_type=%s",
-                design_id,
+                short_id(design_id),
                 _safe_r2_key_for_log(key),
                 _safe_error_type(err),
             )
@@ -746,18 +1078,18 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
                 admin.table("upload_logs").delete().in_("id", log_ids).execute()
                 deleted_logs = len(log_ids)
     except Exception as err:
-        delete_logger.warning("upload_logs cleanup failed for design %s: %s", design_id, err)
+        delete_logger.warning("upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
     try:
         deleted_count = supabase_service.delete_designs_for_user([design_id], user.id)
     except Exception as err:
         result["reason"] = f"Database delete failed: {_safe_error_type(err)}"
-        delete_logger.info("[Delete] failed design_id=%s reason=%s", design_id, result["reason"])
+        delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), result["reason"])
         return result
 
     if deleted_count == 0:
         result["reason"] = "Design not found in database."
-        delete_logger.info("[Delete] failed design_id=%s reason=%s", design_id, result["reason"])
+        delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), result["reason"])
         return result
 
     result.update({
@@ -771,7 +1103,7 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
     })
     if storage_warnings:
         result["storage_warnings"] = storage_warnings
-    delete_logger.info("[Delete] db deleted design_id=%s", design_id)
+    delete_logger.info("[Delete] db deleted design_id=%s", short_id(design_id))
     return result
 
 
@@ -797,7 +1129,7 @@ def batch_delete_designs(
             result = _delete_design_for_user_result(design_id, user)
         except Exception as err:
             reason = _safe_error_type(err)
-            delete_logger.info("[Delete] failed design_id=%s reason=%s", design_id, reason)
+            delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), reason)
             result = {
                 "design_id": design_id,
                 "success": False,
@@ -843,7 +1175,7 @@ def delete_design(
 
     logger.info(
         "DELETE design_id=%s user_id=%s image=%s excel=%s",
-        design_id, user.id,
+        short_id(design_id), short_user_id(user.id),
         _safe_r2_key_for_log(design.get("image_r2_key")),
         _safe_r2_key_for_log(design.get("excel_r2_key")),
     )
@@ -923,13 +1255,13 @@ def delete_design(
             if log_ids:
                 admin.table("upload_logs").delete().in_("id", log_ids).execute()
                 deleted_logs = len(log_ids)
-                logger.info("Deleted %d upload_logs for design %s", deleted_logs, design_id)
+                logger.info("Deleted %d upload_logs for design %s", deleted_logs, short_id(design_id))
     except Exception as err:
-        logger.warning("upload_logs cleanup failed for design %s: %s", design_id, err)
+        logger.warning("upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
     # Ã¢â€â‚¬Ã¢â€â‚¬ Delete the design row from Supabase Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     deleted_count = supabase_service.delete_designs_for_user([design_id], user.id)
-    logger.info("DB DELETE result: %d rows for design %s", deleted_count, design_id)
+    logger.info("DB DELETE result: %d rows for design %s", deleted_count, short_id(design_id))
 
     if deleted_count == 0:
         raise HTTPException(status_code=404, detail="Design not found in database.")
@@ -952,6 +1284,13 @@ async def upload_design_image(
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Attach (or replace) the image for an existing design."""
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.IMAGE_UPLOAD)
+    logger.info(
+        "image_upload_started user=%s design_id=%s filename=%s",
+        short_user_id(user.id),
+        short_id(design_id),
+        _safe_name(file.filename or "image.png"),
+    )
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found.")
@@ -979,21 +1318,29 @@ async def upload_design_image(
             content_type=content_type,
         )
     except r2_service.R2Error as error:
-        raise HTTPException(status_code=502, detail=f"R2 upload failed: {error}") from error
+        logger.warning(
+            "image_upload_failed user=%s design_id=%s key=%s error_type=%s",
+            short_user_id(user.id),
+            short_id(design_id),
+            safe_r2_key(image_key),
+            safe_error_type(error),
+        )
+        raise HTTPException(status_code=502, detail="R2 upload failed.") from error
 
     # Generate and upload thumbnail
     try:
-        logger.info("[Thumbnail] route=upload_design_image")
         thumbnail_bytes = r2_service.generate_thumbnail_bytes(contents)
-        logger.info(f"[Thumbnail] generated bytes={len(thumbnail_bytes)}")
         r2_service.upload_bytes(
             thumbnail_key,
             thumbnail_bytes,
             content_type="image/webp",
         )
-        logger.info("[Thumbnail] uploaded %s", _safe_r2_key_for_log(thumbnail_key))
     except Exception as error:
-        logger.warning("Failed to generate or upload thumbnail for design %s: %s", design_id, error)
+        logger.warning(
+            "thumbnail_generation_failed route=upload_design_image design_id=%s error_type=%s",
+            short_id(design_id),
+            safe_error_type(error),
+        )
         thumbnail_key = None
 
     update_payload = {"image_r2_key": image_key}
@@ -1003,7 +1350,15 @@ async def upload_design_image(
     updated = supabase_service.update_design(
         design_id, user.id, update_payload
     )
-    return _design_with_signed_url(updated or {**design, "image_r2_key": image_key})
+    logger.info(
+        "image_upload_succeeded user=%s design_id=%s image_key=%s thumbnail_key=%s bytes=%d",
+        short_user_id(user.id),
+        short_id(design_id),
+        safe_r2_key(image_key),
+        safe_r2_key(thumbnail_key),
+        len(contents),
+    )
+    return _design_with_file_urls(updated or {**design, "image_r2_key": image_key})
 
 
 @router.post("/designs/import/images")
@@ -1018,8 +1373,15 @@ async def upload_design_images_bulk(
     can match these to parsed-Excel rows by filename, then submit them via
     /designs/import/confirm.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.IMAGE_UPLOAD)
     marketplace = _validate_marketplace(marketplace)
     _require_marketplace_access(user.id, marketplace)
+    logger.info(
+        "bulk_image_upload_started user=%s marketplace=%s file_count=%d",
+        short_user_id(user.id),
+        marketplace,
+        len(files or []),
+    )
     if not files:
         raise HTTPException(status_code=400, detail="Upload at least one image.")
 
@@ -1043,13 +1405,20 @@ async def upload_design_images_bulk(
                 content_type=content_type,
             )
         except r2_service.R2Error as error:
-            raise HTTPException(status_code=502, detail=f"R2 upload failed: {error}") from error
+            logger.warning(
+                "bulk_image_upload_failed user=%s marketplace=%s key=%s error_type=%s",
+                short_user_id(user.id),
+                marketplace,
+                safe_r2_key(image_key),
+                safe_error_type(error),
+            )
+            raise HTTPException(status_code=502, detail="R2 upload failed.") from error
 
         file_dict = {
             "original_name": image.filename,
             "filename": image.filename,
             "image_r2_key": image_key,
-            "image_url": r2_service.signed_get_url(image_key),
+            "image_url": "",
             "size": len(contents),
             "stored_name": _safe_name(image.filename or ""),
             # Thumbnails are generated by the create-design background task
@@ -1060,6 +1429,13 @@ async def upload_design_images_bulk(
 
         results.append(file_dict)
 
+    logger.info(
+        "bulk_image_upload_succeeded user=%s marketplace=%s file_count=%d bytes=%d",
+        short_user_id(user.id),
+        marketplace,
+        len(results),
+        batch_total,
+    )
     return {"count": len(results), "files": results}
 
 
@@ -1070,6 +1446,7 @@ def list_designs(
     marketplace: Optional[str] = Query(default=None),
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     if marketplace is not None:
         marketplace = _validate_marketplace(marketplace)
         rows = supabase_service.list_designs_for_user(user.id, marketplace)
@@ -1077,7 +1454,7 @@ def list_designs(
         rows = supabase_service.list_designs_for_user(user.id)
     return {
         "count": len(rows),
-        "designs": [_design_with_signed_url(row) for row in rows],
+        "designs": [_design_with_file_urls(row) for row in rows],
     }
 
 
@@ -1089,7 +1466,25 @@ def get_design(
     row = supabase_service.get_design_for_user(design_id, user.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Design not found.")
-    return _design_with_signed_url(row)
+    return _design_with_file_urls(row)
+
+
+@router.get("/api/designs/{design_id}/image")
+@router.get("/designs/{design_id}/image")
+def get_design_image(
+    design_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    return _stream_design_file(design_id, user, kind="image")
+
+
+@router.get("/api/designs/{design_id}/thumbnail")
+@router.get("/designs/{design_id}/thumbnail")
+def get_design_thumbnail(
+    design_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    return _stream_design_file(design_id, user, kind="thumbnail")
 
 
 @router.get("/designs/{design_id}/image-url")
@@ -1111,7 +1506,14 @@ def get_design_image_url(
     try:
         url = r2_service.signed_get_url(image_key)
     except r2_service.R2Error as error:
-        raise HTTPException(status_code=502, detail=f"R2 sign failed: {error}") from error
+        logger.warning(
+            "design_image_url_sign_failed user=%s design_id=%s key=%s error_type=%s",
+            short_user_id(user.id),
+            short_id(design_id),
+            safe_r2_key(image_key),
+            safe_error_type(error),
+        )
+        raise HTTPException(status_code=502, detail="Could not prepare image URL.") from error
     return {
         "design_id": str(design_id),
         "image_r2_key": image_key,
@@ -1127,8 +1529,15 @@ async def generate_ai_listing_content(
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Generate listing metadata for an owned design using backend-only AI keys."""
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.AI_GENERATE)
     platform = _validate_marketplace(payload.platform)
     _require_marketplace_access(user.id, platform)
+    logger.info(
+        "ai_listing_request_started user=%s design_id=%s platform=%s",
+        short_user_id(user.id),
+        short_id(payload.design_id),
+        platform,
+    )
     design = supabase_service.get_design_for_user(payload.design_id, user.id)
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found.")
@@ -1137,34 +1546,47 @@ async def generate_ai_listing_content(
     if design_marketplace != platform:
         raise HTTPException(status_code=400, detail="Design does not belong to this platform.")
 
-    import time
-    from app.services.image_preview_service import ensure_ai_preview_for_design
+    with _ai_generation_slot(user.id):
+        import time
+        from app.services.image_preview_service import ensure_ai_preview_for_design
 
-    # Lazily ensure/get preview
-    start_preview = time.perf_counter()
-    image_url, image_source, generated = await ensure_ai_preview_for_design(user.id, design)
-    preview_gen_ms = int((time.perf_counter() - start_preview) * 1000) if generated else 0
+        # Lazily ensure/get preview
+        start_preview = time.perf_counter()
+        image_url, image_source, generated = await ensure_ai_preview_for_design(user.id, design)
+        preview_gen_ms = int((time.perf_counter() - start_preview) * 1000) if generated else 0
 
-    # Log timing of preview generation safely
-    logger.info(f"[AI TIMING] preview_generation_ms={preview_gen_ms}")
-    logger.info(f"[AI TIMING] image_source={image_source}")
+        # Log timing of preview generation safely
+        logger.info(f"[AI TIMING] preview_generation_ms={preview_gen_ms}")
+        logger.info(f"[AI TIMING] image_source={image_source}")
 
-    # Check token availability first (raises 403 or 503 if unavailable)
-    subscription_service.check_ai_token_availability(user.id)
+        reservation = _reserve_ai_token(user.id)
+        try:
+            result = await generate_listing_content(
+                design=design,
+                platform=platform,
+                current_metadata=payload.current_metadata,
+                image_url=image_url,
+            )
+        except AIListingError as error:
+            _refund_ai_token(user.id, reservation, reason="listing_content_failed")
+            logger.warning(
+                "ai_listing_request_failed user=%s design_id=%s platform=%s error_type=%s",
+                short_user_id(user.id),
+                short_id(payload.design_id),
+                platform,
+                safe_error_type(error),
+            )
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
-    try:
-        result = await generate_listing_content(
-            design=design,
-            platform=platform,
-            current_metadata=payload.current_metadata,
-            image_url=image_url,
+        logger.info(
+            "ai_listing_request_succeeded user=%s design_id=%s platform=%s image_source=%s token_source=%s",
+            short_user_id(user.id),
+            short_id(payload.design_id),
+            platform,
+            image_source,
+            reservation.get("token_source"),
         )
-    except AIListingError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-
-    # Deduct exactly 1 token only after successful generation
-    subscription_service.consume_ai_token_atomic(user.id)
-    return result
+        return result
 
 
 @router.post("/api/ai/listing-content/draft")
@@ -1180,8 +1602,15 @@ async def generate_ai_listing_content_draft(
     dependency keeps the feature behind the same account boundary as saved
     design generation.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.AI_GENERATE)
     platform = _validate_marketplace(platform)
     _require_marketplace_access(user.id, platform)
+    logger.info(
+        "ai_listing_draft_started user=%s platform=%s has_file=%s",
+        short_user_id(user.id),
+        platform,
+        file is not None,
+    )
     try:
         metadata = json.loads(current_metadata or "{}")
     except json.JSONDecodeError as error:
@@ -1196,23 +1625,33 @@ async def generate_ai_listing_content_draft(
         if file.filename and not metadata.get("filename"):
             metadata["filename"] = file.filename
 
-    # Check token availability first (raises 403 or 503 if unavailable)
-    subscription_service.check_ai_token_availability(user.id)
+    with _ai_generation_slot(user.id):
+        reservation = _reserve_ai_token(user.id)
+        try:
+            result = await generate_listing_content(
+                design={"filename": metadata.get("filename", ""), "marketplace": platform},
+                platform=platform,
+                current_metadata=metadata,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+            )
+        except AIListingError as error:
+            _refund_ai_token(user.id, reservation, reason="listing_draft_failed")
+            logger.warning(
+                "ai_listing_draft_failed user=%s platform=%s error_type=%s",
+                short_user_id(user.id),
+                platform,
+                safe_error_type(error),
+            )
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
-    try:
-        result = await generate_listing_content(
-            design={"filename": metadata.get("filename", ""), "marketplace": platform},
-            platform=platform,
-            current_metadata=metadata,
-            image_bytes=image_bytes,
-            image_mime_type=image_mime_type,
+        logger.info(
+            "ai_listing_draft_succeeded user=%s platform=%s token_source=%s",
+            short_user_id(user.id),
+            platform,
+            reservation.get("token_source"),
         )
-    except AIListingError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-
-    # Deduct exactly 1 token only after successful generation
-    subscription_service.consume_ai_token_atomic(user.id)
-    return result
+        return result
 
 
 def _normalize_tags_for_ai(value: list[str] | str) -> list[str]:
@@ -1221,26 +1660,23 @@ def _normalize_tags_for_ai(value: list[str] | str) -> list[str]:
     return [tag.strip() for tag in str(value or "").split(",") if tag.strip()]
 
 
-def _check_ai_tokens_or_upgrade(user_id: str) -> None:
-    try:
-        subscription_service.check_ai_token_availability(user_id)
-    except HTTPException as error:
-        if error.status_code == 403:
-            raise HTTPException(
-                status_code=403,
-                detail="No AI tokens left. Upgrade or buy extra tokens.",
-            ) from error
-        raise
-
-
 @router.post("/api/ai/copyright-check")
 async def ai_copyright_check(
     payload: AICopyrightCheckIn,
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Run an informational AI copyright/IP risk check for a design."""
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.AI_GENERATE)
     platform = _validate_marketplace(payload.platform)
     _require_marketplace_access(user.id, platform)
+    logger.info(
+        "ai_copyright_check_started user=%s design_id=%s platform=%s has_image_key=%s has_inline_image=%s",
+        short_user_id(user.id),
+        short_id(payload.design_id),
+        platform,
+        bool(payload.image_r2_key),
+        bool(payload.image_base64),
+    )
 
     design: dict[str, Any] = {}
     image_url = ""
@@ -1279,35 +1715,50 @@ async def ai_copyright_check(
         "detected_trademark_terms": _normalize_tags_for_ai(payload.detected_trademark_terms),
     }
 
-    _check_ai_tokens_or_upgrade(user.id)
+    with _ai_generation_slot(user.id):
+        reservation = _reserve_ai_token(user.id)
+        try:
+            result = await check_copyright_risk(
+                metadata=metadata,
+                image_url=image_url,
+                image_base64=payload.image_base64 or "",
+            )
+        except AICopyrightImageTooLarge as error:
+            _refund_ai_token(user.id, reservation, reason="copyright_check_image_too_large")
+            logger.warning(
+                "ai_copyright_check_rejected_oversized_image user=%s design_id=%s platform=%s",
+                short_user_id(user.id),
+                short_id(payload.design_id),
+                platform,
+            )
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except AICopyrightRiskError as error:
+            _refund_ai_token(user.id, reservation, reason="copyright_check_failed")
+            logger.warning(
+                "ai_copyright_check_failed user=%s design_id=%s platform=%s error_type=%s",
+                short_user_id(user.id),
+                short_id(payload.design_id),
+                platform,
+                safe_error_type(error),
+            )
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
-    try:
-        result = await check_copyright_risk(
-            metadata=metadata,
-            image_url=image_url,
-            image_base64=payload.image_base64 or "",
+        logger.info(
+            "ai_copyright_check_succeeded user=%s design_id=%s platform=%s risk_status=%s token_source=%s",
+            short_user_id(user.id),
+            short_id(payload.design_id),
+            platform,
+            result.get("status") or result.get("risk_level") or "unknown",
+            reservation.get("token_source") or "unknown",
         )
-    except AICopyrightRiskError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-
-    try:
-        consumed = subscription_service.consume_ai_token_atomic(user.id)
-    except HTTPException as error:
-        if error.status_code == 403:
-            raise HTTPException(
-                status_code=403,
-                detail="No AI tokens left. Upgrade or buy extra tokens.",
-            ) from error
-        raise
-
-    return {
-        **result,
-        "tokens_remaining": {
-            "daily_remaining": int(consumed.get("remaining_daily", 0) or 0),
-            "extra_tokens": int(consumed.get("remaining_extra", 0) or 0),
-        },
-        "disclaimer": "AI risk check is informational only. Review carefully before publishing.",
-    }
+        return {
+            **result,
+            "tokens_remaining": {
+                "daily_remaining": int(reservation.get("remaining_daily", 0) or 0),
+                "extra_tokens": int(reservation.get("remaining_extra", 0) or 0),
+            },
+            "disclaimer": "AI risk check is informational only. Review carefully before publishing.",
+        }
 
 
 @router.post("/designs/{design_id}/status")
@@ -1351,7 +1802,7 @@ def update_design_status_endpoint(
         message=log_message,
     )
 
-    return _design_with_signed_url(updated or design)
+    return _design_with_file_urls(updated or design)
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Upload jobs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -1415,6 +1866,7 @@ def list_upload_jobs(
     only_pending: bool = Query(default=False),
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     if marketplace is not None:
         marketplace = _validate_marketplace(marketplace)
         _require_marketplace_access(user.id, marketplace)
@@ -1444,6 +1896,7 @@ def list_pending_designs_for_extension(
     The Chrome extension popup calls this right after login, then again
     each time it finishes a row, so it always has the freshest queue.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     if marketplace is not None:
         marketplace = _validate_marketplace(marketplace)
         _require_marketplace_access(user.id, marketplace)
@@ -1462,11 +1915,134 @@ def list_pending_designs_for_extension(
             ))
     return {
         "count": len(rows),
-        "designs": [_design_with_signed_url(row) for row in rows],
+        "designs": [_design_with_file_urls(row) for row in rows],
     }
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Upload logs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+
+@router.get("/api/upload-queue/{marketplace}")
+def get_prepared_upload_queue(
+    marketplace: str,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
+    marketplace = _validate_marketplace(marketplace)
+    _require_marketplace_access(user.id, marketplace)
+    try:
+        items = _prepared_queue_for_user(user_id=user.id, marketplace=marketplace)
+    except r2_service.R2Error as error:
+        raise HTTPException(status_code=502, detail="Could not prepare upload URLs.") from error
+    return {"marketplace": marketplace, "count": len(items), "items": items}
+
+
+@router.post("/api/upload-sessions/{marketplace}")
+def create_upload_session(
+    marketplace: str,
+    payload: UploadSessionCreateIn,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
+    marketplace = _validate_marketplace(marketplace)
+    _require_marketplace_access(user.id, marketplace)
+    design_ids = [str(design_id).strip() for design_id in payload.design_ids if str(design_id).strip()]
+    if not design_ids:
+        raise HTTPException(status_code=400, detail="Provide at least one design id.")
+    try:
+        items = _prepared_queue_for_user(
+            user_id=user.id,
+            marketplace=marketplace,
+            design_ids=design_ids,
+        )
+    except r2_service.R2Error as error:
+        raise HTTPException(status_code=502, detail="Could not prepare upload URLs.") from error
+
+    job = supabase_service.insert_upload_job(
+        user_id=user.id,
+        marketplace=marketplace,
+        total_designs=len(items),
+        status="pending",
+    )
+    session_id = str(job.get("id") or "")
+    for item in items:
+        if item.get("upload_ready"):
+            supabase_service.update_design_status(item["design_id"], user.id, status="pending")
+        supabase_service.insert_upload_log(
+            user.id,
+            design_id=item["design_id"],
+            job_id=session_id or None,
+            level="info" if item.get("upload_ready") else "warn",
+            message="ready" if item.get("upload_ready") else "preparing",
+        )
+
+    return {"session_id": session_id, "marketplace": marketplace, "items": items}
+
+
+@router.post("/api/upload-sessions/{session_id}/items/{design_id}/status")
+def update_upload_session_item_status(
+    session_id: str,
+    design_id: str,
+    payload: UploadSessionItemStatusIn,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    job = supabase_service.get_upload_job_for_user(session_id, user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    marketplace = job.get("marketplace") or "redbubble"
+    _require_marketplace_access(user.id, marketplace)
+    design = supabase_service.get_design_for_user(design_id, user.id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found.")
+    if (design.get("marketplace") or "redbubble") != marketplace:
+        raise HTTPException(status_code=400, detail="Design does not belong to this upload session.")
+
+    design_status = {
+        "queued": "pending",
+        "preparing": "pending",
+        "ready": "pending",
+        "uploading": "uploading",
+        "uploaded": "uploaded",
+        "failed": "failed",
+        "skipped": "failed",
+    }[payload.status]
+    updated = supabase_service.update_design_status(
+        design_id,
+        user.id,
+        status=design_status,
+        error_message=payload.error_message or (payload.status if payload.status in {"failed", "skipped"} else ""),
+    )
+    supabase_service.insert_upload_log(
+        user.id,
+        design_id=design_id,
+        job_id=session_id,
+        level="error" if payload.status == "failed" else "info",
+        message=payload.status,
+    )
+    if payload.status in {"uploaded", "failed", "skipped"}:
+        current_uploaded = int(job.get("uploaded_count") or 0)
+        current_failed = int(job.get("failed_count") or 0)
+        patch: dict[str, Any] = {"status": "running"}
+        next_uploaded = current_uploaded
+        next_failed = current_failed
+        if payload.status == "uploaded":
+            next_uploaded += 1
+            patch["uploaded_count"] = next_uploaded
+        else:
+            next_failed += 1
+            patch["failed_count"] = next_failed
+        if next_uploaded + next_failed >= int(job.get("total_designs") or 0):
+            patch["status"] = "completed"
+        supabase_service.update_upload_job(session_id, user.id, patch)
+    elif payload.status == "uploading":
+        supabase_service.update_upload_job(session_id, user.id, {"status": "running"})
+
+    return {
+        "session_id": session_id,
+        "design_id": design_id,
+        "status": payload.status,
+        "design": _design_with_file_urls(updated or design),
+    }
+
 
 @router.post("/upload-logs")
 def create_upload_log(
@@ -1495,6 +2071,7 @@ def list_upload_logs(
     limit: int = Query(default=200, ge=1, le=1000),
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     logs = supabase_service.list_upload_logs_for_user(
         user.id, design_id=design_id, job_id=job_id, limit=limit,
     )
@@ -1514,7 +2091,7 @@ async def trademark_check_phrase(
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Check one exact phrase through the backend-only TMHunt adapter."""
-    _require_active_subscription(user.id)
+    _require_trademark_access(user.id)
     try:
         return await trademark_service.check_phrase(phrase)
     except trademark_service.TrademarkRateLimitError as exc:
@@ -1534,7 +2111,7 @@ async def trademark_check(
     filtering and dedup), and any per-term errors. Never fakes data Ã¢â‚¬â€ if
     the live USPTO call fails, the error is surfaced in `errors`.
     """
-    _require_active_subscription(user.id)
+    _require_trademark_access(user.id)
     if not payload.terms:
         raise HTTPException(status_code=400, detail="Provide at least one term to check.")
     return await trademark_service.check_terms(payload.terms)
@@ -1550,7 +2127,7 @@ async def trademark_check_design(
     Frontend convenience: pass the title/primary_tag/supporting_tags/
     description and the backend handles term extraction and USPTO query.
     """
-    _require_active_subscription(user.id)
+    _require_trademark_access(user.id)
     primary = payload.primary_tag or payload.main_tag or ""
     terms = trademark_service.split_terms(
         title=payload.title or "",
@@ -1599,11 +2176,19 @@ def cleanup_old_designs(
     logger.info("[Cleanup] found %d designs", eligible_count)
 
     if dry_run:
+        cleanup_run = supabase_service.insert_cleanup_run_summary(
+            dry_run=True,
+            cutoff_at=cutoff_time,
+            status="completed",
+            deleted_count=0,
+            failed_count=0,
+        )
         # Dry run: return candidate list without deleting anything
         return {
             "dry_run": True,
             "cutoff_hours": cutoff_hours,
             "eligible_count": eligible_count,
+            "cleanup_run_id": str(cleanup_run.get("id")) if cleanup_run and cleanup_run.get("id") else None,
             "designs": [
                 {
                     "id": d.get("id"),
@@ -1708,7 +2293,7 @@ def cleanup_old_designs(
                 logger.info("[Cleanup] deleted upload_logs for design_id=%s", design_id)
             except Exception as err:
                 warnings.append(f"Failed to delete upload_logs for design {design_id}: {err}")
-                logger.warning("[Cleanup] upload_logs cleanup failed for design %s: %s", design_id, err)
+                logger.warning("[Cleanup] upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
             # 5. Delete design row from database
             rows_deleted = supabase_service.delete_designs_admin([design_id])
@@ -1739,7 +2324,7 @@ async def trademark_check(
     filtering and dedup), and any per-term errors. Never fakes data Ã¢â‚¬â€ if
     the live USPTO call fails, the error is surfaced in `errors`.
     """
-    _require_active_subscription(user.id)
+    _require_trademark_access(user.id)
     if not payload.terms:
         raise HTTPException(status_code=400, detail="Provide at least one term to check.")
     return await trademark_service.check_terms(payload.terms)
@@ -1755,7 +2340,7 @@ async def trademark_check_design(
     Frontend convenience: pass the title/primary_tag/supporting_tags/
     description and the backend handles term extraction and USPTO query.
     """
-    _require_active_subscription(user.id)
+    _require_trademark_access(user.id)
     primary = payload.primary_tag or payload.main_tag or ""
     terms = trademark_service.split_terms(
         title=payload.title or "",
@@ -1804,11 +2389,19 @@ def cleanup_old_designs(
     logger.info("[Cleanup] found %d designs", eligible_count)
 
     if dry_run:
+        cleanup_run = supabase_service.insert_cleanup_run_summary(
+            dry_run=True,
+            cutoff_at=cutoff_time,
+            status="completed",
+            deleted_count=0,
+            failed_count=0,
+        )
         # Dry run: return candidate list without deleting anything
         return {
             "dry_run": True,
             "cutoff_hours": cutoff_hours,
             "eligible_count": eligible_count,
+            "cleanup_run_id": str(cleanup_run.get("id")) if cleanup_run and cleanup_run.get("id") else None,
             "designs": [
                 {
                     "id": d.get("id"),
@@ -1913,7 +2506,7 @@ def cleanup_old_designs(
                 logger.info("[Cleanup] deleted upload_logs for design_id=%s", design_id)
             except Exception as err:
                 warnings.append(f"Failed to delete upload_logs for design {design_id}: {err}")
-                logger.warning("[Cleanup] upload_logs cleanup failed for design %s: %s", design_id, err)
+                logger.warning("[Cleanup] upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
             # 5. Delete design row from database
             rows_deleted = supabase_service.delete_designs_admin([design_id])
@@ -1929,10 +2522,17 @@ def cleanup_old_designs(
         except Exception as err:
             failed_count += 1
             warnings.append(f"Unexpected error cleaning up design {design_id}: {err}")
-            logger.error("[Cleanup] unexpected error cleaning up design_id=%s: %s", design_id, err)
+            logger.error("[Cleanup] unexpected error cleaning up design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
     # Log completed
     logger.info("[Cleanup] completed deleted_count=%d failed_count=%d", deleted_count, failed_count)
+    cleanup_run = supabase_service.insert_cleanup_run_summary(
+        dry_run=False,
+        cutoff_at=cutoff_time,
+        status="completed",
+        deleted_count=deleted_count,
+        failed_count=failed_count,
+    )
 
     return {
         "dry_run": False,
@@ -1940,6 +2540,7 @@ def cleanup_old_designs(
         "eligible_count": eligible_count,
         "deleted_count": deleted_count,
         "failed_count": failed_count,
+        "cleanup_run_id": str(cleanup_run.get("id")) if cleanup_run and cleanup_run.get("id") else None,
         "deleted_design_ids": deleted_design_ids,
         "deleted_r2_keys": deleted_r2_keys,
         "warnings": warnings,
@@ -1973,7 +2574,7 @@ def cleanup_orphan_r2_objects(
     try:
         referenced_keys = supabase_service.get_all_referenced_r2_keys()
     except Exception as err:
-        logger.error("[Cleanup-Orphans] Failed to fetch referenced keys from database: %s", err)
+        logger.error("[Cleanup-Orphans] failed to fetch referenced keys error_type=%s", safe_error_type(err))
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch referenced keys from database: {err}"
@@ -1985,7 +2586,7 @@ def cleanup_orphan_r2_objects(
     try:
         all_r2_keys = r2_service.list_objects(prefix="users/")
     except Exception as err:
-        logger.error("[Cleanup-Orphans] Failed to list R2 objects: %s", err)
+        logger.error("[Cleanup-Orphans] failed to list R2 objects error_type=%s", safe_error_type(err))
         raise HTTPException(
             status_code=502,
             detail=f"Cloudflare R2 list failed: {err}"
@@ -2052,29 +2653,7 @@ def cleanup_orphan_r2_objects(
     }
 
 
-import threading
-import time
 import re
-
-# In-memory IP rate limiter
-RATE_LIMIT_LOCK = threading.Lock()
-ip_attempts: dict[str, list[float]] = {}
-
-def _check_rate_limit(ip: str) -> bool:
-    """Check if the given IP has exceeded the limit of 5 requests/minute."""
-    # TODO: In-memory rate limit is okay for local/single VPS, but production multi-instance deployment should use Redis/Upstash or Cloudflare rate limiting.
-    now = time.time()
-    with RATE_LIMIT_LOCK:
-        timestamps = ip_attempts.get(ip, [])
-        # Keep only timestamps from the last 60 seconds
-        timestamps = [t for t in timestamps if t > now - 60.0]
-        ip_attempts[ip] = timestamps
-        if len(timestamps) >= 5:
-            return False
-        # Record this attempt
-        timestamps.append(now)
-        return True
-
 
 # Lazy-loaded disposable domains blocklist
 _GOOD_PROVIDERS = {
@@ -2135,19 +2714,16 @@ class CheckEmailIn(BaseModel):
     email: str = Field(min_length=1)
 
 
+def _public_check_email_ok() -> dict:
+    return {
+        "ok": True,
+        "message": "If an account exists, follow the next steps shown in the app.",
+    }
+
+
 @router.post("/api/auth/check-email")
 async def check_email(payload: CheckEmailIn, request: Request) -> dict:
-    # 1. IP Rate Limiting
-    ip = request.client.host if request.client else "unknown"
-    if not _check_rate_limit(ip):
-        # Clean logging: do not log full email, just the domain
-        email_normalized = payload.email.strip().lower()
-        domain = email_normalized.split("@", -1)[-1] if "@" in email_normalized else "invalid"
-        logger.warning("Rate limit hit for IP: %s on domain: %s", ip, domain)
-        raise HTTPException(
-            status_code=429,
-            detail="Too many verification attempts. Please try again in a minute."
-        )
+    rate_limiter.enforce_ip_limit(request, rate_limiter.PUBLIC_AUTH)
 
     # 2. Normalize email
     email = payload.email.strip().lower()
@@ -2158,79 +2734,22 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
     if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         return {
             "allowed": False,
-            "exists": False,
             "reason": "invalid_email_format",
             "message": "Please enter a valid email address."
         }
 
-    local_part, domain = email.split("@", 1)
-
-    # 4. Check exists in Supabase Auth FIRST
-    url = f"{SUPABASE_URL}/auth/v1/admin/users"
-    headers = {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=headers, params={"filter": email})
-        if resp.status_code != 200:
-            logger.error("Supabase admin list users check returned status %s: %s", resp.status_code, resp.text)
-            raise HTTPException(status_code=500, detail="Failed to query auth directory.")
-
-        data = resp.json()
-        users = data.get("users", [])
-
-        exact_match = None
-        for u in users:
-            if u.get("email", "").strip().lower() == email:
-                exact_match = u
-                break
-
-        if exact_match:
-            confirmed = exact_match.get("email_confirmed_at") is not None
-            reason = "already_registered" if confirmed else "pending_confirmation"
-            
-            # Clean logging
-            logger.info("Check-email result: domain=%s, allowed=False, reason=%s", domain, reason)
-
-            if confirmed:
-                return {
-                    "allowed": False,
-                    "exists": True,
-                    "confirmed": True,
-                    "reason": "already_registered",
-                    "message": "This email is already registered. Please sign in instead."
-                }
-            else:
-                return {
-                    "allowed": False,
-                    "exists": True,
-                    "confirmed": False,
-                    "reason": "pending_confirmation",
-                    "message": "This email already has a pending confirmation. Please check your inbox or resend confirmation."
-                }
-
-    except httpx.HTTPError as err:
-        logger.error("HTTP error querying Supabase admin users endpoint: %s", err)
-        raise HTTPException(status_code=503, detail="Auth directory query is temporarily unavailable.")
+    _, domain = email.split("@", 1)
 
     # 5. Allowlist check: bypass disposable & pattern checks if in allowlist
     if domain in _GOOD_PROVIDERS:
-        logger.info("Check-email result: domain=%s, allowed=True, reason=None (allowlist)", domain)
-        return {
-            "allowed": True,
-            "exists": False,
-            "email_quality": "valid"
-        }
+        logger.info("Check-email result: domain=%s, ok=True, reason=None (allowlist)", domain)
+        return _public_check_email_ok()
 
     # 6. Obvious patterns checks (testing domains, localhost, missing dot, suspicious words)
     if "." not in domain or domain in {"localhost", "localhost.localdomain"}:
         logger.info("Check-email result: domain=%s, allowed=False, reason=invalid_email_domain (invalid/localhost)", domain)
         return {
             "allowed": False,
-            "exists": False,
             "reason": "invalid_email_domain",
             "message": "This email domain cannot receive confirmation emails. Please use another address."
         }
@@ -2240,7 +2759,6 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
         logger.info("Check-email result: domain=%s, allowed=False, reason=disposable_email (testing domain)", domain)
         return {
             "allowed": False,
-            "exists": False,
             "reason": "disposable_email",
             "message": "Temporary email addresses are not allowed. Please use a real email address."
         }
@@ -2253,7 +2771,6 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
         logger.info("Check-email result: domain=%s, allowed=False, reason=disposable_email (suspicious pattern)", domain)
         return {
             "allowed": False,
-            "exists": False,
             "reason": "disposable_email",
             "message": "Temporary email addresses are not allowed. Please use a real email address."
         }
@@ -2263,7 +2780,6 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
         logger.info("Check-email result: domain=%s, allowed=False, reason=disposable_email (blocklist)", domain)
         return {
             "allowed": False,
-            "exists": False,
             "reason": "disposable_email",
             "message": "Temporary email addresses are not allowed. Please use a real email address."
         }
@@ -2280,7 +2796,6 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
                     logger.info("Check-email result: domain=%s, allowed=False, reason=disposable_email (istempmail)", domain)
                     return {
                         "allowed": False,
-                        "exists": False,
                         "reason": "disposable_email",
                         "message": "Temporary email addresses are not allowed. Please use a real email address."
                     }
@@ -2288,14 +2803,13 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
                     logger.info("Check-email result: domain=%s, allowed=False, reason=invalid_email_domain (istempmail unresolvable)", domain)
                     return {
                         "allowed": False,
-                        "exists": False,
                         "reason": "invalid_email_domain",
                         "message": "This email domain cannot receive confirmation emails. Please use another address."
                     }
             else:
                 logger.warning("istempmail API returned status %s for domain %s", api_resp.status_code, domain)
         except Exception as err:
-            logger.error("Error querying istempmail API for domain %s: %s", domain, err)
+            logger.error("Error querying istempmail API for domain %s error_type=%s", domain, safe_error_type(err))
 
     # 9. MX record validation via Cloudflare DoH (optional)
     if EMAIL_REQUIRE_MX_CHECK:
@@ -2314,20 +2828,15 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
                     logger.info("Check-email result: domain=%s, allowed=False, reason=invalid_email_domain (no MX)", domain)
                     return {
                         "allowed": False,
-                        "exists": False,
                         "reason": "invalid_email_domain",
                         "message": "This email domain cannot receive confirmation emails. Please use another address."
                     }
             else:
                 logger.warning("Cloudflare DoH returned status %s for domain %s", doh_resp.status_code, domain)
         except Exception as err:
-            logger.error("Error querying Cloudflare DoH MX check for domain %s: %s", domain, err)
+            logger.error("Error querying Cloudflare DoH MX check for domain %s error_type=%s", domain, safe_error_type(err))
 
     # 10. Clean / Valid email
-    logger.info("Check-email result: domain=%s, allowed=True, reason=None", domain)
-    return {
-        "allowed": True,
-        "exists": False,
-        "email_quality": "valid"
-    }
+    logger.info("Check-email result: domain=%s, ok=True, reason=None", domain)
+    return _public_check_email_ok()
 

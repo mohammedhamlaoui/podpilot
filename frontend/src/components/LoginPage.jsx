@@ -9,7 +9,7 @@ import {
 import googleLogo from "../assets/google-g.svg";
 import podpilotLogo from "../assets/podpilot-logo.svg";
 import Icon from "./Icon";
-import { checkEmailExists } from "../api/client";
+import { checkEmail } from "../api/client";
 
 /* ── Custom brand icons (user SVGs, grey via currentColor) ─────────────── */
 function EmailIcon({ className }) {
@@ -196,9 +196,12 @@ export default function LoginPage() {
         // Query backend to check if email is valid and allowed
         let checkResult;
         try {
-          checkResult = await checkEmailExists(cleanEmail);
+          checkResult = await checkEmail(cleanEmail);
         } catch (checkErr) {
-          console.error("Email verification API error:", checkErr);
+          console.error("Email verification API error:", {
+            status: checkErr?.response?.status || "unknown",
+            message: checkErr?.message || "unknown",
+          });
           const fallbackMsg = "Could not verify this email. Please try again.";
           setError(fallbackMsg);
           pushToast("error", fallbackMsg);
@@ -206,16 +209,11 @@ export default function LoginPage() {
           return;
         }
 
-        if (!checkResult || checkResult.allowed !== true) {
+        const emailCheckAllowed = checkResult?.ok === true || checkResult?.allowed === true;
+        if (!checkResult || emailCheckAllowed !== true) {
           const msg = checkResult?.message || "Temporary or invalid email addresses are not allowed.";
           setError(msg);
           pushToast("error", msg);
-          
-          if (checkResult?.reason === "pending_confirmation") {
-            setNeedsConfirmation(true);
-          } else if (checkResult?.reason === "already_registered") {
-            setShowSignInInstead(true);
-          }
           setIsSubmitting(false);
           return;
         }

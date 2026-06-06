@@ -10,13 +10,14 @@ import hashlib
 import hmac
 import ipaddress
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
 from app.core import config
 from app.services import supabase_service
+from app.services.logging_utils import error_type as safe_error_type, short_user_id
 
 
 logger = logging.getLogger("podpilot.billing")
@@ -24,6 +25,7 @@ logger = logging.getLogger("podpilot.billing")
 SUBSCRIPTION_TABLE = "subscriptions"
 UPLOAD_USAGE_TABLE = "upload_usage"
 TRIAL_USAGE_TABLE = "trial_usage"
+CHECKOUT_INTENT_TABLE = "paddle_checkout_intents"
 
 ACTIVE_UPLOAD_STATUSES = {"trialing", "active"}
 CANCELED_STATUS = "canceled"
@@ -64,6 +66,8 @@ TRIAL_ELIGIBLE = "eligible"
 TRIAL_ALREADY_USED = "trial_already_used"
 DEVICE_OR_NETWORK_TRIAL_USED = "device_or_network_trial_used"
 ACTIVE_SUBSCRIPTION_EXISTS = "active_subscription_exists"
+SUBSCRIPTION_HISTORY_EXISTS = "subscription_history_exists"
+CHECKOUT_INTENT_REUSE_MINUTES = 10
 
 
 def normalize_plan(plan: Optional[str]) -> str:
@@ -92,6 +96,14 @@ def _raise_supabase_error(action: str, error: Exception) -> None:
     ) from error
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _utc_now_iso() -> str:
+    return _utc_now().isoformat()
+
+
 def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -106,8 +118,67 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _table_missing(error: Exception, table: str) -> bool:
+    message = str(error).lower()
+    return (
+        table in message
+        and (
+            "does not exist" in message
+            or "42p01" in message
+            or "undefined_table" in message
+            or "could not find the table" in message
+            or "pgrst205" in message
+        )
+    )
+
+
+def _raise_checkout_intents_missing(error: Exception) -> None:
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "The paddle_checkout_intents table is missing. Run "
+            "docs/migration_paddle_checkout_intents.sql in Supabase first."
+        ),
+    ) from error
+
+
+def _raise_checkout_intent_error(action: str, error: Exception) -> None:
+    if _table_missing(error, CHECKOUT_INTENT_TABLE):
+        _raise_checkout_intents_missing(error)
+    _raise_supabase_error(action, error)
+
+
 def _as_iso(value: Any) -> Optional[str]:
     return str(value) if value else None
+
+
+def _is_recent_intent(row: dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    created = _parse_datetime(_as_iso(row.get("created_at")))
+    if created is None:
+        return False
+    return created >= (now or _utc_now()) - timedelta(minutes=CHECKOUT_INTENT_REUSE_MINUTES)
+
+
+def _checkout_idempotency_key(
+    *,
+    intent_type: str,
+    plan_key: Optional[str],
+    billing_interval: Optional[str],
+    credit_pack_id: Optional[str],
+    selected_price_id: str,
+    now: Optional[datetime] = None,
+) -> str:
+    window = CHECKOUT_INTENT_REUSE_MINUTES * 60
+    stamp = int((now or _utc_now()).timestamp()) // window
+    raw = "|".join([
+        str(intent_type or "").strip().lower(),
+        str(plan_key or "").strip().lower(),
+        str(billing_interval or "").strip().lower(),
+        str(credit_pack_id or "").strip().lower(),
+        str(selected_price_id or "").strip(),
+        str(stamp),
+    ])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _normalize_email(email: Optional[str]) -> str:
@@ -286,7 +357,7 @@ def _is_valid_paddle_subscription_row(row: dict[str, Any]) -> bool:
     return status in ACTIVE_UPLOAD_STATUSES and bool(_as_iso(row.get("paddle_subscription_id")))
 
 
-def get_user_subscription(user_id: str) -> Optional[dict[str, Any]]:
+def get_user_subscription_history(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
     try:
         response = (
             supabase_service.admin_client()
@@ -295,13 +366,18 @@ def get_user_subscription(user_id: str) -> Optional[dict[str, Any]]:
             .eq("user_id", user_id)
             .order("updated_at", desc=True)
             .order("created_at", desc=True)
-            .limit(20)
+            .limit(limit)
             .execute()
         )
     except Exception as error:
         _raise_supabase_error("reading subscription", error)
 
     rows = [dict(row) for row in list(response.data or [])]
+    return rows
+
+
+def get_user_subscription(user_id: str) -> Optional[dict[str, Any]]:
+    rows = get_user_subscription_history(user_id)
     if not rows:
         return None
 
@@ -310,6 +386,192 @@ def get_user_subscription(user_id: str) -> Optional[dict[str, Any]]:
         return sorted(valid_paddle_rows, key=_subscription_sort_value, reverse=True)[0]
 
     return rows[0]
+
+
+def get_checkout_intent(intent_id: Optional[str]) -> Optional[dict[str, Any]]:
+    intent_id = str(intent_id or "").strip()
+    if not intent_id:
+        return None
+    try:
+        response = (
+            supabase_service.admin_client()
+            .table(CHECKOUT_INTENT_TABLE)
+            .select("*")
+            .eq("id", intent_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        _raise_checkout_intent_error("reading checkout intent", error)
+    rows = [dict(row) for row in list(response.data or [])]
+    return rows[0] if rows else None
+
+
+def get_recent_checkout_intent(
+    *,
+    user_id: str,
+    intent_type: str,
+    plan_key: Optional[str],
+    billing_interval: Optional[str],
+    credit_pack_id: Optional[str],
+    selected_price_id: str,
+) -> Optional[dict[str, Any]]:
+    cutoff = _utc_now() - timedelta(minutes=CHECKOUT_INTENT_REUSE_MINUTES)
+    try:
+        query = (
+            supabase_service.admin_client()
+            .table(CHECKOUT_INTENT_TABLE)
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("intent_type", intent_type)
+            .eq("selected_price_id", selected_price_id)
+            .in_("status", ["pending", "opened"])
+            .gte("created_at", cutoff.isoformat())
+            .order("created_at", desc=True)
+            .limit(1)
+        )
+        if plan_key:
+            query = query.eq("plan_key", plan_key)
+        if billing_interval:
+            query = query.eq("billing_interval", billing_interval)
+        if credit_pack_id:
+            query = query.eq("credit_pack_id", credit_pack_id)
+        response = query.execute()
+    except Exception as error:
+        _raise_checkout_intent_error("reading recent checkout intent", error)
+    rows = [dict(row) for row in list(response.data or [])]
+    return rows[0] if rows else None
+
+
+def create_or_reuse_checkout_intent(
+    *,
+    user_id: str,
+    intent_type: str,
+    selected_price_id: str,
+    plan_key: Optional[str] = None,
+    billing_interval: Optional[str] = None,
+    credit_pack_id: Optional[str] = None,
+) -> tuple[dict[str, Any], bool]:
+    intent_type = str(intent_type or "").strip().lower()
+    selected_price_id = str(selected_price_id or "").strip()
+    plan_key = normalize_plan(plan_key) or None
+    billing_interval = str(billing_interval or "").strip().lower() or None
+    credit_pack_id = str(credit_pack_id or "").strip().lower() or None
+    if intent_type not in {"subscription", "ai_credits"}:
+        raise HTTPException(status_code=400, detail="Invalid checkout intent type.")
+    if not selected_price_id:
+        raise HTTPException(status_code=400, detail="Checkout price is missing.")
+
+    recent = get_recent_checkout_intent(
+        user_id=user_id,
+        intent_type=intent_type,
+        plan_key=plan_key,
+        billing_interval=billing_interval,
+        credit_pack_id=credit_pack_id,
+        selected_price_id=selected_price_id,
+    )
+    if recent:
+        return recent, True
+
+    key = _checkout_idempotency_key(
+        intent_type=intent_type,
+        plan_key=plan_key,
+        billing_interval=billing_interval,
+        credit_pack_id=credit_pack_id,
+        selected_price_id=selected_price_id,
+    )
+    now = _utc_now_iso()
+    payload = {
+        "user_id": user_id,
+        "intent_type": intent_type,
+        "plan_key": plan_key,
+        "billing_interval": billing_interval,
+        "credit_pack_id": credit_pack_id,
+        "selected_price_id": selected_price_id,
+        "status": "opened",
+        "idempotency_key": key,
+        "created_at": now,
+        "updated_at": now,
+    }
+    try:
+        response = (
+            supabase_service.admin_client()
+            .table(CHECKOUT_INTENT_TABLE)
+            .insert({k: v for k, v in payload.items() if v is not None})
+            .execute()
+        )
+        rows = [dict(row) for row in list(response.data or [])]
+        return (rows[0] if rows else payload), False
+    except Exception as error:
+        existing = None
+        try:
+            response = (
+                supabase_service.admin_client()
+                .table(CHECKOUT_INTENT_TABLE)
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("idempotency_key", key)
+                .limit(1)
+                .execute()
+            )
+            rows = [dict(row) for row in list(response.data or [])]
+            existing = rows[0] if rows else None
+        except Exception:
+            existing = None
+        if existing and str(existing.get("status") or "").lower() in {"pending", "opened"} and _is_recent_intent(existing):
+            return existing, True
+        if existing and str(existing.get("status") or "").lower() == "paid":
+            raise HTTPException(status_code=409, detail="This checkout has already been completed.")
+        _raise_checkout_intent_error("creating checkout intent", error)
+
+
+def mark_checkout_intent_paid(
+    *,
+    intent_id: str,
+    paddle_transaction_id: Optional[str] = None,
+    paddle_subscription_id: Optional[str] = None,
+) -> None:
+    update = {
+        "status": "paid",
+        "updated_at": _utc_now_iso(),
+    }
+    if paddle_transaction_id:
+        update["paddle_transaction_id"] = paddle_transaction_id
+    if paddle_subscription_id:
+        update["paddle_subscription_id"] = paddle_subscription_id
+    try:
+        (
+            supabase_service.admin_client()
+            .table(CHECKOUT_INTENT_TABLE)
+            .update(update)
+            .eq("id", intent_id)
+            .execute()
+        )
+    except Exception as error:
+        _raise_checkout_intent_error("marking checkout intent paid", error)
+
+
+def validate_checkout_intent_for_webhook(
+    *,
+    checkout_intent_id: Optional[str],
+    user_id: Optional[str],
+    selected_price_id: Optional[str],
+    intent_type: str,
+) -> tuple[bool, Optional[dict[str, Any]], str]:
+    intent = get_checkout_intent(checkout_intent_id)
+    if not intent:
+        return False, None, "missing_checkout_intent"
+    if str(intent.get("intent_type") or "").lower() != str(intent_type or "").lower():
+        return False, intent, "intent_type_mismatch"
+    if not user_id:
+        return False, intent, "missing_user_id"
+    if str(intent.get("user_id") or "") != str(user_id):
+        return False, intent, "user_mismatch"
+    if str(intent.get("selected_price_id") or "") != str(selected_price_id or ""):
+        return False, intent, "price_mismatch"
+    if str(intent.get("status") or "").lower() == "paid":
+        return False, intent, "already_paid"
+    return True, intent, "ok"
 
 
 def check_trial_eligibility(
@@ -325,13 +587,13 @@ def check_trial_eligibility(
     The frontend only displays this decision. The server matches multiple
     hashed signals and never returns or stores raw email/device/IP values.
     """
-    subscription = get_user_subscription(user_id)
+    subscription_rows = get_user_subscription_history(user_id)
+    subscription = subscription_rows[0] if subscription_rows else None
     status = str((subscription or {}).get("status") or "").lower()
     current_period_ends_at = _as_iso((subscription or {}).get("current_period_ends_at"))
     if subscription and _is_subscription_current(status, current_period_ends_at):
         return _trial_response(False, ACTIVE_SUBSCRIPTION_EXISTS)
 
-    allow_trial_again = _subscription_allow_trial_again(subscription)
     hashes = _trial_hashes(
         email=email,
         device_id=device_id,
@@ -340,15 +602,16 @@ def check_trial_eligibility(
     )
     paddle_customer_id = _as_iso((subscription or {}).get("paddle_customer_id"))
 
-    if allow_trial_again:
-        return _trial_response(True, TRIAL_ELIGIBLE)
-
     if _first_trial_usage_match("user_id", user_id):
         return _trial_response(False, TRIAL_ALREADY_USED)
     if _first_trial_usage_match("email_hash", hashes["email_hash"]):
         return _trial_response(False, TRIAL_ALREADY_USED)
     if paddle_customer_id and _first_trial_usage_match("paddle_customer_id", paddle_customer_id):
         return _trial_response(False, TRIAL_ALREADY_USED)
+
+    if subscription_rows:
+        return _trial_response(False, SUBSCRIPTION_HISTORY_EXISTS)
+
     if _subscription_used_trial(subscription):
         return _trial_response(False, TRIAL_ALREADY_USED)
     if paddle_customer_id and _subscription_used_trial(
@@ -463,7 +726,78 @@ def attach_paddle_customer_to_trial_usage(
                 "[Billing] trial_usage table missing; cannot attach Paddle customer id"
             )
             return
-        logger.warning("[Billing] failed to attach Paddle customer to trial usage: %s", error)
+        logger.warning("[Billing] failed to attach Paddle customer to trial usage error_type=%s", safe_error_type(error))
+
+
+def mark_trial_usage_from_paddle(
+    *,
+    user_id: Optional[str],
+    email: Optional[str],
+    paddle_customer_id: Optional[str],
+    plan_key: Optional[str] = None,
+) -> None:
+    """Best-effort webhook marker for trials created directly by Paddle.
+
+    Checkout should normally create a marker before the webhook arrives, but
+    webhooks are the durable subscription source of truth. If a trialing
+    subscription arrives without a pre-existing marker, create one scoped to
+    the authenticated user and/or Paddle customer id.
+    """
+    customer = _as_iso(paddle_customer_id)
+    email_hash: Optional[str] = None
+    try:
+        email_hash = _trial_hash(_normalize_email(email))
+    except Exception as error:
+        logger.warning(
+            "[Billing] could not hash email for Paddle trial marker user=%s error_type=%s",
+            short_user_id(user_id),
+            safe_error_type(error),
+        )
+
+    try:
+        existing = None
+        if user_id:
+            existing = _first_trial_usage_match("user_id", user_id)
+        if not existing and customer:
+            existing = _first_trial_usage_match("paddle_customer_id", customer)
+        if not existing and email_hash:
+            existing = _first_trial_usage_match("email_hash", email_hash)
+
+        if existing:
+            if customer and not existing.get("paddle_customer_id"):
+                (
+                    supabase_service.admin_client()
+                    .table(TRIAL_USAGE_TABLE)
+                    .update({"paddle_customer_id": customer})
+                    .eq("id", existing.get("id"))
+                    .execute()
+                )
+            return
+
+        if not (user_id or customer or email_hash):
+            return
+
+        payload = {
+            "user_id": user_id,
+            "email_hash": email_hash,
+            "paddle_customer_id": customer,
+            "plan_key": (plan_key or "").strip().lower() or None,
+        }
+        (
+            supabase_service.admin_client()
+            .table(TRIAL_USAGE_TABLE)
+            .insert({k: v for k, v in payload.items() if v is not None})
+            .execute()
+        )
+    except Exception as error:
+        if _trial_usage_table_missing(error):
+            logger.warning("[Billing] trial_usage table missing; cannot mark Paddle trial usage")
+            return
+        logger.warning(
+            "[Billing] failed to mark Paddle trial usage user=%s error_type=%s",
+            short_user_id(user_id),
+            safe_error_type(error),
+        )
 
 
 def get_user_monthly_usage(user_id: str) -> dict[str, Any]:
@@ -514,7 +848,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
 
     if not subscription:
         reason = "No active subscription found"
-        logger.info("[Billing] upload blocked user=%s reason=%s", user_id, reason)
+        logger.info("[Billing] upload blocked user=%s reason=%s", short_user_id(user_id), reason)
         return {
             "subscription_loaded": True,
             "has_subscription": False,
@@ -559,9 +893,9 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
 
     can_upload = reason is None
     if can_upload:
-        logger.info("[Billing] subscription access checked for user=%s", user_id)
+        logger.info("[Billing] subscription access checked user=%s status=%s plan=%s", short_user_id(user_id), status, plan or "(none)")
     else:
-        logger.info("[Billing] upload blocked user=%s reason=%s", user_id, reason)
+        logger.info("[Billing] upload blocked user=%s reason=%s", short_user_id(user_id), reason)
 
     is_active = _is_subscription_current(status, current_period_ends_at)
     trial_active = status == "trialing" and is_active
@@ -580,7 +914,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         usage = get_user_daily_ai_usage(user_id, day_key)
         daily_used = int(usage.get("used_count", 0))
     except Exception as e:
-        logger.warning("[Billing] Failed to fetch daily AI usage for subscription display, falling back: %s", e)
+        logger.warning("[Billing] failed to fetch daily AI usage for subscription display error_type=%s", safe_error_type(e))
         daily_used = 0
 
     daily_remaining = max(daily_limit - daily_used, 0)
@@ -656,7 +990,7 @@ def require_platform_access(user_id: str, marketplace: str) -> dict[str, Any]:
         detail = PLATFORM_LOCKED_DETAIL if access.get("has_active_plan") else SUBSCRIPTION_REQUIRED_DETAIL
         logger.info(
             "[Billing] platform locked user=%s marketplace=%s plan=%s",
-            user_id,
+            short_user_id(user_id),
             marketplace_key,
             access.get("plan") or "(none)",
         )
@@ -698,7 +1032,7 @@ def increment_upload_usage(user_id: str, amount: int = 1) -> dict[str, Any]:
 
     logger.info(
         "[Billing] upload usage incremented user=%s amount=%s",
-        user_id,
+        short_user_id(user_id),
         clamped_amount,
     )
     return get_subscription_access(user_id)
@@ -821,12 +1155,119 @@ def consume_ai_token_atomic(user_id: str) -> dict[str, Any]:
     consumed = dict(rows[0])
     logger.info(
         "[Billing] AI token consumed atomically user=%s source=%s remaining_daily=%s remaining_extra=%s",
-        user_id,
+        short_user_id(user_id),
         consumed.get("token_source"),
         consumed.get("remaining_daily"),
         consumed.get("remaining_extra"),
     )
     return consumed
+
+
+def reserve_ai_token(user_id: str) -> dict[str, Any]:
+    """Reserve one AI token before provider work starts.
+
+    This is intentionally a thin wrapper around the atomic consumption RPC:
+    the token is consumed up front, then refunded by
+    `refund_ai_token_reservation` if provider generation fails.
+    """
+    day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    reservation = consume_ai_token_atomic(user_id)
+    reservation["_reservation_day_key"] = day_key
+    logger.info(
+        "[Billing] AI token reserved user=%s source=%s remaining_daily=%s remaining_extra=%s",
+        short_user_id(user_id),
+        reservation.get("token_source"),
+        reservation.get("remaining_daily"),
+        reservation.get("remaining_extra"),
+    )
+    return reservation
+
+
+def refund_ai_token_reservation(user_id: str, reservation: dict[str, Any]) -> None:
+    """Refund a previously reserved AI token after provider failure.
+
+    The API permits only one active AI generation per user in this process, so
+    these read-modify-write refunds are not racing with another generation from
+    the same user on the same backend worker.
+    """
+    token_source = str((reservation or {}).get("token_source") or "").lower()
+    if token_source == "daily":
+        day_key = (
+            str((reservation or {}).get("_reservation_day_key") or "").strip()
+            or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        usage = get_user_daily_ai_usage(user_id, day_key)
+        current_used = int(usage.get("used_count", 0) or 0)
+        next_used = max(0, current_used - 1)
+        try:
+            if usage.get("_exists"):
+                query = (
+                    supabase_service.admin_client()
+                    .table("ai_usage")
+                    .update({
+                        "used_count": next_used,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    .eq("user_id", user_id)
+                    .eq("day_key", day_key)
+                )
+                if usage.get("id"):
+                    query = query.eq("id", usage["id"])
+                query.execute()
+            else:
+                logger.warning(
+                    "[Billing] AI token refund skipped missing daily usage row user=%s day_key=%s",
+                    short_user_id(user_id),
+                    day_key,
+                )
+                return
+        except Exception as error:
+            _raise_supabase_error("refunding daily AI token", error)
+
+        logger.info(
+            "[Billing] AI token refunded user=%s source=daily used_count=%d",
+            short_user_id(user_id),
+            next_used,
+        )
+        return
+
+    if token_source == "extra":
+        subscription = get_user_subscription(user_id)
+        if not subscription:
+            logger.warning(
+                "[Billing] AI token refund skipped missing subscription user=%s source=extra",
+                short_user_id(user_id),
+            )
+            return
+        current_tokens = int(subscription.get("ai_tokens", 0) or 0)
+        next_tokens = current_tokens + 1
+        try:
+            (
+                supabase_service.admin_client()
+                .table(SUBSCRIPTION_TABLE)
+                .update({
+                    "ai_tokens": next_tokens,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                .eq("id", subscription.get("id"))
+                .eq("user_id", user_id)
+                .execute()
+            )
+        except Exception as error:
+            _raise_supabase_error("refunding extra AI token", error)
+
+        logger.info(
+            "[Billing] AI token refunded user=%s source=extra remaining_extra=%d",
+            short_user_id(user_id),
+            next_tokens,
+        )
+        return
+
+    logger.warning(
+        "[Billing] AI token refund skipped unknown source user=%s source=%s",
+        short_user_id(user_id),
+        token_source or "(none)",
+    )
 
 
 def commit_ai_token_consumption(user_id: str, token_source: str) -> None:
@@ -876,7 +1317,7 @@ def commit_ai_token_consumption(user_id: str, token_source: str) -> None:
             
         logger.info(
             "[Billing] daily AI token consumed user=%s new_used_count=%d",
-            user_id,
+            short_user_id(user_id),
             next_count,
         )
 
@@ -906,6 +1347,6 @@ def commit_ai_token_consumption(user_id: str, token_source: str) -> None:
             
         logger.info(
             "[Billing] extra AI token consumed user=%s remaining_extra=%d",
-            user_id,
+            short_user_id(user_id),
             new_tokens,
         )

@@ -6,7 +6,9 @@ from typing import Any
 
 from PIL import Image
 
+from app.core.config import DEBUG
 from app.services import r2_service, supabase_service
+from app.services.logging_utils import error_type, safe_r2_key, short_id, short_user_id
 
 logger = logging.getLogger("podpilot.image_preview")
 
@@ -48,7 +50,7 @@ def generate_preview_bytes(image_bytes: bytes, max_side: int = 1024) -> tuple[by
                 working.save(out_io, format="WEBP", quality=80)
                 return out_io.getvalue(), "webp", "image/webp"
             except Exception as webp_err:
-                logger.warning("WebP save failed, trying JPEG fallback: %s", webp_err)
+                logger.warning("WebP save failed, trying JPEG fallback error_type=%s", error_type(webp_err))
                 
                 out_io = io.BytesIO()
                 if img_resized.mode in ("RGBA", "LA") or (img_resized.mode == "P" and "transparency" in img_resized.info):
@@ -89,7 +91,12 @@ async def ensure_ai_preview_for_design(user_id: str, design: dict[str, Any]) -> 
             url = r2_service.signed_get_url(preview_key)
             return url, "ai_preview", False
         except Exception as e:
-            logger.error("Failed to sign existing preview key %s: %s", preview_key, e)
+            logger.warning(
+                "ai_preview_sign_failed design_id=%s key=%s error_type=%s",
+                short_id(design_id),
+                safe_r2_key(preview_key),
+                error_type(e),
+            )
 
     # 2. If no original image, fallback directly
     if not image_key:
@@ -98,7 +105,12 @@ async def ensure_ai_preview_for_design(user_id: str, design: dict[str, Any]) -> 
     start_time = time.perf_counter()
     try:
         # Download original design image
-        logger.info("Lazy preview generation: downloading original R2 key: %s", image_key)
+        logger.info(
+            "ai_preview_generation_started user=%s design_id=%s source_key=%s",
+            short_user_id(user_id),
+            short_id(design_id),
+            safe_r2_key(image_key),
+        )
         original_bytes = r2_service.get_object_bytes(image_key)
         
         # Compress and format
@@ -106,12 +118,18 @@ async def ensure_ai_preview_for_design(user_id: str, design: dict[str, Any]) -> 
         
         # Upload preview separately to R2
         target_preview_key = f"users/{user_id}/previews/{design_id}.{ext}"
-        logger.info("Uploading compressed preview to key: %s (%d bytes)", target_preview_key, len(preview_bytes))
+        logger.info(
+            "ai_preview_upload_started user=%s design_id=%s target_key=%s bytes=%d",
+            short_user_id(user_id),
+            short_id(design_id),
+            safe_r2_key(target_preview_key),
+            len(preview_bytes),
+        )
         r2_service.upload_bytes(target_preview_key, preview_bytes, content_type=mime_type)
         
         # Save key to database if column is supported
         if supabase_service._probe_ai_preview_column():
-            logger.info("Saving ai_preview_r2_key to Supabase designs table for design_id=%s", design_id)
+            logger.info("ai_preview_cache_update design_id=%s", short_id(design_id))
             supabase_service.update_design(
                 design_id=design_id,
                 user_id=user_id,
@@ -120,14 +138,29 @@ async def ensure_ai_preview_for_design(user_id: str, design: dict[str, Any]) -> 
             
         url = r2_service.signed_get_url(target_preview_key)
         generation_ms = int((time.perf_counter() - start_time) * 1000)
-        logger.info("[AI TIMING] preview_generation_ms=%d image_source=ai_preview", generation_ms)
+        logger.info(
+            "ai_preview_generation_succeeded design_id=%s duration_ms=%d image_source=ai_preview",
+            short_id(design_id),
+            generation_ms,
+        )
         return url, "ai_preview", True
     except Exception as e:
-        logger.exception("Failed to lazily generate preview for design %s: %s", design_id, e)
+        logger.warning(
+            "ai_preview_generation_failed design_id=%s error_type=%s",
+            short_id(design_id),
+            error_type(e),
+            exc_info=DEBUG,
+        )
         # Bounding fallback to original image signed URL
         try:
             url = r2_service.signed_get_url(image_key)
             return url, "original_fallback", False
         except Exception as sign_err:
-            logger.exception("Failed to sign original fallback key %s: %s", image_key, sign_err)
+            logger.warning(
+                "ai_preview_fallback_sign_failed design_id=%s key=%s error_type=%s",
+                short_id(design_id),
+                safe_r2_key(image_key),
+                error_type(sign_err),
+                exc_info=DEBUG,
+            )
             return "", "original_fallback", False

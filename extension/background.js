@@ -62,6 +62,14 @@ const DEFAULT_STATE = {
   processingStartedForCurrentDesign: false,
   imageInjectedForCurrentDesign: false,
   hasNavigatedForCurrentDesign: false,
+  prefetchedDesignId: null,
+  prefetchedReady: false,
+  prefetchError: "",
+  prefetchStartedAt: "",
+  awaitingPublishRedirect: false,
+  publishClickedForDesignId: null,
+  publishClickedAt: null,
+  stoppedByUser: false,
   successCount: 0,
   failedCount: 0
 };
@@ -185,7 +193,6 @@ async function notifyUploadComplete({ marketplace, summary, jobId }) {
 
 async function broadcastQueueComplete() {
   if (queueCompletionFired) return;
-  queueCompletionFired = true;
 
   const state = await getQueueState();
   const queue = Array.isArray(state.queue) ? state.queue : [];
@@ -195,6 +202,23 @@ async function broadcastQueueComplete() {
   const successRate = total === 0 ? 0 : Math.round((success / total) * 100);
   const finishedAt = new Date().toISOString();
   const marketplace = queue[0]?.marketplace || state.marketplace || "redbubble";
+  if (marketplace === "teepublic") {
+    const completedDesignIds = normalizeIdMap(state.completedDesignIds);
+    const failedDesignIds = normalizeIdMap(state.failedDesignIds);
+    const terminalHandled = normalizeIdMap(state.terminalHandled);
+    const hasNonTerminalDesign = queue.some((design) => {
+      const designId = getTpDesignId(design);
+      return designId && !completedDesignIds[designId] && !failedDesignIds[designId] && !terminalHandled[designId];
+    });
+    if (state.currentIndex < total || hasNonTerminalDesign) {
+      debugLog("[TP Batch] completion ignored because terminal results are incomplete", {
+        currentIndex: state.currentIndex,
+        total,
+      });
+      return;
+    }
+  }
+  queueCompletionFired = true;
   const summary = {
     total,
     success,
@@ -204,11 +228,20 @@ async function broadcastQueueComplete() {
     marketplace,
   };
 
+  if (marketplace === "teepublic") {
+    debugLog("[TP Batch] queue completed after terminal results only");
+    debugLog(`[TP Batch] queue completed total=${total}`);
+  }
   debugLog("[PodPilot] queue_complete broadcast:", summary);
 
   await setQueueState({
-    status: "idle",
+    status: marketplace === "teepublic" ? "completed" : "idle",
     lastCompletion: summary,
+    stoppedByUser: false,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
+    ...(marketplace === "teepublic" ? buildClearedTpPerDesignState() : {}),
     updatedAt: finishedAt
   });
 
@@ -430,11 +463,24 @@ async function handleControlMessage(message, sender = null) {
       return { ok: true };
 
     case "tp_upload_stage":
-      await setTpUploadState({
-        ...(message.state || {}),
-        stage: message.stage,
-        imageInjected: message.imageInjected,
-      });
+      {
+        const stageState = {
+          ...(message.state || {}),
+          stage: message.stage,
+          imageInjected: message.imageInjected,
+        };
+        await setTpUploadState(stageState);
+        if (stageState.awaitingPublishRedirect !== undefined ||
+            stageState.publishClickedForDesignId !== undefined ||
+            stageState.publishClickedAt !== undefined) {
+          await setQueueState({
+            awaitingPublishRedirect: stageState.awaitingPublishRedirect === true,
+            publishClickedForDesignId: stageState.publishClickedForDesignId || null,
+            publishClickedAt: Number.isFinite(Number(stageState.publishClickedAt)) ? Number(stageState.publishClickedAt) : null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
       return { ok: true };
 
     case "start_queue":
@@ -507,6 +553,25 @@ async function handleControlMessage(message, sender = null) {
       await handleUploadResult(message);
       return { ok: true };
 
+    case "tp_publish_success":
+      {
+        const designId = String(message.design_id || message.designId || "").trim();
+        const tpState = await getTpUploadState();
+        const queueState = await getQueueState();
+        if (!["starting", "running", "paused"].includes(queueState.status) ||
+            !isTpAwaitingPublishRedirect(tpState, designId)) {
+          debugLog("[TP Success] edit page ignored because no pending publish redirect");
+          return { ok: true, ignored: true };
+        }
+        debugLog(`[TP Success] redirect detected with pending publish design_id=${designId}`);
+        return handleTeePublicTerminalResult(
+          designId,
+          "success",
+          message.reason || "redirect_detected",
+          { publishedUrl: message.published_url || message.url || "" }
+        );
+      }
+
     case "stage_update":
       await appendProgressLog(message.design_id, {
         stage: message.stage,
@@ -522,6 +587,15 @@ async function handleControlMessage(message, sender = null) {
 
     case "fetch_redbubble_image":
       return fetchRedbubbleImage(message);
+
+    case "prefetchTeePublicImage":
+      return prefetchTeePublicImage(message);
+
+    case "getPrefetchedTeePublicImage":
+      return getPrefetchedTeePublicImage(message);
+
+    case "clearPrefetchedTeePublicImage":
+      return clearPrefetchedTeePublicImage(message);
 
     default:
       return { ok: false, error: `Unknown action: ${message.action}` };
@@ -855,10 +929,95 @@ async function createUploadJobForQueue(marketplace, queue) {
   }
 }
 
+async function createPreparedUploadSessionForQueue(marketplace, designs) {
+  if (marketplace !== "teepublic") {
+    return { sessionId: "", designs };
+  }
+
+  const originalById = new Map();
+  const designIds = [];
+  designs.forEach((design, index) => {
+    const designId = getDesignId(design, index);
+    if (!designId) return;
+    originalById.set(String(designId), design);
+    designIds.push(String(designId));
+  });
+
+  if (!designIds.length) {
+    return { sessionId: "", designs };
+  }
+
+  try {
+    const response = await self.PodPilotAuth.apiFetch("/api/upload-sessions/teepublic", {
+      method: "POST",
+      body: JSON.stringify({ design_ids: designIds }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(detail || `upload session failed with ${response.status}`);
+    }
+
+    const data = await response.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (!items.length) {
+      return { sessionId: String(data?.session_id || ""), designs };
+    }
+
+    const preparedById = new Map();
+    items.forEach((item) => {
+      const itemId = String(item.design_id || item.id || "").trim();
+      if (!itemId) return;
+      const original = originalById.get(itemId) || {};
+      preparedById.set(itemId, {
+        ...original,
+        ...item,
+        id: itemId,
+        design_id: itemId,
+        image_url: item.image_url || item.upload_url || original.image_url || "",
+        upload_url: item.upload_url || item.image_url || original.upload_url || original.image_url || "",
+        image_r2_key: item.image_r2_key || item.image_key || original.image_r2_key || "",
+        image_key: item.image_key || item.image_r2_key || original.image_key || "",
+        mime_type: item.mime_type || original.mime_type || "",
+        upload_ready: item.upload_ready === true,
+        prepared_queue: true,
+        upload_session_id: data?.session_id || "",
+      });
+    });
+
+    const preparedDesigns = designIds.map((designId) => preparedById.get(designId) || originalById.get(designId)).filter(Boolean);
+    const notReady = preparedDesigns
+      .filter((design) => design?.upload_ready !== true)
+      .map((design) => design?.id || design?.design_id || design?.filename || "unknown");
+    if (notReady.length) {
+      debugLog(`[TP Backend] upload session returned items still preparing: ${notReady.join(", ")}`);
+    }
+
+    debugLog("[TP Backend] upload session prepared", {
+      sessionId: data?.session_id || "",
+      total: preparedDesigns.length,
+    });
+    return { sessionId: String(data?.session_id || ""), designs: preparedDesigns };
+  } catch (error) {
+    if (error instanceof self.PodPilotAuth.ApiAuthError) {
+      try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
+      throw new Error("Session expired. Please sign in again.");
+    }
+    console.warn("[TP Backend] upload session preparation failed:", error?.message || error);
+    return { sessionId: "", designs };
+  }
+}
+
 async function startQueueInstant(message) {
   const startedAt = Date.now();
   const marketplace = message.marketplace || "redbubble";
   if (marketplace === "teepublic") {
+    const existingQueueState = await getQueueState();
+    if (hasActiveTeePublicBatch(existingQueueState)) {
+      debugLog("[TP Batch] active batch exists, not resetting currentIndex");
+      if (existingQueueState.status === "running") processTpNext();
+      return { ok: true, alreadyRunning: true, state: existingQueueState };
+    }
     const tpState = await getTpUploadState();
     const storedTabIsPublished = await isStoredTpTabOnPublishedPage(tpState);
     if (TP_TERMINAL_STAGES.has(tpState?.stage) || storedTabIsPublished) {
@@ -909,15 +1068,23 @@ async function startQueueInstant(message) {
     throw new Error(message);
   }
 
-  debugLog("[PodPilot] Starting upload", { marketplace, selected: rawDesigns.length });
+  let queueSourceDesigns = rawDesigns;
+  let uploadSessionId = "";
+  if (marketplace === "teepublic") {
+    const session = await createPreparedUploadSessionForQueue(marketplace, rawDesigns);
+    queueSourceDesigns = session.designs;
+    uploadSessionId = session.sessionId;
+  }
+
+  debugLog("[PodPilot] Starting upload", { marketplace, selected: queueSourceDesigns.length });
 
   const normalizeTimer = debugTimerStart("queue/designs normalize duration", {
     marketplace,
-    selectedCount: rawDesigns.length,
+    selectedCount: queueSourceDesigns.length,
   });
   const queue = marketplace === "teepublic"
-    ? rawDesigns.map((design, index) => normalizeTpQueueDesign(design, index))
-    : rawDesigns.map((design, index) => normalizeQueueDesign(design, index));
+    ? queueSourceDesigns.map((design, index) => normalizeTpQueueDesign(design, index))
+    : queueSourceDesigns.map((design, index) => normalizeQueueDesign(design, index));
   debugTimerEnd(normalizeTimer, { queuedCount: queue.length });
 
   const invalid = marketplace === "teepublic"
@@ -936,8 +1103,8 @@ async function startQueueInstant(message) {
     primeTpImagePayload(queue[0]);
   }
 
-  const jobId = "job-" + Date.now();
-  const initialUrl = marketplace === "teepublic" ? TP_UPLOAD_URL : getDuplicateUrl(queue[0].copy_link);
+  const jobId = uploadSessionId || "job-" + Date.now();
+  const initialUrl = marketplace === "teepublic" ? buildTpUploadUrl(queue[0]?.id || queue[0]?.design_id || "") : getDuplicateUrl(queue[0].copy_link);
   if (marketplace === "teepublic") {
     await setTpUploadState({
       active: true,
@@ -947,6 +1114,9 @@ async function startQueueInstant(message) {
       currentIndex: 0,
       stage: "navigating",
       imageInjected: false,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
       startedAt: new Date().toISOString(),
     });
   }
@@ -960,6 +1130,16 @@ async function startQueueInstant(message) {
     uploadTabMarketplace: marketplace,
     updatedAt: new Date().toISOString(),
     currentJobId: jobId,
+    completedDesignIds: {},
+    failedDesignIds: {},
+    terminalHandled: {},
+    prefetchedDesignId: null,
+    prefetchedReady: false,
+    prefetchError: "",
+    prefetchStartedAt: "",
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
   });
 
   debugLog("[PodPilot] Queue prepared", {
@@ -992,7 +1172,9 @@ async function startQueueInstant(message) {
   preferredUploadTab = { id: tab.id, marketplace, designId: queue[0]?.id || queue[0]?.design_id || "" };
 
   try {
-    await createUploadJobForQueue(marketplace, queue);
+    if (!(marketplace === "teepublic" && uploadSessionId)) {
+      await createUploadJobForQueue(marketplace, queue);
+    }
     const access = await verifyUploadAccessBeforeQueue();
     if (!access.ok) {
       preferredUploadTab = null;
@@ -1154,6 +1336,10 @@ function normalizeQueueDesign(design, index) {
     preview_url: String(design.thumbnail_url || design.image_url || "").trim(),
     thumbnail_url: String(design.thumbnail_url || "").trim(),
     image_r2_key: String(design.image_r2_key || "").trim(),
+    image_key: String(design.image_key || design.image_r2_key || "").trim(),
+    mime_type: String(design.mime_type || "image/png").trim(),
+    upload_ready: design.upload_ready === true,
+    prepared_queue: design.prepared_queue === true,
     title: String(design.title || "").trim(),
     description: String(design.description || "").trim(),
     main_tag: String(design.main_tag || design.primary_tag || "").trim(),
@@ -1230,9 +1416,7 @@ async function startExistingQueue() {
 async function stopQueue() {
   const state = await getQueueState();
   preferredUploadTab = null;
-  if ((state.marketplace || state.queue[0]?.marketplace) === "teepublic") {
-    await clearTpUploadState();
-  }
+  const isTeePublicQueue = (state.marketplace || state.queue[0]?.marketplace) === "teepublic";
   const queue = state.queue.map((design, index) =>
     index >= state.currentIndex && ["pending", "uploading"].includes(design.status)
       ? { ...design, status: "error", error: "Stopped by user" }
@@ -1246,13 +1430,34 @@ async function stopQueue() {
 
   await setQueueState({
     queue,
-    status: "idle",
+    status: isTeePublicQueue ? "stopped" : "idle",
     uploadTabId: null,
     uploadTabMarketplace: "",
     lastError: "Queue stopped by user",
+    stoppedByUser: true,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
+    ...buildClearedTpPerDesignState(),
     updatedAt: new Date().toISOString()
   });
+  if (isTeePublicQueue) {
+    debugLog("[TP Batch] stopped by user, no resume");
+    await setTpUploadState({
+      active: false,
+      stage: "stopped",
+      stoppedByUser: true,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
+      imageInjected: false,
+      ...buildClearedTpPerDesignState(),
+    }).catch(() => {});
+    teePublicPrefetchCache.clear();
+    teePublicPrefetchPromises.clear();
+  }
   isProcessing = false;
+  tpIsProcessing = false;
   return { ok: true, state: await getQueueState() };
 }
 
@@ -1474,6 +1679,9 @@ async function uploadDesign(design) {
  * reached (rare, e.g. quick offline blip).
  */
 async function resolveSignedImageUrl(design) {
+  if ((design?.prepared_queue === true || design?.upload_ready === true) && (design?.upload_url || design?.image_url)) {
+    return design.upload_url || design.image_url;
+  }
   if (!design?.id) {
     if (design?.upload_url || design?.image_url) return design.upload_url || design.image_url;
     throw new Error("inject_image: Design has no id and no image_url.");
@@ -1546,7 +1754,13 @@ async function fetchImageAsBase64(imageUrl) {
   })();
   const filename = urlPath.split("/").pop() || "image.png";
 
-  return { base64, mimeType, filename };
+  return {
+    base64,
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    mimeType,
+    filename,
+    blobSize: arrayBuffer.byteLength,
+  };
 }
 
 function getDuplicateUrl(copyLink) {
@@ -1614,7 +1828,40 @@ async function postDesignStatus(designId, payload) {
   return null;
 }
 
+async function postUploadSessionItemStatus(sessionId, designId, status, errorMessage = "") {
+  const cleanSessionId = String(sessionId || "").trim();
+  const cleanDesignId = String(designId || "").trim();
+  if (!cleanSessionId || !cleanDesignId || cleanSessionId.startsWith("job-")) return null;
+  if (!self.PodPilotAuth) return null;
+
+  try {
+    const response = await self.PodPilotAuth.apiFetch(
+      `/api/upload-sessions/${encodeURIComponent(cleanSessionId)}/items/${encodeURIComponent(cleanDesignId)}/status`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status,
+          error_message: errorMessage || "",
+        }),
+      }
+    );
+    if (response.ok) return await response.json();
+    if (response.status !== 404) {
+      console.warn("[TP Backend] upload session status rejected:", response.status);
+    }
+  } catch (error) {
+    if (error instanceof self.PodPilotAuth.ApiAuthError) {
+      try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
+      return null;
+    }
+    console.warn("[TP Backend] upload session status failed:", error?.message || error);
+  }
+  return null;
+}
+
 async function handleUploadResult(message) {
+  const state = await getQueueState();
+  const marketplace = state.marketplace || state.queue[0]?.marketplace;
   if (message && message.design_id !== undefined) {
     if (message.status === "success") {
       try {
@@ -1647,6 +1894,15 @@ async function handleUploadResult(message) {
         error_message: message.error_message || message.error || undefined,
       }).catch(() => {});
     }
+  }
+
+  if (marketplace === "teepublic" && message?.status === "success") {
+    await handleTeePublicTerminalResult(
+      message.design_id,
+      "success",
+      message.reason || "upload_result",
+      { publishedUrl: message.published_url || "" }
+    );
   }
 
   if (!resultWaiter) return;
@@ -1917,6 +2173,14 @@ async function getQueueState() {
     processingStartedForCurrentDesign: stored.processingStartedForCurrentDesign === true,
     imageInjectedForCurrentDesign: stored.imageInjectedForCurrentDesign === true,
     hasNavigatedForCurrentDesign: stored.hasNavigatedForCurrentDesign === true,
+    prefetchedDesignId: stored.prefetchedDesignId || null,
+    prefetchedReady: stored.prefetchedReady === true,
+    prefetchError: stored.prefetchError || "",
+    prefetchStartedAt: stored.prefetchStartedAt || "",
+    awaitingPublishRedirect: stored.awaitingPublishRedirect === true,
+    publishClickedForDesignId: stored.publishClickedForDesignId || null,
+    publishClickedAt: Number.isFinite(Number(stored.publishClickedAt)) ? Number(stored.publishClickedAt) : null,
+    stoppedByUser: stored.stoppedByUser === true,
     successCount: Number.isInteger(stored.successCount) ? stored.successCount : 0,
     failedCount: Number.isInteger(stored.failedCount) ? stored.failedCount : 0
   };
@@ -1953,6 +2217,160 @@ function buildClearedTpPerDesignState() {
   };
 }
 
+function hasActiveTeePublicBatch(state) {
+  const marketplace = state.marketplace || state.queue[0]?.marketplace;
+  return marketplace === "teepublic" &&
+    Array.isArray(state.queue) &&
+    state.queue.length > 0 &&
+    ["starting", "running", "paused"].includes(state.status) &&
+    state.stoppedByUser !== true;
+}
+
+function findTpDesignIndex(queue, designId) {
+  const id = String(designId || "").trim();
+  return queue.findIndex((design) => getTpDesignId(design) === id);
+}
+
+async function handleTeePublicTerminalResult(designId, status = "success", reason = "unknown", details = {}) {
+  const id = String(designId || "").trim();
+  if (!id) return { ok: false, error: "Missing TeePublic design id." };
+
+  const latest = await getQueueState();
+  const marketplace = latest.marketplace || latest.queue[0]?.marketplace;
+  if (marketplace !== "teepublic") {
+    return { ok: false, error: "No active TeePublic queue." };
+  }
+
+  const terminalHandled = normalizeIdMap(latest.terminalHandled);
+  if (terminalHandled[id]) {
+    debugLog(`[TP Terminal] duplicate ignored design_id=${id}`);
+    return { ok: true, duplicate: true, state: latest };
+  }
+
+  debugLog(`[TP Terminal] handling ${status} design_id=${id}`);
+  const completedDesignIds = normalizeIdMap(latest.completedDesignIds);
+  const failedDesignIds = normalizeIdMap(latest.failedDesignIds);
+  const designIndex = findTpDesignIndex(latest.queue, id);
+  const currentDesign = designIndex >= 0 ? latest.queue[designIndex] : null;
+  const nextIndex = Math.max(latest.currentIndex, (designIndex >= 0 ? designIndex : latest.currentIndex) + 1);
+  const now = new Date().toISOString();
+  const isSuccess = status === "success";
+
+  if (isSuccess) {
+    completedDesignIds[id] = true;
+    terminalHandled[id] = "success";
+  } else {
+    failedDesignIds[id] = true;
+    terminalHandled[id] = "failed";
+  }
+
+  const queue = latest.queue.map((queuedDesign) => {
+    if (getTpDesignId(queuedDesign) !== id) return queuedDesign;
+    return isSuccess
+      ? {
+          ...queuedDesign,
+          status: "done",
+          error: "",
+          published_url: details.publishedUrl || queuedDesign.published_url || "",
+          finishedAt: now,
+        }
+      : {
+          ...queuedDesign,
+          status: "error",
+          error: reason || "Upload failed",
+          finishedAt: now,
+        };
+  });
+
+  await setQueueState({
+    queue,
+    completedDesignIds,
+    failedDesignIds,
+    terminalHandled,
+    successCount: isSuccess ? (latest.successCount || 0) + 1 : latest.successCount,
+    failedCount: isSuccess ? latest.failedCount : (latest.failedCount || 0) + 1,
+    currentIndex: nextIndex,
+    lastError: isSuccess ? "" : (reason || "Upload failed"),
+    stoppedByUser: false,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
+    updatedAt: now,
+    ...buildClearedTpPerDesignState(),
+  });
+
+  await setTpUploadState({
+    active: true,
+    designId: id,
+    currentIndex: nextIndex,
+    stage: isSuccess ? "done" : "error",
+    publishClicked: isSuccess ? true : undefined,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
+    imageInjected: false,
+    processingDesignId: null,
+    currentDesignId: null,
+    processingStartedForCurrentDesign: false,
+    completedDesignIds,
+    failedDesignIds,
+    terminalHandled,
+  }).catch(() => {});
+
+  debugLog(`[TP Terminal] saved currentIndex=${nextIndex}`);
+  if (isSuccess) {
+    try {
+      await self.PodPilotAuth.incrementUploadUsage(1);
+    } catch (billingError) {
+      console.warn("[Billing] failed to increment usage:", billingError?.message || billingError);
+    }
+    postDesignStatus(id, { status: "uploaded" }).catch(() => {});
+    postUploadSessionItemStatus(
+      currentDesign?.upload_session_id || latest.currentJobId,
+      id,
+      "uploaded"
+    ).catch(() => {});
+  } else {
+    postDesignStatus(id, {
+      status: "failed",
+      error_message: reason || "Upload failed",
+    }).catch(() => {});
+    postUploadSessionItemStatus(
+      currentDesign?.upload_session_id || latest.currentJobId,
+      id,
+      "failed",
+      reason || "Upload failed"
+    ).catch(() => {});
+  }
+  trimTpPrefetchCache(await getQueueState(), nextIndex);
+
+  if (nextIndex >= latest.queue.length) {
+    await setTpUploadState({
+      active: false,
+      designId: id,
+      currentIndex: nextIndex,
+      stage: "done",
+      publishClicked: true,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
+      imageInjected: false,
+      ...buildClearedTpPerDesignState(),
+      completedDesignIds,
+      failedDesignIds,
+      terminalHandled,
+    }).catch(() => {});
+    teePublicPrefetchCache.clear();
+    teePublicPrefetchPromises.clear();
+    await broadcastQueueComplete();
+  } else if (latest.status === "running") {
+    debugLog(`[TP Batch] moving to next index=${nextIndex}`);
+    processTpNext();
+  }
+
+  return { ok: true, state: await getQueueState() };
+}
+
 
 
 async function updateDesignAt(index, patch) {
@@ -1972,7 +2390,9 @@ function delay(ms) {
 const TP_UPLOAD_URL = "https://www.teepublic.com/design/quick_create?auto=1";
 const TP_TAB_LOAD_TIMEOUT_MS = 60000;
 const TP_CONTENT_TIMEOUT_MS = 300000; // 5 min per design (image upload can be slow)
+const TP_PUBLISH_REDIRECT_TIMEOUT_MS = 5 * 60 * 1000;
 const TP_UPLOAD_STATE_KEY = "podpilot_teepublic_upload_state";
+const TP_PREFETCH_LOOKAHEAD = 1;
 const TP_NAV_LOCK_STAGES = new Set([
   "injecting_image",
   "image_injected",
@@ -1990,6 +2410,8 @@ const TP_TERMINAL_STAGES = new Set([
 let tpIsProcessing = false;
 let tpTabReadyResolver = null;
 const tpImagePayloadPromises = new Map();
+const teePublicPrefetchCache = new Map();
+const teePublicPrefetchPromises = new Map();
 
 async function getTpUploadState() {
   const stored = await chrome.storage.local.get({ [TP_UPLOAD_STATE_KEY]: null });
@@ -2084,6 +2506,98 @@ function isTpPublishedUrl(url) {
   }
 }
 
+function isTpUploadPageUrl(url) {
+  try {
+    const parsed = new URL(url || "");
+    if (!/(\.|^)teepublic\.com$/i.test(parsed.hostname)) return false;
+    return parsed.pathname.includes("/design/quick_create") ||
+      parsed.pathname.includes("/design/new") ||
+      /^\/designs\/[^/]+\/edit\/?$/.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function buildTpUploadUrl(designId = "") {
+  const url = new URL(TP_UPLOAD_URL);
+  url.searchParams.set("upload_continue", String(Date.now()));
+  if (designId) url.searchParams.set("design_id", String(designId));
+  return url.toString();
+}
+
+async function prepareTpContentForNavigation(tabId) {
+  if (!tabId) return;
+  await new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { action: "tp_prepare_navigation" }, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+async function waitForTpUploadFormAfterNavigation(tabId, timeoutMs = 30000) {
+  const start = Date.now();
+  let lastUrl = "";
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      lastUrl = tab?.url || lastUrl;
+    } catch (_) {}
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { action: "tp_upload_page_ready" }, (reply) => {
+          if (chrome.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          resolve(reply);
+        });
+      });
+      if (response?.ok && response.ready) {
+        return {
+          ok: true,
+          url: lastUrl,
+          fileInputReady: response.fileInputReady === true,
+          titleReady: response.titleReady === true,
+        };
+      }
+    } catch (_) {}
+    if (isTpUploadPageUrl(lastUrl)) return { ok: true, url: lastUrl };
+    await delay(200);
+  }
+  throw new Error(`TeePublic upload form was not ready after navigation. Current URL: ${safeUrlForLog(lastUrl) || "unknown"}`);
+}
+
+function isTpDesignEditUrl(url) {
+  try {
+    const parsed = new URL(url || "");
+    if (!/(\.|^)teepublic\.com$/i.test(parsed.hostname)) return false;
+    return /^\/designs\/[^/]+\/edit\/?$/.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTpPublishSuccessUrl(url) {
+  if (!url) return false;
+  return isTpPublishedUrl(url) ||
+    /teepublic\.com\/account\/uploads\/active/i.test(String(url));
+}
+
+function isTpAwaitingPublishRedirect(state, designId, nowMs = Date.now()) {
+  const id = String(designId || "").trim();
+  const publishDesignId = String(state?.publishClickedForDesignId || "").trim();
+  if (!state?.active) return false;
+  if (state.awaitingPublishRedirect !== true) return false;
+  if (!id || !publishDesignId || publishDesignId !== id) return false;
+  const processingId = String(state.processingDesignId || "").trim();
+  const currentId = String(state.currentDesignId || state.designId || "").trim();
+  if (publishDesignId !== processingId && publishDesignId !== currentId) return false;
+  const clickedAt = Number(state.publishClickedAt || 0);
+  if (!Number.isFinite(clickedAt) || clickedAt <= 0) return false;
+  return nowMs - clickedAt <= TP_PUBLISH_REDIRECT_TIMEOUT_MS;
+}
+
 async function isStoredTpTabOnPublishedPage(state) {
   const tabId = state?.uploadTabId || (await getQueueState()).uploadTabId;
   if (!tabId) return false;
@@ -2129,12 +2643,277 @@ async function prepareTpImagePayload(design) {
   return imagePayload;
 }
 
+function normalizeTpPrefetchPayload(designId, payload, filename = "") {
+  if (!payload) return null;
+  const mimeType = payload.mimeType || "image/png";
+  const base64 = payload.base64 || String(payload.dataUrl || "").split(",")[1] || "";
+  return {
+    designId,
+    base64,
+    dataUrl: payload.dataUrl || `data:${mimeType};base64,${base64}`,
+    filename: filename || payload.filename || "design.png",
+    mimeType,
+    blobSize: payload.blobSize || 0,
+    readyAt: payload.readyAt || new Date().toISOString(),
+    prefetched: true,
+  };
+}
+
+async function setTpPrefetchMetadata(partialState = {}) {
+  const patch = {
+    prefetchedDesignId: partialState.prefetchedDesignId || null,
+    prefetchedReady: partialState.prefetchedReady === true,
+    prefetchError: partialState.prefetchError || "",
+    prefetchStartedAt: partialState.prefetchStartedAt || "",
+    updatedAt: new Date().toISOString(),
+  };
+  await setQueueState(patch);
+  await setTpUploadState(patch).catch(() => {});
+}
+
+async function prefetchTeePublicImage(message = {}) {
+  const designId = String(message.designId || message.design_id || "").trim();
+  const imageUrl = String(message.imageUrl || message.image_url || "").trim();
+  const filename = String(message.filename || "design.png").trim() || "design.png";
+
+  if (!designId) return { ok: false, error: "Missing TeePublic design id." };
+  if (!imageUrl) return { ok: false, error: "Missing TeePublic image URL." };
+
+  const cached = teePublicPrefetchCache.get(designId);
+  if (cached?.base64 || cached?.dataUrl) {
+    await setTpPrefetchMetadata({
+      prefetchedDesignId: designId,
+      prefetchedReady: true,
+      prefetchError: "",
+      prefetchStartedAt: cached.readyAt || new Date().toISOString(),
+    });
+    return { ok: true, ready: true, designId, cached: true };
+  }
+
+  const existingPromise = teePublicPrefetchPromises.get(designId);
+  if (existingPromise) {
+    return existingPromise
+      .then(() => ({ ok: true, ready: true, designId, cached: true }))
+      .catch((error) => ({ ok: false, ready: false, designId, error: error?.message || String(error) }));
+  }
+
+  const startedAt = new Date().toISOString();
+  await setTpPrefetchMetadata({
+    prefetchedDesignId: designId,
+    prefetchedReady: false,
+    prefetchError: "",
+    prefetchStartedAt: startedAt,
+  });
+
+  const promise = (async () => {
+    debugLog(`[TP Prefetch] fetching image design_id=${designId}`);
+    const payload = await fetchImageAsBase64(imageUrl);
+    const cachedPayload = normalizeTpPrefetchPayload(designId, payload, filename);
+    teePublicPrefetchCache.set(designId, cachedPayload);
+    debugLog(`[TP Prefetch] ready design_id=${designId} blobSize=${cachedPayload.blobSize || 0}`);
+    return cachedPayload;
+  })();
+
+  teePublicPrefetchPromises.set(designId, promise);
+  try {
+    await promise;
+    await setTpPrefetchMetadata({
+      prefetchedDesignId: designId,
+      prefetchedReady: true,
+      prefetchError: "",
+      prefetchStartedAt: startedAt,
+    });
+    return { ok: true, ready: true, designId };
+  } catch (error) {
+    await setTpPrefetchMetadata({
+      prefetchedDesignId: designId,
+      prefetchedReady: false,
+      prefetchError: error?.message || String(error),
+      prefetchStartedAt: startedAt,
+    }).catch(() => {});
+    throw error;
+  } finally {
+    teePublicPrefetchPromises.delete(designId);
+  }
+}
+
+async function getPrefetchedTeePublicImage(message = {}) {
+  const designId = String(message.designId || message.design_id || "").trim();
+  if (!designId) return { ok: false, error: "Missing TeePublic design id." };
+
+  const cached = teePublicPrefetchCache.get(designId);
+  if (cached?.base64 || cached?.dataUrl) {
+    return { ok: true, ready: true, ...cached };
+  }
+
+  const pending = teePublicPrefetchPromises.get(designId);
+  if (!pending || message.wait !== true) {
+    return { ok: true, ready: false, designId };
+  }
+
+  try {
+    const payload = await pending;
+    return { ok: true, ready: true, ...payload };
+  } catch (error) {
+    return { ok: false, ready: false, designId, error: error?.message || String(error) };
+  }
+}
+
+async function clearPrefetchedTeePublicImage(message = {}) {
+  const designId = String(message.designId || message.design_id || "").trim();
+  if (!designId) return { ok: false, error: "Missing TeePublic design id." };
+  teePublicPrefetchCache.delete(designId);
+  teePublicPrefetchPromises.delete(designId);
+  return { ok: true, designId };
+}
+
+async function prefetchNextTpDesign(nextIndex) {
+  const state = await getQueueState();
+  if ((state.marketplace || state.queue[0]?.marketplace) !== "teepublic") return null;
+
+  let targetIndex = Number.isInteger(nextIndex) ? nextIndex : state.currentIndex + 1;
+  let nextDesign = null;
+  let nextDesignId = "";
+
+  while (targetIndex < state.queue.length) {
+    const candidate = state.queue[targetIndex];
+    const candidateId = getTpDesignId(candidate);
+    const terminalStatus = ["done", "error", "failed", "uploaded"].includes(String(candidate?.status || "").toLowerCase());
+    if (!candidateId || isTpDesignTerminal(state, candidateId) || terminalStatus) {
+      debugLog(`[TP Prefetch] skipped terminal design_id=${candidateId || "(missing)"}`);
+      targetIndex += 1;
+      continue;
+    }
+    nextDesign = candidate;
+    nextDesignId = candidateId;
+    break;
+  }
+
+  if (!nextDesign) {
+    debugLog("[TP Prefetch] no next design");
+    return null;
+  }
+
+  const cached = teePublicPrefetchCache.get(nextDesignId);
+  if (cached?.base64 || cached?.dataUrl) {
+    await setTpPrefetchMetadata({
+      prefetchedDesignId: nextDesignId,
+      prefetchedReady: true,
+      prefetchError: "",
+      prefetchStartedAt: state.prefetchStartedAt || new Date().toISOString(),
+    });
+    return cached;
+  }
+
+  if (teePublicPrefetchPromises.has(nextDesignId)) {
+    return teePublicPrefetchPromises.get(nextDesignId);
+  }
+
+  const startedAt = new Date().toISOString();
+  debugLog(`[TP Prefetch] starting nextIndex=${targetIndex} design_id=${nextDesignId}`);
+  await setTpPrefetchMetadata({
+    prefetchedDesignId: nextDesignId,
+    prefetchedReady: false,
+    prefetchError: "",
+    prefetchStartedAt: startedAt,
+  });
+
+  const promise = (async () => {
+    try {
+      const imageUrl = await resolveSignedImageUrl(nextDesign);
+      debugLog(`[TP Prefetch] fetching image design_id=${nextDesignId}`);
+      const payload = await fetchImageAsBase64(imageUrl);
+      const readyPayload = normalizeTpPrefetchPayload(
+        nextDesignId,
+        payload,
+        nextDesign.filename || payload.filename || "design.png"
+      );
+      teePublicPrefetchCache.set(nextDesignId, readyPayload);
+      debugLog(`[TP Prefetch] ready design_id=${nextDesignId} blobSize=${readyPayload.blobSize || 0}`);
+      await setTpPrefetchMetadata({
+        prefetchedDesignId: nextDesignId,
+        prefetchedReady: true,
+        prefetchError: "",
+        prefetchStartedAt: startedAt,
+      });
+      return readyPayload;
+    } catch (error) {
+      const message = error?.message || String(error);
+      console.warn(`[TP Prefetch] failed design_id=${nextDesignId}:`, message);
+      await setTpPrefetchMetadata({
+        prefetchedDesignId: nextDesignId,
+        prefetchedReady: false,
+        prefetchError: message,
+        prefetchStartedAt: startedAt,
+      }).catch(() => {});
+      throw error;
+    } finally {
+      teePublicPrefetchPromises.delete(nextDesignId);
+    }
+  })();
+
+  teePublicPrefetchPromises.set(nextDesignId, promise);
+  return promise;
+}
+
+async function getTpImagePayloadForUpload(design) {
+  const designId = getTpDesignPayloadKey(design);
+  const pendingPrefetch = teePublicPrefetchPromises.get(designId);
+
+  if (teePublicPrefetchCache.has(designId)) {
+    debugLog(`[TP Upload] using prefetched file design_id=${designId}`);
+    return { ...teePublicPrefetchCache.get(designId), prefetched: true };
+  }
+
+  if (pendingPrefetch) {
+    try {
+      const payload = await pendingPrefetch;
+      if (payload) {
+        debugLog(`[TP Upload] using prefetched file design_id=${designId}`);
+        return { ...payload, prefetched: true };
+      }
+    } catch (error) {
+      debugLog(`[TP Upload] prefetch unavailable design_id=${designId}: ${error?.message || error}`);
+    }
+  }
+
+  debugLog(`[TP Upload] no prefetch available, fetching now design_id=${designId}`);
+  const prepared = tpImagePayloadPromises.get(designId) || prepareTpImagePayload(design);
+  return prepared;
+}
+
+function trimTpPrefetchCache(state, keepFromIndex = state.currentIndex) {
+  const allowed = new Set();
+  let kept = 0;
+  for (let index = keepFromIndex; index < state.queue.length && kept < TP_PREFETCH_LOOKAHEAD; index += 1) {
+    const design = state.queue[index];
+    const designId = getTpDesignId(design);
+    if (!designId || isTpDesignTerminal(state, designId)) continue;
+    allowed.add(designId);
+    kept += 1;
+  }
+
+  for (const designId of teePublicPrefetchCache.keys()) {
+    if (!allowed.has(designId)) teePublicPrefetchCache.delete(designId);
+  }
+  for (const designId of teePublicPrefetchPromises.keys()) {
+    if (!allowed.has(designId)) teePublicPrefetchPromises.delete(designId);
+  }
+}
+
 async function startTeePublicQueue(designs) {
   if (designs.length === 0) {
     throw new Error("Start TeePublic queue requires at least one design.");
   }
 
   // ── Subscription / usage gate ─────────────────────────────────────────────
+  const existingQueueState = await getQueueState();
+  if (hasActiveTeePublicBatch(existingQueueState)) {
+    debugLog("[TP Batch] active batch exists, not resetting currentIndex");
+    if (existingQueueState.status === "running") processTpNext();
+    return { ok: true, alreadyRunning: true, state: existingQueueState };
+  }
+
   const platformAccess = await verifyPlatformAccessBeforeQueue("teepublic");
   if (!platformAccess.ok) {
     return blockQueueForPlatformAccess("teepublic", platformAccess);
@@ -2154,14 +2933,15 @@ async function startTeePublicQueue(designs) {
     return { ok: false, blocked: false, error: access.error?.message || "verification failed" };
   }
 
-  const queue = designs.map((design, index) => normalizeTpQueueDesign(design, index));
+  const session = await createPreparedUploadSessionForQueue("teepublic", designs);
+  const queue = session.designs.map((design, index) => normalizeTpQueueDesign(design, index));
 
   const invalid = queue.find((d) => !d.image_url && !d.image_r2_key);
   if (invalid) {
     throw new Error(`Design ${invalid.filename || invalid.id} needs an image URL.`);
   }
 
-  const jobId = "job-" + Date.now();
+  const jobId = session.sessionId || "job-" + Date.now();
   await setQueueState({
     queue,
     currentIndex: 0,
@@ -2180,6 +2960,13 @@ async function startTeePublicQueue(designs) {
     processingStartedForCurrentDesign: false,
     imageInjectedForCurrentDesign: false,
     hasNavigatedForCurrentDesign: false,
+    prefetchedDesignId: null,
+    prefetchedReady: false,
+    prefetchError: "",
+    prefetchStartedAt: "",
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null,
     successCount: 0,
     failedCount: 0
   });
@@ -2189,16 +2976,23 @@ async function startTeePublicQueue(designs) {
 }
 
 function normalizeTpQueueDesign(design, index) {
+  const imageUrl = String(design.upload_url || design.image_url || "").trim();
+  const imageKey = String(design.image_key || design.image_r2_key || "").trim();
   return {
     ...design,
     id: design.id || design.design_id || `tp-${index}-${Date.now()}`,
     design_id: String(design.id || design.design_id || `tp-${index}-${Date.now()}`),
     filename: String(design.filename || "").trim(),
-    image_url: String(design.image_url || "").trim(),
-    upload_url: String(design.image_url || "").trim(),
-    preview_url: String(design.thumbnail_url || design.image_url || "").trim(),
+    image_url: imageUrl,
+    upload_url: imageUrl,
+    preview_url: String(design.thumbnail_url || imageUrl || "").trim(),
     thumbnail_url: String(design.thumbnail_url || "").trim(),
-    image_r2_key: String(design.image_r2_key || "").trim(),
+    image_r2_key: imageKey,
+    image_key: imageKey,
+    mime_type: String(design.mime_type || design.imageMimeType || "").trim(),
+    upload_ready: design.upload_ready === true,
+    prepared_queue: design.prepared_queue === true,
+    upload_session_id: String(design.upload_session_id || "").trim(),
     title: String(design.title || "").trim(),
     description: String(design.description || "").trim(),
     primary_tag: String(design.primary_tag || design.main_tag || "").trim(),
@@ -2224,9 +3018,27 @@ async function processTpNext() {
   try {
     while (true) {
       const state = await getQueueState();
+      if (state.stoppedByUser === true || state.status === "stopped") {
+        debugLog("[TP Batch] stopped by user, no resume");
+        break;
+      }
       if (state.status !== "running") break;
       if (state.currentIndex >= state.queue.length) {
-        await clearTpUploadState();
+        await setQueueState({
+          status: "completed",
+          stoppedByUser: false,
+          updatedAt: new Date().toISOString(),
+          ...buildClearedTpPerDesignState(),
+        });
+        await setTpUploadState({
+          active: false,
+          stage: "done",
+          currentIndex: state.currentIndex,
+          imageInjected: false,
+          ...buildClearedTpPerDesignState(),
+        }).catch(() => {});
+        teePublicPrefetchCache.clear();
+        teePublicPrefetchPromises.clear();
         await broadcastQueueComplete();
         break;
       }
@@ -2234,7 +3046,7 @@ async function processTpNext() {
       const design = state.queue[state.currentIndex];
       const designId = getTpDesignId(design);
       if (isTpDesignTerminal(state, designId)) {
-        debugLog(`[TP Batch] skipping already terminal design_id=${designId}`);
+        debugLog(`[TP Batch] skip completed design_id=${designId}`);
         await setQueueState({
           currentIndex: state.currentIndex + 1,
           updatedAt: new Date().toISOString(),
@@ -2250,6 +3062,9 @@ async function processTpNext() {
         processingStartedForCurrentDesign: true,
         imageInjectedForCurrentDesign: false,
         hasNavigatedForCurrentDesign: false,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         updatedAt: new Date().toISOString(),
       });
       await updateDesignAt(state.currentIndex, {
@@ -2259,6 +3074,14 @@ async function processTpNext() {
       });
 
       postDesignStatus(design.id, { status: "uploading" }).catch(() => {});
+      postUploadSessionItemStatus(
+        design.upload_session_id || state.currentJobId,
+        designId,
+        "uploading"
+      ).catch(() => {});
+      prefetchNextTpDesign(state.currentIndex + 1).catch((error) => {
+        debugLog(`[TP Prefetch] failed nextIndex=${state.currentIndex + 1}: ${error?.message || error}`);
+      });
 
       const result = await uploadTpDesign(design, state.currentIndex, state.queue.length);
       const isLast = state.currentIndex >= state.queue.length - 1;
@@ -2266,7 +3089,7 @@ async function processTpNext() {
       if (result.terminal) {
         const latestTerminalState = await getQueueState();
         if (isTpDesignTerminal(latestTerminalState, designId)) {
-          debugLog(`[TP Batch] skipping already terminal design_id=${designId}`);
+          debugLog(`[TP Batch] skip completed design_id=${designId}`);
           if (latestTerminalState.currentIndex === state.currentIndex) {
             await setQueueState({
               currentIndex: state.currentIndex + 1,
@@ -2279,62 +3102,15 @@ async function processTpNext() {
       }
 
       if (result.status === "success") {
-        const latestBeforeTerminal = await getQueueState();
-        if (isTpDesignTerminal(latestBeforeTerminal, designId)) {
-          debugLog(`[TP Batch] duplicate success ignored design_id=${designId}`);
-          continue;
-        }
-        debugLog(`[TP Batch] marking complete design_id=${designId}`);
-        const completedDesignIds = normalizeIdMap(latestBeforeTerminal.completedDesignIds);
-        const terminalHandled = normalizeIdMap(latestBeforeTerminal.terminalHandled);
-        completedDesignIds[designId] = true;
-        terminalHandled[designId] = "success";
-        const queue = latestBeforeTerminal.queue.map((queuedDesign, index) =>
-          index === state.currentIndex
-            ? {
-                ...queuedDesign,
-                status: "done",
-                error: "",
-                published_url: result.url || "",
-                finishedAt: new Date().toISOString(),
-              }
-            : queuedDesign
-        );
-        await setQueueState({
-          queue,
-          completedDesignIds,
-          terminalHandled,
-          successCount: (latestBeforeTerminal.successCount || 0) + 1,
-          currentIndex: state.currentIndex + 1,
-          lastError: "",
-          updatedAt: new Date().toISOString(),
-          ...buildClearedTpPerDesignState(),
-        });
-        await setTpUploadState({
-          active: true,
+        const terminalResult = await handleTeePublicTerminalResult(
           designId,
-          currentIndex: state.currentIndex + 1,
-          stage: "done",
-          publishClicked: true,
-          imageInjected: false,
-          processingDesignId: null,
-          currentDesignId: null,
-          processingStartedForCurrentDesign: false,
-          completedDesignIds,
-          failedDesignIds: latestBeforeTerminal.failedDesignIds,
-          terminalHandled,
-        });
-        debugLog(`[TP Batch] saved state currentIndex=${state.currentIndex + 1} completed=true`);
-        // Bill one upload for this successful TeePublic design.
-        try {
-          await self.PodPilotAuth.incrementUploadUsage(1);
-        } catch (billingError) {
-          console.warn("[Billing] failed to increment usage:", billingError?.message || billingError);
-        }
-        postDesignStatus(design.id, { status: "uploaded" }).catch(() => {});
-        if (isLast) { await broadcastQueueComplete(); break; }
-        debugLog(`[TP Batch] navigating quick_create for next index=${state.currentIndex + 1}`);
-        await delay(QUEUE_DELAY_MS);
+          "success",
+          "upload_pipeline",
+          { publishedUrl: result.url || "" }
+        );
+        const latestAfterTerminal = terminalResult.state || await getQueueState();
+        if (latestAfterTerminal.currentIndex >= latestAfterTerminal.queue.length) break;
+        debugLog(`[TP Batch] moving to next index=${latestAfterTerminal.currentIndex}`);
         continue;
       }
 
@@ -2374,6 +3150,9 @@ async function processTpNext() {
         failedCount: (latest.failedCount || 0) + 1,
         currentIndex: latest.currentIndex + 1,
         lastError: result.error || "Upload failed",
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         updatedAt: new Date().toISOString(),
         ...buildClearedTpPerDesignState(),
       });
@@ -2383,6 +3162,10 @@ async function processTpNext() {
         currentIndex: latest.currentIndex + 1,
         stage: "error",
         imageInjected: false,
+        initialNavigationStarted: false,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         processingDesignId: null,
         currentDesignId: null,
         processingStartedForCurrentDesign: false,
@@ -2394,6 +3177,13 @@ async function processTpNext() {
         status: "failed",
         error_message: result.error || "Upload failed"
       }).catch(() => {});
+      postUploadSessionItemStatus(
+        latestDesign.upload_session_id || latest.currentJobId,
+        failedDesignId,
+        "failed",
+        result.error || "Upload failed"
+      ).catch(() => {});
+      trimTpPrefetchCache(await getQueueState(), latest.currentIndex + 1);
       if (latest.currentIndex >= latest.queue.length - 1) {
         await broadcastQueueComplete();
         break;
@@ -2407,12 +3197,11 @@ async function processTpNext() {
 
 async function uploadTpDesign(design, designIndex, queueTotal) {
   try {
-    const payloadKey = getTpDesignPayloadKey(design);
-    const imagePayloadPromise = tpImagePayloadPromises.get(payloadKey) || prepareTpImagePayload(design);
+    const imagePayloadPromise = getTpImagePayloadForUpload(design);
     const queueState = await getQueueState();
     const designId = getTpDesignId(design);
     if (isTpDesignTerminal(queueState, designId)) {
-      debugLog(`[TP Batch] skipping already terminal design_id=${designId}`);
+      debugLog(`[TP Batch] skip completed design_id=${designId}`);
       return { status: "error", terminal: true, error: "Design already terminal-handled." };
     }
     const existingTpState = await getTpUploadState();
@@ -2431,6 +3220,9 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
         terminalHandled: queueState.terminalHandled,
         stage: "navigating",
         imageInjected: false,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
       });
     }
 
@@ -2448,12 +3240,13 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
     // Do not wait for a full tab load. TeePublic is ready for image
     // injection as soon as the file input or title input exists.
     const tpState = await getTpUploadState();
-    const alreadyNavigatingThisUpload = tpState?.active &&
+    const alreadyNavigatingThisUpload = designIndex === 0 &&
+      tpState?.active &&
       tpState.stage === "navigating" &&
       tpState.initialNavigationStarted === true &&
       tpState.uploadTabId === tab.id &&
       (tpState.designId === (design.id || design.design_id || "") || !tpState.designId);
-    if (isSameNavigationTarget(tab.url, TP_UPLOAD_URL)) {
+    if (designIndex === 0 && isTpUploadPageUrl(tab.url)) {
       debugLog("[PodPilot-TP] TeePublic navigation skipped: tab already on upload page", {
         tabId: tab.id,
       });
@@ -2463,10 +3256,21 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
         current: safeUrlForLog(tab.url),
       });
     } else {
-      await navigateTab(tab.id, TP_UPLOAD_URL, {
+      await prepareTpContentForNavigation(tab.id);
+      const uploadUrl = buildTpUploadUrl(designId);
+      await navigateTab(tab.id, uploadUrl, {
         cacheBust: false,
         marketplace: "teepublic",
         waitForComplete: false,
+      });
+      const navState = await waitForTpUploadFormAfterNavigation(tab.id);
+      await setTpUploadState({ initialNavigationStarted: false, uploadTabId: tab.id });
+      debugLog("[TP Batch] upload page navigation confirmed", {
+        tabId: tab.id,
+        designId,
+        url: safeUrlForLog(navState.url),
+        fileInputReady: navState.fileInputReady === true,
+        titleReady: navState.titleReady === true,
       });
     }
     debugTimerEnd(tabNavTimer, { tabId: tab.id });
@@ -2489,16 +3293,20 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
       terminalHandled: (await getQueueState()).terminalHandled,
       stage: "page_ready",
       imageInjected: false,
+      initialNavigationStarted: false,
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
     });
 
     const imagePayload = await imagePayloadPromise;
     const latestBeforeInjection = await getQueueState();
     if (isTpDesignTerminal(latestBeforeInjection, designId)) {
-      debugLog(`[TP Batch] skipping already terminal design_id=${designId}`);
+      debugLog(`[TP Batch] skip completed design_id=${designId}`);
       return { status: "error", terminal: true, error: "Design already terminal-handled." };
     }
 
-    const successPromise = waitForTpSuccessUrl(tab.id, 60000);
+    const successPromise = waitForTpSuccessUrl(tab.id, TP_PUBLISH_REDIRECT_TIMEOUT_MS, designId);
 
     const contentPromise = sendTpFillMessage(tab.id, {
       action: "tp_fill_and_publish",
@@ -2506,6 +3314,9 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
         ...design,
         image_url: "", // don't send URL to content, send base64
         imageBase64: imagePayload.base64,
+        imageMimeType: imagePayload.mimeType || "image/png",
+        imageFilename: imagePayload.filename || design.filename || "design.png",
+        _tpPrefetchedImage: imagePayload.prefetched === true,
       },
       designIndex,
       queueTotal,
@@ -2558,6 +3369,9 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
       designId: design.id || design.design_id || "",
       currentIndex: designIndex,
       stage: "error",
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
       imageInjected: false,
     });
     return { status: "error", error: contentResult?.error || "Timed out waiting for TeePublic publish confirmation" };
@@ -2567,6 +3381,9 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
       designId: design.id || design.design_id || "",
       currentIndex: designIndex,
       stage: "error",
+      awaitingPublishRedirect: false,
+      publishClickedForDesignId: null,
+      publishClickedAt: null,
       imageInjected: false,
     }).catch(() => {});
     return { status: "error", error: error.message };
@@ -2627,7 +3444,7 @@ function sendTpFillMessage(tabId, message) {
   });
 }
 
-function waitForTpSuccessUrl(tabId, timeoutMs = 60000) {
+function waitForTpSuccessUrl(tabId, timeoutMs = TP_PUBLISH_REDIRECT_TIMEOUT_MS, designId = "") {
   return new Promise((resolve) => {
     let settled = false;
     const timer = setTimeout(() => finish({ success: false }), timeoutMs);
@@ -2640,9 +3457,15 @@ function waitForTpSuccessUrl(tabId, timeoutMs = 60000) {
       resolve(result);
     }
 
-    function checkUrl(url) {
+    async function checkUrl(url) {
       if (!url) return;
-      if (url.includes('teepublic.com/account/uploads/active')) {
+      if (isTpPublishSuccessUrl(url)) {
+        const tpState = await getTpUploadState().catch(() => null);
+        if (!isTpAwaitingPublishRedirect(tpState, designId)) {
+          debugLog("[TP Success] edit page ignored because no pending publish redirect");
+          return;
+        }
+        debugLog(`[TP Success] redirect detected with pending publish design_id=${designId}`);
         finish({ success: true, url });
         return;
       }
@@ -2657,6 +3480,12 @@ function waitForTpSuccessUrl(tabId, timeoutMs = 60000) {
           'pin','pins','magnet','magnets','sock','socks'
         ];
         if (TYPES.includes(productType)) {
+          const tpState = await getTpUploadState().catch(() => null);
+          if (!isTpAwaitingPublishRedirect(tpState, designId)) {
+            debugLog("[TP Success] edit page ignored because no pending publish redirect");
+            return;
+          }
+          debugLog(`[TP Success] redirect detected with pending publish design_id=${designId}`);
           finish({ success: true, url });
         }
       }
@@ -2664,13 +3493,13 @@ function waitForTpSuccessUrl(tabId, timeoutMs = 60000) {
 
     function listener(updatedTabId, changeInfo, tab) {
       if (updatedTabId !== tabId) return;
-      checkUrl(changeInfo.url);
-      checkUrl(tab?.url);
+      checkUrl(changeInfo.url).catch(() => {});
+      checkUrl(tab?.url).catch(() => {});
     }
 
     chrome.tabs.onUpdated.addListener(listener);
     chrome.tabs.get(tabId, (tab) => {
-      if (!chrome.runtime.lastError) checkUrl(tab?.url);
+      if (!chrome.runtime.lastError) checkUrl(tab?.url).catch(() => {});
     });
   });
 }

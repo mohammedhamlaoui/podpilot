@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.core import config
 from app.core.auth import AuthUser, get_current_user
-from app.services import subscription_service
+from app.services import rate_limiter, subscription_service
+from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
 
 
 router = APIRouter()
@@ -44,13 +45,6 @@ def _normalize_paddle_api_key(raw: str) -> str:
     if value.lower().startswith("bearer "):
         value = value[len("Bearer "):].strip()
     return value
-
-
-def _api_key_prefix(key: str) -> str:
-    """Return a short prefix safe to log (never the full secret)."""
-    if not key:
-        return "(empty)"
-    return key[: min(8, len(key))]
 
 
 class UsageIncrementIn(BaseModel):
@@ -101,9 +95,8 @@ def fetch_paddle_transactions(paddle_customer_id: str) -> list[dict]:
 
         if response.status_code >= 400:
             logger.warning(
-                "[Paddle] list transactions returned status %s: %s",
+                "[Paddle] list transactions returned status %s",
                 response.status_code,
-                response.text,
             )
             return []
 
@@ -147,12 +140,13 @@ def fetch_paddle_transactions(paddle_customer_id: str) -> list[dict]:
             })
         return history
     except Exception as e:
-        logger.error("[Paddle] failed to list transactions: %s", e)
+        logger.error("[Paddle] failed to list transactions error_type=%s", safe_error_type(e))
         return []
 
 
 @router.get("/api/me/subscription")
 def get_my_subscription(user: AuthUser = Depends(get_current_user)) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     access = subscription_service.get_subscription_access(user.id)
     paddle_customer_id = access.get("paddle_customer_id")
     if paddle_customer_id:
@@ -164,11 +158,13 @@ def get_my_subscription(user: AuthUser = Depends(get_current_user)) -> dict:
 
 @router.get("/api/me/platform-access")
 def get_my_platform_access(user: AuthUser = Depends(get_current_user)) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     return subscription_service.get_user_platform_access(user.id)
 
 
 @router.post("/api/billing/check-upload-access")
 def check_upload_access(user: AuthUser = Depends(get_current_user)) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     return subscription_service.get_subscription_access(user.id)
 
 
@@ -196,6 +192,8 @@ def get_trial_eligibility(
         alias="X-PodPilot-Device-Id",
     ),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.TRIAL)
+    rate_limiter.enforce_ip_limit(request, rate_limiter.TRIAL)
     short_uid = str(user.id)[:8]
     try:
         res = subscription_service.check_trial_eligibility(
@@ -215,19 +213,32 @@ def get_trial_eligibility(
         else:
             if internal_reason == subscription_service.ACTIVE_SUBSCRIPTION_EXISTS:
                 reason = "active_subscription"
-            elif internal_reason in (subscription_service.TRIAL_ALREADY_USED, subscription_service.DEVICE_OR_NETWORK_TRIAL_USED):
+            elif internal_reason in (
+                subscription_service.TRIAL_ALREADY_USED,
+                subscription_service.DEVICE_OR_NETWORK_TRIAL_USED,
+                subscription_service.SUBSCRIPTION_HISTORY_EXISTS,
+            ):
                 reason = "already_used_trial"
             else:
                 reason = "unknown"
                 
-        logger.info(f"[TRIAL ELIGIBILITY] user_id={short_uid} result={{'eligible': {eligible}, 'reason': '{reason}'}}")
+        logger.info(
+            "[TRIAL ELIGIBILITY] user=%s eligible=%s reason=%s",
+            short_user_id(user.id),
+            eligible,
+            reason,
+        )
         return {
             "eligible": eligible,
             "reason": reason
         }
     except HTTPException as ex:
         # Check if it's a configuration issue (like trial_usage table missing or TRIAL_HASH_SALT missing)
-        logger.error(f"[TRIAL ELIGIBILITY ERROR] error_type=HTTPException status_code={ex.status_code} detail={ex.detail}")
+        logger.warning(
+            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=HTTPException status_code=%s",
+            short_user_id(user.id),
+            ex.status_code,
+        )
         if ex.status_code == 503:
             # Table missing migration or salt missing: return clean unknown ineligible response instead of blocking 503
             return {
@@ -238,13 +249,21 @@ def get_trial_eligibility(
         raise ex
     except RuntimeError as ex:
         # Catch RuntimeError from missing TRIAL_HASH_SALT in production
-        logger.error(f"[TRIAL ELIGIBILITY ERROR] error_type=RuntimeError detail={str(ex)}")
+        logger.warning(
+            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=%s",
+            short_user_id(user.id),
+            safe_error_type(ex),
+        )
         return {
             "eligible": False,
             "reason": "unknown"
         }
     except Exception as ex:
-        logger.error(f"[TRIAL ELIGIBILITY ERROR] error_type={type(ex).__name__} detail={str(ex)}")
+        logger.error(
+            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=%s",
+            short_user_id(user.id),
+            safe_error_type(ex),
+        )
         # Check if it is a Postgrest or database outage, raise 503
         raise HTTPException(
             status_code=503,
@@ -263,6 +282,8 @@ def start_trial(
         alias="X-PodPilot-Device-Id",
     ),
 ) -> dict:
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.TRIAL)
+    rate_limiter.enforce_ip_limit(request, rate_limiter.TRIAL)
     if not (x_podpilot_device_id or "").strip():
         raise HTTPException(
             status_code=400,
@@ -287,6 +308,7 @@ async def create_customer_portal_session(
     Sessions are short-lived; we never cache the URL. PADDLE_API_KEY is read
     from backend env only — it never leaves the server.
     """
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.CHECKOUT)
     api_key = _normalize_paddle_api_key(config.PADDLE_API_KEY)
     if not api_key:
         logger.error("[Billing] PADDLE_API_KEY not configured")
@@ -302,7 +324,7 @@ async def create_customer_portal_session(
     if not paddle_customer_id:
         logger.info(
             "[Billing] portal request rejected: no paddle_customer_id user=%s",
-            user.id,
+            short_user_id(user.id),
         )
         raise HTTPException(
             status_code=400,
@@ -324,20 +346,17 @@ async def create_customer_portal_session(
     }
 
     logger.info(
-        "[Paddle] creating customer portal session customer=%s subscription=%s",
-        paddle_customer_id,
-        paddle_subscription_id or "(none)",
-    )
-    logger.info(
-        "[Paddle] api key configured=true key_prefix=%s",
-        _api_key_prefix(api_key),
+        "[Paddle] creating customer portal session user=%s customer=%s subscription=%s",
+        short_user_id(user.id),
+        short_id(paddle_customer_id),
+        short_id(paddle_subscription_id),
     )
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(url, headers=headers, json=body)
     except httpx.HTTPError as error:
-        logger.error("[Billing] portal request failed: %s", error)
+        logger.error("[Billing] portal request failed user=%s error_type=%s", short_user_id(user.id), safe_error_type(error))
         raise HTTPException(
             status_code=502,
             detail="Could not reach Paddle to open billing portal.",
@@ -346,16 +365,15 @@ async def create_customer_portal_session(
     logger.info("[Paddle] portal response status=%s", response.status_code)
 
     if response.status_code in (401, 403):
-        body_text = response.text or ""
         try:
             error_code = (response.json() or {}).get("error", {}).get("code")
         except ValueError:
             error_code = None
         logger.error(
-            "[Paddle] portal error status=%s code=%s body=%s",
+            "[Paddle] portal error user=%s status=%s code=%s",
+            short_user_id(user.id),
             response.status_code,
             error_code or "(none)",
-            body_text[:500],
         )
         raise HTTPException(
             status_code=502,
@@ -366,16 +384,15 @@ async def create_customer_portal_session(
         )
 
     if response.status_code >= 400:
-        body_text = response.text or ""
         try:
             error_code = (response.json() or {}).get("error", {}).get("code")
         except ValueError:
             error_code = None
         logger.error(
-            "[Paddle] portal error status=%s code=%s body=%s",
+            "[Paddle] portal error user=%s status=%s code=%s",
+            short_user_id(user.id),
             response.status_code,
             error_code or "(none)",
-            body_text[:500],
         )
         raise HTTPException(
             status_code=502,
@@ -396,8 +413,9 @@ async def create_customer_portal_session(
                 break
     if not overview_url:
         logger.error(
-            "[Paddle] portal session response missing URL data=%s",
-            data,
+            "[Paddle] portal session response missing URL user=%s customer=%s",
+            short_user_id(user.id),
+            short_id(paddle_customer_id),
         )
         raise HTTPException(
             status_code=502,
@@ -405,8 +423,9 @@ async def create_customer_portal_session(
         )
 
     logger.info(
-        "[Paddle] portal session created customer=%s",
-        paddle_customer_id,
+        "[Paddle] portal session created user=%s customer=%s",
+        short_user_id(user.id),
+        short_id(paddle_customer_id),
     )
     return {
         "url": overview_url,
@@ -415,20 +434,107 @@ async def create_customer_portal_session(
 
 
 class CheckoutRequest(BaseModel):
-    plan_key: str
+    plan_key: Optional[str] = None
     billing_cycle: str = "monthly"
+    intent_type: str = "subscription"
+    credit_pack_id: Optional[str] = None
+
+
+TRIAL_DAYS = 3
+
+
+def _normalize_checkout_plan(plan_key: str) -> str:
+    plan = (plan_key or "").strip().lower()
+    if plan in {"growth", "all-platforms"}:
+        return "all_platforms"
+    return plan
+
+
+def _normalize_billing_cycle(billing_cycle: str) -> str:
+    return (billing_cycle or "monthly").strip().lower()
+
+
+def _normalize_credit_pack_id(credit_pack_id: Optional[str]) -> str:
+    value = str(credit_pack_id or "").strip().lower()
+    aliases = {
+        "ai_credits_1000": "tokens_1000",
+        "ai_credits_10000": "tokens_10000",
+    }
+    return aliases.get(value, value)
+
+
+def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str:
+    price_map = {
+        ("redbubble", "monthly", True): config.PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
+        ("redbubble", "monthly", False): config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
+        ("redbubble", "annual", True): config.PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
+        ("redbubble", "annual", False): config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
+        ("teepublic", "monthly", True): config.PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
+        ("teepublic", "monthly", False): config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
+        ("teepublic", "annual", True): config.PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
+        ("teepublic", "annual", False): config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
+        ("all_platforms", "monthly", True): config.PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
+        ("all_platforms", "monthly", False): config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+        ("all_platforms", "annual", True): config.PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
+        ("all_platforms", "annual", False): config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+    }
+    return (price_map.get((plan, cycle, trial)) or "").strip()
+
+
+def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
+    price_map = {
+        "tokens_1000": config.PADDLE_AI_TOKENS_1000_PRICE_ID,
+        "tokens_10000": config.PADDLE_AI_TOKENS_10000_PRICE_ID,
+    }
+    return (price_map.get(credit_pack_id) or "").strip()
 
 
 @router.post("/api/billing/checkout")
 def get_checkout_price_id(
     payload: CheckoutRequest,
+    request: Request,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(
+        default=None,
+        alias="X-PodPilot-Device-Id",
+    ),
 ) -> dict:
-    plan = (payload.plan_key or "").strip().lower()
-    cycle = (payload.billing_cycle or "monthly").strip().lower()
+    rate_limiter.enforce_user_limit(user.id, rate_limiter.CHECKOUT)
+    intent_type = str(payload.intent_type or "subscription").strip().lower()
+    if intent_type not in {"subscription", "ai_credits"}:
+        raise HTTPException(status_code=400, detail="Invalid checkout intent type.")
 
-    if plan in {"growth", "all-platforms"}:
-        plan = "all_platforms"
+    plan = _normalize_checkout_plan(payload.plan_key or "")
+    cycle = _normalize_billing_cycle(payload.billing_cycle)
+    credit_pack_id = _normalize_credit_pack_id(payload.credit_pack_id)
+
+    if intent_type == "ai_credits":
+        resolved_id = _resolve_credit_pack_price_id(credit_pack_id)
+        if not resolved_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Price not configured for credit pack '{payload.credit_pack_id}'",
+            )
+        intent, reused = subscription_service.create_or_reuse_checkout_intent(
+            user_id=user.id,
+            intent_type="ai_credits",
+            credit_pack_id=credit_pack_id,
+            selected_price_id=resolved_id,
+        )
+        return {
+            "intent_type": "ai_credits",
+            "credit_pack_id": credit_pack_id,
+            "trial_eligible": False,
+            "eligible": False,
+            "selected_price_id": resolved_id,
+            "price_id": resolved_id,
+            "button_label": "Buy credits",
+            "trial_days": 0,
+            "checkout_intent_id": intent.get("id"),
+            "checkout_intent_status": intent.get("status") or "opened",
+            "idempotency_key": intent.get("idempotency_key"),
+            "reused_checkout_intent": reused,
+        }
 
     if plan not in {"redbubble", "teepublic", "all_platforms"}:
         raise HTTPException(
@@ -442,28 +548,35 @@ def get_checkout_price_id(
             detail=f"Invalid billing cycle: '{payload.billing_cycle}'",
         )
 
-    resolved_id = ""
-    if plan == "redbubble":
-        if cycle == "annual":
-            resolved_id = config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID
-        else:
-            resolved_id = config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID or config.PADDLE_REDBUBBLE_PRICE_ID
-    elif plan == "teepublic":
-        if cycle == "annual":
-            resolved_id = config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID
-        else:
-            resolved_id = config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID or config.PADDLE_TEEPUBLIC_PRICE_ID
-    elif plan == "all_platforms":
-        if cycle == "annual":
-            resolved_id = config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID
-        else:
-            resolved_id = config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID or config.PADDLE_ALL_PLATFORMS_PRICE_ID
+    eligibility = {"eligible": False, "reason": "unknown"}
+    try:
+        eligibility = subscription_service.check_trial_eligibility(
+            user_id=user.id,
+            email=user.email,
+            device_id=x_podpilot_device_id,
+            ip_address=_request_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception as error:
+        logger.warning(
+            "[Billing] checkout eligibility fallback user=%s plan=%s cycle=%s error_type=%s",
+            short_user_id(user.id),
+            plan,
+            cycle,
+            safe_error_type(error),
+        )
 
-    if cycle == "annual" and not resolved_id:
+    trial_eligible = bool(eligibility.get("eligible") is True)
+    resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=trial_eligible)
+    if trial_eligible and not resolved_id:
         raise HTTPException(
             status_code=400,
-            detail="Annual billing is not configured yet",
+            detail=f"Trial price not configured for plan '{payload.plan_key}' ({cycle})",
         )
+
+    if not resolved_id:
+        trial_eligible = False
+        resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=False)
 
     if not resolved_id:
         raise HTTPException(
@@ -471,4 +584,28 @@ def get_checkout_price_id(
             detail=f"Price not configured for plan '{payload.plan_key}' ({cycle})",
         )
 
-    return {"price_id": resolved_id}
+    intent, reused = subscription_service.create_or_reuse_checkout_intent(
+        user_id=user.id,
+        intent_type="subscription",
+        plan_key=plan,
+        billing_interval=cycle,
+        selected_price_id=resolved_id,
+    )
+
+    button_label = "Start 3-day free trial" if trial_eligible else "Subscribe now"
+    return {
+        "intent_type": "subscription",
+        "plan_key": plan,
+        "billing_interval": cycle,
+        "trial_eligible": trial_eligible,
+        "eligible": trial_eligible,
+        "eligibility_reason": eligibility.get("reason") or "unknown",
+        "selected_price_id": resolved_id,
+        "price_id": resolved_id,
+        "button_label": button_label,
+        "trial_days": TRIAL_DAYS if trial_eligible else 0,
+        "checkout_intent_id": intent.get("id"),
+        "checkout_intent_status": intent.get("status") or "opened",
+        "idempotency_key": intent.get("idempotency_key"),
+        "reused_checkout_intent": reused,
+    }

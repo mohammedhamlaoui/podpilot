@@ -154,15 +154,15 @@ class UploadLogIn(BaseModel):
 
 def design_to_response(
     row: dict[str, Any],
-    image_signed_url: Optional[str] = None,
-    thumbnail_signed_url: Optional[str] = None,
+    image_url: Optional[str] = None,
+    thumbnail_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """Shape a Supabase design row for the API response.
 
     Adds `id` as string, mirrors `primary_tag` to `main_tag` for the
     legacy frontend, joins the `supporting_tags` text[] back into a
-    comma-separated string the React UI expects, and includes a freshly
-    signed `image_url` and `thumbnail_url` when supplied.
+    comma-separated string the React UI expects, and includes API-backed
+    `image_url` and `thumbnail_url` values when supplied.
     """
     out = dict(row or {})
     if "id" in out and out["id"] is not None:
@@ -172,10 +172,10 @@ def design_to_response(
     out["main_tag"] = primary_tag
     if isinstance(out.get("supporting_tags"), list):
         out["supporting_tags"] = ", ".join(str(t) for t in out["supporting_tags"] if t)
-    if image_signed_url is not None:
-        out["image_url"] = image_signed_url
-    if thumbnail_signed_url is not None:
-        out["thumbnail_url"] = thumbnail_signed_url
+    if image_url is not None:
+        out["image_url"] = image_url
+    if thumbnail_url is not None:
+        out["thumbnail_url"] = thumbnail_url
     else:
         out["thumbnail_url"] = None
     return out

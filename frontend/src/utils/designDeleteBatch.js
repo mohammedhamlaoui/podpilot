@@ -15,6 +15,7 @@ export async function deleteDesignBatch({
   onDesignsChange,
   setSelectedIds,
   updateProgress,
+  isCancelled,
   revokeLocalDraftPreview,
 }) {
   const uniqueIds = Array.from(new Set((ids || []).filter(Boolean)));
@@ -24,59 +25,58 @@ export async function deleteDesignBatch({
   const backendIds = uniqueIds.filter((id) => !isLocalId(id));
   const deletedIds = [];
   const failedIds = [];
+  const results = [];
   let completed = 0;
 
-  if (localIds.length > 0) {
-    localIds.forEach((id) => {
-      revokeLocalDraftPreview?.(byId.get(id));
-      deletedIds.push(id);
-    });
-    completed += localIds.length;
-    updateProgress?.(completed, total, deletedIds.length, failedIds.length);
-    onDesignsChange((currentDesigns) => currentDesigns.filter((design) => !localIds.includes(design.id)));
-    setSelectedIds((current) => current.filter((id) => !localIds.includes(id)));
+  for (const id of localIds) {
+    if (isCancelled?.()) {
+      return { deletedIds, failedIds, results, cancelled: true, completed, total };
+    }
+    updateProgress?.(completed, total, deletedIds.length, failedIds.length, { currentId: id });
+    revokeLocalDraftPreview?.(byId.get(id));
+    deletedIds.push(id);
+    results.push({ design_id: id, success: true, local: true });
+    completed += 1;
+    onDesignsChange((currentDesigns) => currentDesigns.filter((design) => design.id !== id));
+    setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
+    updateProgress?.(completed, total, deletedIds.length, failedIds.length, { currentId: id });
   }
 
-  if (backendIds.length > 0) {
-    let payload;
-    try {
-      payload = await deleteBackendDesigns(backendIds);
-    } catch (error) {
-      backendIds.forEach((id) => failedIds.push(id));
-      completed += backendIds.length;
-      updateProgress?.(completed, total, deletedIds.length, failedIds.length);
-      devDeleteLog("batch request failed", error?.message || error);
-      return { deletedIds, failedIds, results: [] };
+  for (const id of backendIds) {
+    if (isCancelled?.()) {
+      return { deletedIds, failedIds, results, cancelled: true, completed, total };
     }
+    updateProgress?.(completed, total, deletedIds.length, failedIds.length, { currentId: id });
 
-    const results = Array.isArray(payload?.results) ? payload.results : [];
-    const resultById = new Map(results.map((result) => [String(result.design_id || result.deleted_design_id || ""), result]));
-
-    backendIds.forEach((id) => {
-      const result = resultById.get(String(id));
-      if (result?.success) {
-        deletedIds.push(id);
-      } else {
+    try {
+      const payload = await deleteBackendDesigns([id]);
+      const result = Array.isArray(payload?.results) ? payload.results[0] : null;
+      results.push(result || { design_id: id, success: false, reason: "No delete result returned." });
+      if (!result?.success) {
         failedIds.push(id);
         devDeleteLog("failed design kept visible", {
           design_id: id,
           reason: result?.reason || "No delete result returned.",
         });
+      } else {
+        deletedIds.push(id);
+        await clearCachedDesignImages(byId.get(id), userId);
+        onDesignsChange((currentDesigns) => currentDesigns.filter((design) => design.id !== id));
+        setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
       }
-      completed += 1;
-      updateProgress?.(completed, total, deletedIds.length, failedIds.length);
-    });
-
-    const backendDeletedIds = backendIds.filter((id) => deletedIds.includes(id));
-    if (backendDeletedIds.length > 0) {
-      await Promise.all(
-        backendDeletedIds.map((id) => clearCachedDesignImages(byId.get(id), userId)),
-      );
-      onDesignsChange((currentDesigns) => currentDesigns.filter((design) => !backendDeletedIds.includes(design.id)));
-      setSelectedIds((current) => current.filter((id) => !backendDeletedIds.includes(id)));
+    } catch (error) {
+      failedIds.push(id);
+      results.push({ design_id: id, success: false, reason: error?.message || "Delete request failed." });
+      devDeleteLog("delete request failed", {
+        design_id: id,
+        reason: error?.message || error,
+      });
     }
+
+    completed += 1;
+    updateProgress?.(completed, total, deletedIds.length, failedIds.length, { currentId: id });
   }
 
   setSelectedIds((current) => current.filter((id) => failedIds.includes(id)));
-  return { deletedIds, failedIds };
+  return { deletedIds, failedIds, results, cancelled: false, completed, total };
 }

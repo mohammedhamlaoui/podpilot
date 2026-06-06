@@ -1,3 +1,6 @@
+import { API_BASE_URL } from "../api/client";
+import { supabase } from "../lib/supabaseClient";
+
 const CACHE_NAME = "podpilot-ui-image-cache-v1";
 const CACHE_PREFIX = "/__podpilot_ui_image_cache__/";
 const DEBUG = false;
@@ -22,8 +25,48 @@ function isCacheAvailable() {
   return typeof window !== "undefined" && "caches" in window && typeof fetch === "function";
 }
 
-function isRemoteImageUrl(url) {
-  return /^https?:\/\//i.test(String(url || ""));
+function isFetchableImageUrl(url) {
+  const raw = String(url || "");
+  return /^https?:\/\//i.test(raw) || raw.startsWith("/api/") || raw.startsWith("/designs/");
+}
+
+function isProtectedProxyUrl(url) {
+  const raw = String(url || "");
+  if (raw.startsWith("/api/designs/") || raw.startsWith("/designs/")) return true;
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return parsed.pathname.startsWith("/api/designs/") || parsed.pathname.startsWith("/designs/");
+  } catch {
+    return false;
+  }
+}
+
+function resolveFetchUrl(url) {
+  const raw = String(url || "");
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = API_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  try {
+    return new URL(raw, base || window.location.origin).toString();
+  } catch {
+    return raw;
+  }
+}
+
+async function authHeadersForImage(url) {
+  if (!isProtectedProxyUrl(url) || !supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token || "";
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function hashString(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function cacheRequestUrl(cacheKey) {
@@ -58,7 +101,8 @@ export function buildImageCacheKey({
 } = {}) {
   const safeVariant = variant === "preview" ? "preview" : "thumbnail";
   const designPart = String(designId || "unknown").trim() || "unknown";
-  const assetPart = String(r2Key || "no-r2-key").trim() || "no-r2-key";
+  const rawAssetPart = String(r2Key || "no-r2-key").trim() || "no-r2-key";
+  const assetPart = rawAssetPart === "no-r2-key" ? rawAssetPart : `asset-${hashString(rawAssetPart)}`;
   const userPart = String(userId || "").trim();
   return userPart
     ? `${safeVariant}:${userPart}:${designPart}:${assetPart}`
@@ -108,10 +152,15 @@ export async function fetchAndCacheImage(cacheKey, remoteUrl) {
     cacheLog("skip fetch cooldown", cacheKey);
     return remoteUrl;
   }
-  if (!isRemoteImageUrl(remoteUrl) || !isCacheAvailable()) return remoteUrl;
+  if (!isFetchableImageUrl(remoteUrl) || !isCacheAvailable()) return remoteUrl;
 
   try {
-    const response = await fetch(remoteUrl, { mode: "cors", credentials: "omit" });
+    const headers = await authHeadersForImage(remoteUrl);
+    const response = await fetch(resolveFetchUrl(remoteUrl), {
+      mode: "cors",
+      credentials: "omit",
+      headers,
+    });
     if (!response.ok) throw new Error(`Image fetch failed (${response.status})`);
     const blob = await response.blob();
     const cache = await caches.open(CACHE_NAME);
@@ -131,6 +180,7 @@ export async function fetchAndCacheImage(cacheKey, remoteUrl) {
     noteFetchFailure(cacheKey);
     devImageCacheLog("thumbnail blob cache skipped due to CORS/fetch failure");
     cacheLog(`fetch failed ${error?.message || "unknown"}`, cacheKey);
+    if (isProtectedProxyUrl(remoteUrl)) return "";
     return remoteUrl;
   }
 }

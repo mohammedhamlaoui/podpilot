@@ -6,7 +6,6 @@
 //
 // Public surface:
 //   - openPaddleCheckout({ plan, email, onCheckoutComplete, onCheckoutClosed })
-//   - resolvePaddlePriceId(plan)
 //   - isPaddleConfigured (re-export from ../config/paddle)
 //
 // We never persist subscription state from the frontend. After a successful
@@ -14,14 +13,13 @@
 // (added in a later step) are the source of truth.
 
 import { initializePaddle } from "@paddle/paddle-js";
-import { getCheckoutPriceId } from "../api/client";
+import { getCheckoutConfig } from "../api/client";
 
 import {
   PADDLE_CONFIG,
   isPaddleConfigured,
   getPaddlePriceId,
   isAnnualPaddleConfigured,
-  isPaidPaddleConfigured,
 } from "../config/paddle";
 
 function normalizePlanKey(plan) {
@@ -78,7 +76,7 @@ function getPaddle() {
   if (!isPaddleConfigured()) {
     return Promise.reject(
       new Error(
-        "Paddle is not configured. Set VITE_PADDLE_CLIENT_TOKEN and VITE_PADDLE_*_PRICE_ID in frontend/.env.",
+        "Paddle is not configured. Set VITE_PADDLE_CLIENT_TOKEN in frontend/.env.",
       ),
     );
   }
@@ -136,10 +134,14 @@ export function resolvePaddlePriceId(plan) {
  */
 export async function openPaddleCheckout({
   priceId,
+  checkoutConfig,
+  checkoutIntentId,
   plan,
   email,
   userId,
   trialUsageId,
+  trialEligible,
+  creditPackId,
   billingCycle = "monthly",
   displayMode = "overlay",
   mode,
@@ -153,17 +155,19 @@ export async function openPaddleCheckout({
   }
 
   let resolvedPriceId = priceId;
+  let resolvedCheckoutConfig = checkoutConfig || null;
   const planKey = normalizePlanKey(plan);
   const normalizedBillingCycle = normalizeBillingCycle(billingCycle);
   if (!resolvedPriceId) {
     const mappedPlan = planKey;
     if (["redbubble", "teepublic", "all_platforms"].includes(mappedPlan)) {
       try {
-        const result = await getCheckoutPriceId(mappedPlan, normalizedBillingCycle);
-        resolvedPriceId = result.price_id;
+        const result = await getCheckoutConfig(mappedPlan, normalizedBillingCycle);
+        resolvedCheckoutConfig = result || null;
+        resolvedPriceId = result.selected_price_id || result.price_id;
       } catch (err) {
         console.error("[Paddle] Failed to get checkout price ID:", err);
-        const detail = err.response?.data?.detail || "Annual billing is not configured yet";
+        const detail = err.response?.data?.detail || "Checkout is temporarily unavailable.";
         throw new Error(detail);
       }
     } else {
@@ -209,8 +213,14 @@ export async function openPaddleCheckout({
   // attaching to a Supabase user.
   const customData = {};
   customData.user_id = String(userId);
+  const resolvedIntentId = checkoutIntentId || resolvedCheckoutConfig?.checkout_intent_id;
+  if (resolvedIntentId) customData.checkout_intent_id = String(resolvedIntentId);
   if (planKey) customData.plan_key = planKey;
   customData.billing_cycle = normalizedBillingCycle;
+  const resolvedTrialEligible = trialEligible ?? resolvedCheckoutConfig?.trial_eligible;
+  if (typeof resolvedTrialEligible === "boolean") customData.trial_eligible = resolvedTrialEligible;
+  const resolvedCreditPackId = creditPackId || resolvedCheckoutConfig?.credit_pack_id;
+  if (resolvedCreditPackId) customData.credit_pack_id = String(resolvedCreditPackId);
   if (email) customData.email = String(email);
   if (plan) customData.plan = String(plan);
   if (trialUsageId) customData.trial_usage_id = String(trialUsageId);
@@ -219,7 +229,9 @@ export async function openPaddleCheckout({
     // eslint-disable-next-line no-console
     console.log("[Paddle] customData sent", {
       hasUserId: Boolean(customData.user_id),
+      hasCheckoutIntentId: Boolean(customData.checkout_intent_id),
       plan_key: customData.plan_key,
+      credit_pack_id: customData.credit_pack_id,
       billing_cycle: customData.billing_cycle,
     });
   }
@@ -260,4 +272,4 @@ export async function openPaddleCheckout({
 
 
 
-export { isPaddleConfigured, isAnnualPaddleConfigured, isPaidPaddleConfigured };
+export { isPaddleConfigured, isAnnualPaddleConfigured };

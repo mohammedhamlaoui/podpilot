@@ -14,8 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "../auth/AuthContext";
-import { getMySubscription, createBillingPortalSession, getTrialEligibility, startTrialCheckout } from "../api/client";
-import { openPaddleCheckout, isPaddleConfigured, isPaidPaddleConfigured } from "../lib/paddle";
+import { getMySubscription, createBillingPortalSession, getTrialEligibility } from "../api/client";
 import { Spinner } from "./LoadingComponents";
 import Icon from "./Icon";
 
@@ -138,7 +137,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
   const [openingPortal, setOpeningPortal] = useState(false);
   const [error, setError] = useState("");
   const [trialEligibility, setTrialEligibility] = useState(null);
-  const trialEligible = trialEligibility?.eligible !== false;
+  const trialEligible = trialEligibility?.eligible === true;
 
   // Refs let us reason about the latest mode/summary inside async callbacks
   // without re-creating effects every time those values change.
@@ -280,7 +279,8 @@ export default function SubscriptionGate({ children, onSignOut }) {
   }
 
   async function handleStartCheckout(planId) {
-    if (!planId) return;
+    if (!planId || openingPlan) return;
+    setOpeningPlan(planId);
     const urlPlan = planId === "all_platforms" ? "all-platforms" : planId;
     window.location.href = `/checkout?plan=${urlPlan}&billing=monthly`;
   }
@@ -451,7 +451,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
                   aria-busy={isLoading || undefined}
                 >
                   {isLoading && <Spinner size="sm" className="pp-spinner-on-button" />}
-                  <span>{isLoading ? "Opening checkout..." : (trialEligible ? "Start 3-day trial" : "Subscribe")}</span>
+                  <span>{isLoading ? "Opening checkout..." : (trialEligible ? "Start 3-day trial" : "Subscribe now")}</span>
                 </button>
                 {!trialEligible && (
                   <small className="pp-locked-note">Free trial already used on this device or network.</small>

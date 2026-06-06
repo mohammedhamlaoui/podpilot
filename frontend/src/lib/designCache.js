@@ -127,8 +127,26 @@ function isUrlFresh(expiresAt, now = Date.now()) {
   return !expiresAt || Number(expiresAt) > now;
 }
 
+function isLegacySignedStorageUrl(value) {
+  const url = String(value || "");
+  return /^https?:\/\//i.test(url) && /r2\.cloudflarestorage\.com/i.test(url);
+}
+
+function proxyUrlForDesign(design, kind) {
+  const id = String(design?.id || "").trim();
+  return id ? `/api/designs/${encodeURIComponent(id)}/${kind}` : "";
+}
+
 function normalizeDesignForCache(design, cachedAt = Date.now()) {
   const next = { ...(design || {}) };
+  if (isLegacySignedStorageUrl(next.image_url)) {
+    next.image_url = proxyUrlForDesign(next, "image");
+    next.image_url_expires_at = null;
+  }
+  if (isLegacySignedStorageUrl(next.thumbnail_url)) {
+    next.thumbnail_url = proxyUrlForDesign(next, "thumbnail");
+    next.thumbnail_url_expires_at = null;
+  }
   if (next.image_url) {
     next.image_url_expires_at = next.image_url_expires_at || inferSignedUrlExpiresAt(next.image_url, cachedAt);
   }
@@ -140,6 +158,14 @@ function normalizeDesignForCache(design, cachedAt = Date.now()) {
 
 function normalizeDesignForDisplay(design, now = Date.now()) {
   const next = { ...(design || {}) };
+  if (isLegacySignedStorageUrl(next.image_url)) {
+    next.image_url = proxyUrlForDesign(next, "image");
+    next.image_url_expires_at = null;
+  }
+  if (isLegacySignedStorageUrl(next.thumbnail_url)) {
+    next.thumbnail_url = proxyUrlForDesign(next, "thumbnail");
+    next.thumbnail_url_expires_at = null;
+  }
   if (next.image_url && !isUrlFresh(next.image_url_expires_at, now)) {
     next.image_url = "";
   }

@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.config import DEBUG
+from app.services.logging_utils import error_type as safe_error_type
 
 logger = logging.getLogger("podpilot.trademark")
 
@@ -264,11 +266,11 @@ async def check_phrase(phrase: str) -> dict[str, Any]:
     except httpx.TimeoutException as exc:
         raise TrademarkLookupError("TMHunt timed out. Please try again.") from exc
     except httpx.HTTPError as exc:
-        logger.warning("[TMHunt] request failed for phrase=%r error_type=%s", cleaned, type(exc).__name__)
+        logger.warning("[TMHunt] request failed error_type=%s", safe_error_type(exc))
         raise TrademarkLookupError("TMHunt is unavailable. Please try again.") from exc
 
     if response.status_code != 200:
-        logger.warning("[TMHunt] HTTP %s for phrase=%r", response.status_code, cleaned)
+        logger.warning("[TMHunt] HTTP %s", response.status_code)
         raise TrademarkLookupError("TMHunt is unavailable. Please try again.")
 
     body = response.text or ""
@@ -278,7 +280,7 @@ async def check_phrase(phrase: str) -> dict[str, Any]:
         try:
             data = response.json()
         except ValueError as exc:
-            logger.warning("[TMHunt] invalid response for phrase=%r", cleaned)
+            logger.warning("[TMHunt] invalid response")
             raise TrademarkLookupError("TMHunt returned an invalid response. Please try again.") from exc
 
     if not isinstance(data, list):
@@ -301,7 +303,7 @@ async def check_phrase(phrase: str) -> dict[str, Any]:
         "disclaimer": "Trademark results are informational only and are not legal advice.",
     }
     _cache_put(cleaned, result)
-    logger.info("[TMHunt] phrase=%r matches=%d", cleaned, len(matches))
+    logger.info("[TMHunt] phrase_checked matches=%d", len(matches))
     return result
 
 
@@ -345,7 +347,7 @@ async def check_terms(terms: list[str]) -> dict[str, Any]:
             except TrademarkLookupError as exc:
                 failed.append({"term": term, "error": str(exc)})
             except Exception as exc:  # pragma: no cover - defensive
-                logger.exception("[TMHunt] unexpected error for term=%r", term)
+                logger.error("[TMHunt] unexpected error error_type=%s", safe_error_type(exc), exc_info=DEBUG)
                 failed.append({"term": term, "error": f"Unexpected error: {type(exc).__name__}"})
 
     await asyncio.gather(*(run(term) for term in cleaned))

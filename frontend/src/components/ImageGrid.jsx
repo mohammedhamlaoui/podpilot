@@ -105,9 +105,9 @@ export default function ImageGrid({ designs, uploadedImages, onImagesUploaded, u
           matched: isImageMatched(file.name, designNames),
           storedName: savedFile.stored_name || "",
           imagePath: savedFile.image_r2_key || "",
-          imageUrl: savedFile.image_url || "",
+          imageUrl: "",
           thumbnail_r2_key: savedFile.thumbnail_r2_key || "",
-          thumbnailUrl: savedFile.thumbnail_url || "",
+          thumbnailUrl: "",
           serverResponse: response
         };
       }));
@@ -195,20 +195,22 @@ export default function ImageGrid({ designs, uploadedImages, onImagesUploaded, u
 
             return (
               <article className="image-card" key={image.id}>
-                {image.thumbnailUrl ? (
-                  <CachedThumbnail
-                    design={{
-                      id: image.id,
-                      thumbnail_r2_key: image.thumbnail_r2_key,
-                      image_r2_key: image.imagePath,
-                    }}
-                    userId={userId}
-                    src={image.thumbnailUrl}
-                    alt={image.name}
-                  />
-                ) : (
-                  <img src={image.previewUrl} alt={image.name} />
-                )}
+                <div className="image-card-img-wrap">
+                  {image.thumbnailUrl ? (
+                    <CachedThumbnail
+                      design={{
+                        id: image.id,
+                        thumbnail_r2_key: image.thumbnail_r2_key,
+                        image_r2_key: image.imagePath,
+                      }}
+                      userId={userId}
+                      src={image.thumbnailUrl}
+                      alt={image.name}
+                    />
+                  ) : (
+                    <img src={image.previewUrl} alt={image.name} />
+                  )}
+                </div>
                 <div className="image-card-footer">
                   <strong title={image.name}>{image.name}</strong>
                   <span className={`status-badge ${matched ? "status-done" : "status-error"}`}>

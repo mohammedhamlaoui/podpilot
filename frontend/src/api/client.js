@@ -268,6 +268,23 @@ export async function listPendingDesigns(marketplace) {
   return response.data;
 }
 
+export async function getUploadQueue(marketplace) {
+  const response = await api.get(`/api/upload-queue/${marketplace}`);
+  return response.data;
+}
+
+export async function createUploadSession(marketplace, designIds = []) {
+  const response = await api.post(`/api/upload-sessions/${marketplace}`, {
+    design_ids: Array.isArray(designIds) ? designIds : [],
+  });
+  return response.data;
+}
+
+export async function updateUploadSessionItemStatus(sessionId, designId, payload) {
+  const response = await api.post(`/api/upload-sessions/${sessionId}/items/${designId}/status`, payload);
+  return response.data;
+}
+
 export async function createUploadJob({ marketplace = "redbubble", design_ids = [] } = {}) {
   const response = await api.post("/upload-jobs", {
     marketplace,
@@ -337,12 +354,22 @@ export async function startTrialCheckout(planKey) {
   return response.data;
 }
 
-export async function getCheckoutPriceId(planKey, billingCycle) {
-  const response = await api.post("/api/billing/checkout", {
-    plan_key: planKey,
-    billing_cycle: billingCycle,
+export async function getCheckoutConfig(planKey, billingCycle, options = {}) {
+  const payload = typeof planKey === "object" && planKey !== null
+    ? planKey
+    : {
+        plan_key: planKey,
+        billing_cycle: billingCycle,
+        ...options,
+      };
+  const response = await api.post("/api/billing/checkout", payload, {
+    headers: trialDeviceHeaders(),
   });
   return response.data;
+}
+
+export async function getCheckoutPriceId(planKey, billingCycle) {
+  return getCheckoutConfig(planKey, billingCycle);
 }
 
 
@@ -437,7 +464,7 @@ export function logFailingRequest(error) {
   });
 }
 
-export async function checkEmailExists(email) {
+export async function checkEmail(email) {
   const response = await api.post("/api/auth/check-email", { email });
   return response.data;
 }

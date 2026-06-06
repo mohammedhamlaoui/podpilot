@@ -2,7 +2,10 @@
 import logging
 
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.billing import router as billing_router
 from app.api.paddle_webhook import router as paddle_webhook_router
@@ -14,6 +17,21 @@ from app.services import supabase_service
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="PodPilot API")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    for error in exc.errors():
+        loc = tuple(error.get("loc") or ())
+        error_type = str(error.get("type") or "")
+        if "image_base64" in loc and (
+            error_type.endswith("too_long") or "max_length" in error_type
+        ):
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Image is too large for AI risk check."},
+            )
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
 
 SECURITY_HEADERS = {

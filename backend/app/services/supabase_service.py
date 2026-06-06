@@ -20,7 +20,7 @@ RLS is enabled in Supabase as a defense-in-depth backstop.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException
@@ -31,6 +31,7 @@ from app.core.config import (
     SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_URL,
 )
+from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
 
 
 logger = logging.getLogger("podpilot.supabase")
@@ -142,6 +143,7 @@ _DESIGN_WRITABLE = {
     "error_message",
     "adult_content",
     "uploaded_at",
+    "cleanup_at",
     "color_settings",
     "product_settings",
 }
@@ -156,6 +158,8 @@ _R2_KEY_COLUMNS = {"image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_previ
 _verified_writable: Optional[set] = None
 _optional_columns_present: Optional[bool] = None
 _ai_preview_column_present: Optional[bool] = None
+_cleanup_at_column_present: Optional[bool] = None
+_cleanup_runs_table_present: Optional[bool] = None
 
 
 def _probe_optional_columns() -> bool:
@@ -208,6 +212,47 @@ def _probe_ai_preview_column() -> bool:
     return _ai_preview_column_present
 
 
+def _probe_cleanup_at_column() -> bool:
+    """Return True if cleanup_at exists in designs table."""
+    global _cleanup_at_column_present
+    if _cleanup_at_column_present is not None:
+        return _cleanup_at_column_present
+    try:
+        _admin.table(DESIGN_TABLE).select("cleanup_at").limit(0).execute()
+        _cleanup_at_column_present = True
+        logger.info("designs.cleanup_at is present.")
+    except Exception as exc:
+        _cleanup_at_column_present = False
+        logger.warning(
+            "designs.cleanup_at is MISSING. "
+            "Run docs/migration_schema_hardening.sql in the Supabase SQL "
+            "editor. Cleanup will fall back to created_at cutoff behavior. "
+            "Underlying error: %s",
+            exc,
+        )
+    return _cleanup_at_column_present
+
+
+def _probe_cleanup_runs_table() -> bool:
+    """Return True if cleanup_runs exists for best-effort summary records."""
+    global _cleanup_runs_table_present
+    if _cleanup_runs_table_present is not None:
+        return _cleanup_runs_table_present
+    try:
+        _admin.table("cleanup_runs").select("id").limit(0).execute()
+        _cleanup_runs_table_present = True
+        logger.info("cleanup_runs table is present.")
+    except Exception as exc:
+        _cleanup_runs_table_present = False
+        logger.warning(
+            "cleanup_runs table is MISSING. Cleanup summary recording skipped. "
+            "Run docs/migration_schema_hardening.sql to enable it. "
+            "Underlying error: %s",
+            exc,
+        )
+    return _cleanup_runs_table_present
+
+
 def _get_writable() -> set:
     """Return the set of columns we can actually write to."""
     global _verified_writable
@@ -219,6 +264,8 @@ def _get_writable() -> set:
         writable = writable - _OPTIONAL_COLUMNS
     if not _probe_ai_preview_column():
         writable = writable - {"ai_preview_r2_key"}
+    if not _probe_cleanup_at_column():
+        writable = writable - {"cleanup_at"}
         
     _verified_writable = writable
     return _verified_writable
@@ -272,13 +319,47 @@ def _validate_user_r2_keys(row: dict[str, Any], user_id: str) -> None:
         if not str(key).startswith(prefix):
             logger.warning(
                 "[R2] rejected cross-user key for user=%s column=%s",
-                user_id,
+                short_user_id(user_id),
                 column,
             )
             raise HTTPException(
                 status_code=403,
                 detail="R2 key does not belong to the authenticated user.",
             )
+
+
+def _parse_db_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _cleanup_at_for_row(row: dict[str, Any]) -> str:
+    created_at = _parse_db_datetime(row.get("created_at")) or datetime.now(timezone.utc)
+    return (created_at + timedelta(hours=12)).isoformat()
+
+
+def _ensure_cleanup_at_for_designs(rows: list[dict[str, Any]]) -> None:
+    if not rows or not _probe_cleanup_at_column():
+        return
+    for row in rows:
+        if row.get("cleanup_at"):
+            continue
+        design_id = row.get("id")
+        if not design_id:
+            continue
+        cleanup_at = _cleanup_at_for_row(row)
+        try:
+            _admin.table(DESIGN_TABLE).update({"cleanup_at": cleanup_at}).eq("id", design_id).execute()
+            row["cleanup_at"] = cleanup_at
+        except Exception as exc:
+            logger.warning("failed to set cleanup_at design_id=%s error_type=%s", short_id(design_id), safe_error_type(exc))
 
 
 def insert_designs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -290,7 +371,9 @@ def insert_designs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if user_id:
             _validate_user_r2_keys(row, str(user_id))
     response = _admin.table(DESIGN_TABLE).insert(payload).execute()
-    return list(response.data or [])
+    inserted = [dict(row) for row in list(response.data or [])]
+    _ensure_cleanup_at_for_designs(inserted)
+    return inserted
 
 
 def list_designs_for_user(
@@ -370,7 +453,10 @@ def update_design_status(
         patch["uploaded_at"] = _now()
     if extra:
         patch.update(extra)
-    return update_design(design_id, user_id, patch)
+    updated = update_design(design_id, user_id, patch)
+    if status == "uploaded" and updated and not updated.get("cleanup_at"):
+        _ensure_cleanup_at_for_designs([updated])
+    return updated
 
 
 def delete_designs_for_user(design_ids: Iterable[str], user_id: str) -> int:
@@ -387,12 +473,45 @@ def delete_designs_for_user(design_ids: Iterable[str], user_id: str) -> int:
     return len(list(response.data or []))
 
 
-def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
-    """List all designs created before cutoff_time."""
-    iso_cutoff = cutoff_time.isoformat()
-    cols = "id, title, user_id, image_r2_key, thumbnail_r2_key, excel_r2_key"
+def _select_cleanup_columns() -> str:
+    cols = "id, title, user_id, image_r2_key, thumbnail_r2_key, excel_r2_key, created_at"
+    if _probe_cleanup_at_column():
+        cols += ", cleanup_at"
     if _probe_ai_preview_column():
         cols += ", ai_preview_r2_key"
+    return cols
+
+
+def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
+    """List designs eligible for cleanup.
+
+    New rows use cleanup_at as their retention deadline. Older rows without
+    cleanup_at retain the legacy created_at cutoff behavior.
+    """
+    iso_cutoff = cutoff_time.isoformat()
+    cols = _select_cleanup_columns()
+    if _probe_cleanup_at_column():
+        now_iso = datetime.now(timezone.utc).isoformat()
+        by_cleanup_at = (
+            _admin.table(DESIGN_TABLE)
+            .select(cols)
+            .lte("cleanup_at", now_iso)
+            .execute()
+        )
+        legacy_null_cleanup_at = (
+            _admin.table(DESIGN_TABLE)
+            .select(cols)
+            .is_("cleanup_at", "null")
+            .lt("created_at", iso_cutoff)
+            .execute()
+        )
+        rows_by_id: dict[str, dict[str, Any]] = {}
+        for row in list(by_cleanup_at.data or []) + list(legacy_null_cleanup_at.data or []):
+            row_id = str(row.get("id") or "")
+            if row_id:
+                rows_by_id[row_id] = dict(row)
+        return list(rows_by_id.values())
+
     response = (
         _admin.table(DESIGN_TABLE)
         .select(cols)
@@ -400,6 +519,37 @@ def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
         .execute()
     )
     return list(response.data or [])
+
+
+def insert_cleanup_run_summary(
+    *,
+    dry_run: bool,
+    cutoff_at: datetime,
+    status: str,
+    deleted_count: int = 0,
+    failed_count: int = 0,
+) -> Optional[dict[str, Any]]:
+    """Best-effort cleanup run ledger insert.
+
+    Missing cleanup_runs should never block cleanup itself.
+    """
+    if not _probe_cleanup_runs_table():
+        return None
+    payload = {
+        "dry_run": dry_run,
+        "cutoff_at": cutoff_at.isoformat(),
+        "status": status,
+        "deleted_count": int(deleted_count or 0),
+        "failed_count": int(failed_count or 0),
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        response = _admin.table("cleanup_runs").insert(payload).execute()
+        rows = list(response.data or [])
+        return dict(rows[0]) if rows else payload
+    except Exception as exc:
+        logger.warning("cleanup_runs insert failed; cleanup will continue error_type=%s", safe_error_type(exc))
+        return None
 
 
 def delete_designs_admin(design_ids: Iterable[str]) -> int:

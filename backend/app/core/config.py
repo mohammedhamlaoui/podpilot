@@ -46,6 +46,14 @@ R2_ENDPOINT = _optional(
 )
 R2_SIGNED_URL_TTL_SECONDS = int(_optional("R2_SIGNED_URL_TTL_SECONDS", "3600"))
 
+# Rate limiting. Redis is not a current runtime dependency, so the backend
+# defaults to a local in-memory limiter. Set REDIS_URL/RATE_LIMIT_BACKEND when
+# a shared limiter is added behind app.services.rate_limiter.
+RATE_LIMIT_ENABLED = _optional("RATE_LIMIT_ENABLED", "true").lower() == "true"
+RATE_LIMIT_BACKEND = _optional("RATE_LIMIT_BACKEND", "memory").lower()
+REDIS_URL = _optional("REDIS_URL", "")
+DEBUG = _optional("DEBUG", "false").lower() == "true"
+
 # ── CORS ────────────────────────────────────────────────────────────────────
 _raw_origins = _optional(
     "ALLOWED_ORIGINS",
@@ -118,7 +126,9 @@ PADDLE_GROWTH_PRICE_ID = _optional("PADDLE_GROWTH_PRICE_ID", "")
 PADDLE_PRO_PRICE_ID = _optional("PADDLE_PRO_PRICE_ID", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 
-# New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback
+# New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback.
+# Legacy PADDLE_*_PRICE_ID values are treated as the 3-day trial monthly
+# prices. Set PADDLE_*_MONTHLY_PRICE_ID to separate no-trial Paddle prices.
 PADDLE_REDBUBBLE_PRICE_ID = _optional("PADDLE_REDBUBBLE_PRICE_ID", "pri_01ks8msd36y7rs8yssgwdrtm9w")
 PADDLE_TEEPUBLIC_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PRICE_ID", "pri_01ks8mz28veqdt6sr3p80zcjcb")
 PADDLE_ALL_PLATFORMS_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PRICE_ID", "pri_01ks8n0g4v8f9nq71yzqhkagt3")
@@ -128,14 +138,31 @@ PADDLE_ALL_PLATFORMS_PAID_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PAID_PRICE_
 PADDLE_AI_TOKENS_1000_PRICE_ID = _optional("PADDLE_AI_TOKENS_1000_PRICE_ID", "pri_01ks8n5345bwms59tp4ayz0rqp")
 PADDLE_AI_TOKENS_10000_PRICE_ID = _optional("PADDLE_AI_TOKENS_10000_PRICE_ID", "pri_01ks8n74nkvh85t5trtjk99bcb")
 
-# Explicit monthly and annual price IDs
-PADDLE_REDBUBBLE_MONTHLY_PRICE_ID = _optional("PADDLE_REDBUBBLE_MONTHLY_PRICE_ID", "")
-PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID = _optional("PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID", "")
-PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID", "")
+# Explicit monthly and annual subscription price IDs. The *_TRIAL_* IDs should
+# point to Paddle prices with trial_period=3 days. The non-trial IDs should
+# point to otherwise identical Paddle prices with trial_period=null.
+PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID = _optional(
+    "PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID",
+    PADDLE_REDBUBBLE_PRICE_ID,
+)
+PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID = _optional(
+    "PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID",
+    PADDLE_TEEPUBLIC_PRICE_ID,
+)
+PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID = _optional(
+    "PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID",
+    PADDLE_ALL_PLATFORMS_PRICE_ID,
+)
+PADDLE_REDBUBBLE_MONTHLY_PRICE_ID = _optional("PADDLE_REDBUBBLE_MONTHLY_PRICE_ID", PADDLE_REDBUBBLE_PAID_PRICE_ID)
+PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID = _optional("PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID", PADDLE_TEEPUBLIC_PAID_PRICE_ID)
+PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID", PADDLE_ALL_PLATFORMS_PAID_PRICE_ID)
 
 PADDLE_REDBUBBLE_ANNUAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_PRICE_ID", "")
 PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID", "")
+PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID", "")
+PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID", "")
+PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID", "")
 
 # Free-trial abuse prevention. TRIAL_HASH_SALT is required only on the
 # trial eligibility/start-trial code paths so the backend can boot while
@@ -182,6 +209,12 @@ def paddle_plan_for_price_id(price_id: str) -> str:
         return "teepublic"
     if PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID and pid == PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID:
         return "all_platforms"
+    if PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID and pid == PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID:
+        return "redbubble"
+    if PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID and pid == PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID:
+        return "teepublic"
+    if PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID and pid == PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID:
+        return "all_platforms"
         
     # Explicit annual price variables
     if PADDLE_REDBUBBLE_ANNUAL_PRICE_ID and pid == PADDLE_REDBUBBLE_ANNUAL_PRICE_ID:
@@ -189,6 +222,12 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     if PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID and pid == PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID:
         return "teepublic"
     if PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID and pid == PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID:
+        return "all_platforms"
+    if PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID and pid == PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID:
+        return "redbubble"
+    if PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID and pid == PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID:
+        return "teepublic"
+    if PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID and pid == PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID:
         return "all_platforms"
 
     if PADDLE_REDBUBBLE_PAID_PRICE_ID and pid == PADDLE_REDBUBBLE_PAID_PRICE_ID:

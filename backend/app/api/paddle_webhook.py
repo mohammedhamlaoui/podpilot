@@ -38,6 +38,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.core import config
 from app.services import subscription_service, supabase_service
+from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
 
 
 logger = logging.getLogger("podpilot.paddle")
@@ -160,10 +161,39 @@ def _first_price_id(items: Any) -> Optional[str]:
     return None
 
 
+def _price_ids_from_items(data: dict[str, Any]) -> list[str]:
+    price_ids: list[str] = []
+    items = data.get("items") or []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            price = item.get("price") or {}
+            pid = price.get("id") or price.get("price_id") or item.get("price_id")
+            if pid:
+                price_ids.append(str(pid))
+    if not price_ids and data.get("price_id"):
+        price_ids.append(str(data["price_id"]))
+    return price_ids
+
+
 def _extract_user_id(custom_data: Any) -> Optional[str]:
     if not isinstance(custom_data, dict):
         return None
     val = custom_data.get("user_id") or custom_data.get("userId")
+    if not val:
+        return None
+    return str(val).strip() or None
+
+
+def _extract_checkout_intent_id(custom_data: Any) -> Optional[str]:
+    if not isinstance(custom_data, dict):
+        return None
+    val = (
+        custom_data.get("checkout_intent_id")
+        or custom_data.get("checkoutIntentId")
+        or custom_data.get("checkout_intent")
+    )
     if not val:
         return None
     return str(val).strip() or None
@@ -217,7 +247,11 @@ def _subscription_column_exists(column: str) -> bool:
         _OPTIONAL_SUBSCRIPTION_COLUMNS[column] = True
     except Exception as error:
         _OPTIONAL_SUBSCRIPTION_COLUMNS[column] = False
-        logger.warning("[Paddle] subscriptions.%s column unavailable; skipping write: %s", column, error)
+        logger.warning(
+            "[Paddle] subscriptions.%s column unavailable; skipping write error_type=%s",
+            column,
+            safe_error_type(error),
+        )
     return _OPTIONAL_SUBSCRIPTION_COLUMNS[column]
 
 
@@ -250,7 +284,9 @@ def _find_existing_row(
                 return dict(rows[0])
         except Exception as error:
             logger.warning(
-                "[Paddle] lookup by paddle_subscription_id failed: %s", error
+                "[Paddle] lookup by paddle_subscription_id failed subscription=%s error_type=%s",
+                short_id(paddle_subscription_id),
+                safe_error_type(error),
             )
     if user_id:
         try:
@@ -274,7 +310,7 @@ def _find_existing_row(
                     return valid_paddle_rows[0]
                 return rows[0]
         except Exception as error:
-            logger.warning("[Paddle] lookup by user_id failed: %s", error)
+            logger.warning("[Paddle] lookup by user failed user=%s error_type=%s", short_user_id(user_id), safe_error_type(error))
     return None
 
 
@@ -302,12 +338,18 @@ def _upsert_subscription(payload: dict[str, Any]) -> None:
                 "id", existing["id"]
             ).execute()
         except Exception as error:
-            logger.error("[Paddle] update subscription failed: %s", error)
+            logger.error(
+                "[Paddle] update subscription failed user=%s subscription=%s status=%s error_type=%s",
+                short_user_id(update.get("user_id") or existing.get("user_id")),
+                short_id(update.get("paddle_subscription_id") or existing.get("paddle_subscription_id")),
+                update.get("status") or existing.get("status"),
+                safe_error_type(error),
+            )
             raise
         logger.info(
-            "[Paddle] upserted subscription user=%s subscription=%s status=%s",
-            update.get("user_id") or existing.get("user_id"),
-            update.get("paddle_subscription_id") or existing.get("paddle_subscription_id"),
+            "[Paddle] subscription status changed user=%s subscription=%s status=%s",
+            short_user_id(update.get("user_id") or existing.get("user_id")),
+            short_id(update.get("paddle_subscription_id") or existing.get("paddle_subscription_id")),
             update.get("status") or existing.get("status"),
         )
         return
@@ -316,7 +358,7 @@ def _upsert_subscription(payload: dict[str, Any]) -> None:
         logger.warning(
             "[Paddle] cannot insert new subscription without user_id "
             "(paddle_subscription_id=%s)",
-            paddle_sub,
+            short_id(paddle_sub),
         )
         return
 
@@ -326,12 +368,18 @@ def _upsert_subscription(payload: dict[str, Any]) -> None:
     try:
         client.table(SUBSCRIPTION_TABLE).insert(insert).execute()
     except Exception as error:
-        logger.error("[Paddle] insert subscription failed: %s", error)
+        logger.error(
+            "[Paddle] insert subscription failed user=%s subscription=%s status=%s error_type=%s",
+            short_user_id(insert.get("user_id")),
+            short_id(insert.get("paddle_subscription_id")),
+            insert.get("status"),
+            safe_error_type(error),
+        )
         raise
     logger.info(
-        "[Paddle] upserted subscription user=%s subscription=%s status=%s",
-        insert.get("user_id"),
-        insert.get("paddle_subscription_id"),
+        "[Paddle] subscription status changed user=%s subscription=%s status=%s",
+        short_user_id(insert.get("user_id")),
+        short_id(insert.get("paddle_subscription_id")),
         insert.get("status"),
     )
 
@@ -383,28 +431,12 @@ def _claim_webhook_event(
             raise insert_error
 
         status = (existing.get("status") or "").lower()
-        if status in {"processed", "ignored"}:
-            logger.info(
-                "[Paddle] duplicate webhook event ignored event_id=%s status=%s",
-                event_id,
-                status,
-            )
-            return False
-        if status == "processing":
-            logger.warning("[Paddle] duplicate webhook event still processing event_id=%s", event_id)
-            raise HTTPException(status_code=500, detail="Webhook event already processing")
-
-        attempts = int(existing.get("attempts") or 0) + 1
-        client.table(WEBHOOK_EVENT_TABLE).update({
-            "event_type": event_type or existing.get("event_type") or "unknown",
-            "notification_id": notification_id or existing.get("notification_id"),
-            "transaction_id": transaction_id or existing.get("transaction_id"),
-            "status": "processing",
-            "attempts": attempts,
-            "updated_at": now,
-            "last_error": None,
-        }).eq("event_id", event_id).execute()
-        return True
+        logger.info(
+            "[Paddle] duplicate webhook event ignored event_id=%s status=%s",
+            short_id(event_id),
+            status or "(none)",
+        )
+        return False
 
 
 def _mark_webhook_event(
@@ -426,7 +458,12 @@ def _mark_webhook_event(
             "event_id", event_id
         ).execute()
     except Exception as error:
-        logger.error("[Paddle] failed to mark webhook event=%s status=%s: %s", event_id, status, error)
+        logger.error(
+            "[Paddle] failed to mark webhook event=%s status=%s error_type=%s",
+            short_id(event_id),
+            status,
+            safe_error_type(error),
+        )
         raise
 
 
@@ -477,13 +514,13 @@ def _claim_token_credit(
         if status == "credited":
             logger.info(
                 "[Paddle] duplicate token credit ignored transaction=%s event_id=%s",
-                transaction_id,
-                event_id,
+                short_id(transaction_id),
+                short_id(event_id),
             )
             return False
         if status == "processing":
-            logger.warning("[Paddle] duplicate token credit still processing transaction=%s", transaction_id)
-            raise HTTPException(status_code=500, detail="Token credit already processing")
+            logger.warning("[Paddle] duplicate token credit still processing transaction=%s", short_id(transaction_id))
+            return False
 
         client.table(TOKEN_CREDIT_TABLE).update({
             "event_id": event_id,
@@ -529,23 +566,51 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
     custom = _extract_custom_data(data)
     _log_custom_data_keys(custom)
     user_id = _extract_user_id(custom)
+    checkout_intent_id = _extract_checkout_intent_id(custom)
     custom_email = _safe_iso(custom.get("email"))
 
     items = data.get("items") or []
     paddle_price_id = _first_price_id(items) or _safe_iso(data.get("price_id"))
     plan = config.paddle_plan_for_price_id(paddle_price_id or "")
-    if not plan:
-        plan = _normalize_custom_plan(
-            custom.get("plan_key") or custom.get("planKey") or custom.get("plan")
-        )
     if plan in {"tokens_1000", "tokens_10000"}:
-        logger.info("[Paddle] subscription event with token pack price_id=%s ignored for plan mapping", paddle_price_id)
+        logger.info("[Paddle] subscription event with token pack price_id=%s ignored for plan mapping", short_id(paddle_price_id))
         plan = ""
+    if not plan:
+        logger.warning(
+            "[Paddle] subscription event ignored: unknown price_id=%s subscription=%s",
+            short_id(paddle_price_id),
+            short_id(paddle_subscription_id),
+        )
+        return
+
+    valid_intent, intent, intent_reason = subscription_service.validate_checkout_intent_for_webhook(
+        checkout_intent_id=checkout_intent_id,
+        user_id=user_id,
+        selected_price_id=paddle_price_id,
+        intent_type="subscription",
+    )
+    if not valid_intent and intent_reason != "already_paid":
+        logger.warning(
+            "[Paddle] subscription event ignored: invalid checkout intent reason=%s intent=%s user=%s price=%s",
+            intent_reason,
+            short_id(checkout_intent_id),
+            short_user_id(user_id),
+            short_id(paddle_price_id),
+        )
+        return
+    if intent_reason == "already_paid" and event_type == "subscription.created":
+        logger.info(
+            "[Paddle] duplicate paid subscription.created skipped intent=%s subscription=%s",
+            short_id(checkout_intent_id),
+            short_id(paddle_subscription_id),
+        )
+        return
+
     monthly_limit = config.paddle_plan_limit(plan) if plan else None
 
     logger.info(
         "[Paddle] mapped price_id=%s plan=%s limit=%s",
-        paddle_price_id,
+        short_id(paddle_price_id),
         plan or "(unknown)",
         monthly_limit if monthly_limit is not None else "(none)",
     )
@@ -554,7 +619,7 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
         logger.warning(
             "[Paddle] missing user_id in custom_data; cannot attach "
             "subscription=%s to a Supabase user",
-            paddle_subscription_id,
+            short_id(paddle_subscription_id),
         )
         # Still return — let _upsert_subscription try to match by
         # paddle_subscription_id (in case we created the row earlier).
@@ -597,7 +662,25 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
     # nulls — except for fields we explicitly want to set even if null
     # (e.g. cancel_at_period_end, status, plan, monthly_upload_limit).
     _upsert_subscription(payload)
+    if valid_intent and status in {"trialing", "active"}:
+        try:
+            subscription_service.mark_checkout_intent_paid(
+                intent_id=str(intent.get("id")),
+                paddle_subscription_id=paddle_subscription_id,
+            )
+        except Exception as error:
+            logger.warning(
+                "[Paddle] subscription intent paid marker failed intent=%s error_type=%s",
+                short_id(checkout_intent_id),
+                safe_error_type(error),
+            )
     if user_id and (status == "trialing" or trial_starts or trial_ends):
+        subscription_service.mark_trial_usage_from_paddle(
+            user_id=user_id,
+            email=custom_email,
+            paddle_customer_id=paddle_customer_id,
+            plan_key=plan,
+        )
         subscription_service.attach_paddle_customer_to_trial_usage(
             user_id=user_id,
             email=custom_email,
@@ -615,8 +698,8 @@ def _probe_ai_tokens_column() -> bool:
         logger.warning(
             "[Paddle] Database probing for 'ai_tokens' column failed. "
             "It might be missing. Run docs/migration_add_ai_tokens.sql in Supabase. "
-            "Error: %s",
-            e,
+            "error_type=%s",
+            safe_error_type(e),
         )
         return False
 
@@ -628,39 +711,39 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
     custom = _extract_custom_data(data)
     _log_custom_data_keys(custom)
     user_id = _extract_user_id(custom)
+    checkout_intent_id = _extract_checkout_intent_id(custom)
     custom_email = _safe_iso(custom.get("email"))
     logger.info(
         "[Paddle] %s transaction=%s subscription=%s customer=%s user=%s",
         event_type,
-        transaction_id,
-        paddle_subscription_id,
-        paddle_customer_id,
-        user_id,
+        short_id(transaction_id),
+        short_id(paddle_subscription_id),
+        short_id(paddle_customer_id),
+        short_user_id(user_id),
     )
     # We deliberately do NOT increment upload_usage here. Paddle transactions
     # are payment-level events; they should not affect upload counts.
 
     # ── Token pack resolution and allocation ──────────────────────────────
-    items = data.get("items") or []
-    price_ids = []
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            price = item.get("price") or {}
-            pid = price.get("id") or price.get("price_id") or item.get("price_id")
-            if pid:
-                price_ids.append(str(pid))
-    if not price_ids and data.get("price_id"):
-        price_ids.append(str(data["price_id"]))
+    price_ids = _price_ids_from_items(data)
 
     tokens_to_add = 0
+    credit_price_id: Optional[str] = None
     for pid in price_ids:
         plan_key = config.paddle_plan_for_price_id(pid)
+        if not plan_key:
+            logger.warning(
+                "[Paddle] transaction ignored: unknown price_id=%s transaction=%s",
+                short_id(pid),
+                short_id(transaction_id),
+            )
+            return
         if plan_key == "tokens_1000":
             tokens_to_add += 1000
+            credit_price_id = pid
         elif plan_key == "tokens_10000":
             tokens_to_add += 10000
+            credit_price_id = pid
 
     if tokens_to_add > 0:
         if not user_id:
@@ -674,18 +757,33 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
         if not transaction_id:
             logger.warning(
                 "[Paddle] token pack transaction event_id=%s is missing transaction id; skipping credit",
-                event_id,
+                short_id(event_id),
+            )
+            return
+
+        valid_intent, intent, intent_reason = subscription_service.validate_checkout_intent_for_webhook(
+            checkout_intent_id=checkout_intent_id,
+            user_id=user_id,
+            selected_price_id=credit_price_id,
+            intent_type="ai_credits",
+        )
+        if not valid_intent:
+            logger.info(
+                "[Paddle] token credit skipped: checkout intent reason=%s intent=%s transaction=%s",
+                intent_reason,
+                short_id(checkout_intent_id),
+                short_id(transaction_id),
             )
             return
 
         # Check if the ai_tokens column is present before updating
         if not _probe_ai_tokens_column():
             logger.warning(
-                "[Paddle] PROPOSED MIGRATION REQUIRED: User %s purchased %d tokens in transaction, "
+                "[Paddle] PROPOSED MIGRATION REQUIRED: user=%s purchased %d tokens in transaction, "
                 "but the 'ai_tokens' column does not exist in the 'subscriptions' table yet. "
                 "Please run docs/migration_add_ai_tokens.sql in your Supabase SQL editor. "
                 "Webhook has skipped database update but succeeded with status 200.",
-                user_id,
+                short_user_id(user_id),
                 tokens_to_add,
             )
             return
@@ -713,9 +811,9 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                     "updated_at": _utc_now_iso(),
                 }).eq("id", existing["id"]).execute()
                 logger.info(
-                    "[Paddle] successfully credited %d tokens to user=%s (new total=%d)",
+                    "[Paddle] successfully credited %d tokens to user=%s new_total=%d",
                     tokens_to_add,
-                    user_id,
+                    short_user_id(user_id),
                     new_tokens,
                 )
             else:
@@ -731,14 +829,32 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                 logger.info(
                     "[Paddle] successfully created subscription row with %d tokens for user=%s",
                     tokens_to_add,
-                    user_id,
+                    short_user_id(user_id),
                 )
         except Exception as error:
             _mark_token_credit(transaction_id, "failed", last_error=str(error))
-            logger.error("[Paddle] failed to credit token pack user=%s transaction=%s: %s", user_id, transaction_id, error)
+            logger.error(
+                "[Paddle] failed to credit token pack user=%s transaction=%s error_type=%s",
+                short_user_id(user_id),
+                short_id(transaction_id),
+                safe_error_type(error),
+            )
             raise
 
         _mark_token_credit(transaction_id, "credited")
+        try:
+            subscription_service.mark_checkout_intent_paid(
+                intent_id=str(intent.get("id")),
+                paddle_transaction_id=transaction_id,
+                paddle_subscription_id=paddle_subscription_id,
+            )
+        except Exception as error:
+            logger.warning(
+                "[Paddle] token credit intent paid marker failed intent=%s transaction=%s error_type=%s",
+                short_id(checkout_intent_id),
+                short_id(transaction_id),
+                safe_error_type(error),
+            )
 
 
 # ── Route ────────────────────────────────────────────────────────────────
@@ -766,12 +882,12 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Invalid Paddle signature")
 
     _require_fresh_signature_timestamp(signature)
-    logger.info("[Paddle] signature verified")
+    logger.info("[Paddle] webhook signature verified")
 
     try:
         event = json.loads(raw_body.decode("utf-8") or "{}")
     except (ValueError, UnicodeDecodeError) as error:
-        logger.warning("[Paddle] bad JSON body: %s", error)
+        logger.warning("[Paddle] bad JSON body error_type=%s", safe_error_type(error))
         raise HTTPException(status_code=400, detail="Invalid JSON body") from error
 
     event_type = (event.get("event_type") or event.get("type") or "").lower()
@@ -788,9 +904,9 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
 
     logger.info(
         "[Paddle] webhook received event_id=%s type=%s transaction=%s",
-        event_id,
+        short_id(event_id),
         event_type or "(unknown)",
-        transaction_id,
+        short_id(transaction_id),
     )
 
     should_process = _claim_webhook_event(
@@ -803,7 +919,7 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
         return {"ok": True, "duplicate": True}
 
     if event_type not in KNOWN_EVENT_TYPES:
-        logger.info("[Paddle] ignored event type=%s", event_type or "(unknown)")
+        logger.info("[Paddle] ignored event event_id=%s type=%s", short_id(event_id), event_type or "(unknown)")
         _mark_webhook_event(event_id, "ignored")
         return {"ok": True, "ignored": True}
 
@@ -814,11 +930,24 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
             _handle_transaction_event(event_id, event_type, data)
     except HTTPException as error:
         _mark_webhook_event(event_id, "failed", last_error=str(error.detail))
+        logger.warning(
+            "[Paddle] webhook failed event_id=%s type=%s status_code=%s error_type=HTTPException",
+            short_id(event_id),
+            event_type or "(unknown)",
+            error.status_code,
+        )
         raise
     except Exception as error:  # Supabase/DB errors → let Paddle retry
         _mark_webhook_event(event_id, "failed", last_error=str(error))
-        logger.exception("[Paddle] handler failed for %s: %s", event_type, error)
+        logger.error(
+            "[Paddle] handler failed event_id=%s type=%s error_type=%s",
+            short_id(event_id),
+            event_type or "(unknown)",
+            safe_error_type(error),
+            exc_info=config.DEBUG,
+        )
         raise HTTPException(status_code=500, detail="Webhook handler failed") from error
 
     _mark_webhook_event(event_id, "processed")
+    logger.info("[Paddle] webhook processed event_id=%s type=%s", short_id(event_id), event_type or "(unknown)")
     return {"ok": True}
