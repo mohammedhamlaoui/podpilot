@@ -167,6 +167,7 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
   const seoTitle = aliasMeta.title || post.title;
   const seoDescription = aliasMeta.description || post.metaDescription;
   const articleSchema = {
+    "@context": "https://schema.org",
     "@type": "Article",
     "@id": canonicalUrl,
     headline: seoTitle,
@@ -187,6 +188,7 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
     keywords: post.secondaryKeywords?.join(", "),
   };
   const breadcrumbSchema = {
+    "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: "https://podpilot.space/" },
@@ -209,7 +211,6 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
         })),
       }
     : null;
-  const jsonLd = faqSchema ? [articleSchema, breadcrumbSchema, faqSchema] : [articleSchema, breadcrumbSchema];
 
   useSeo({
     title: seoTitle,
@@ -217,8 +218,37 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
     canonical,
     ogImage: `https://podpilot.space${post.image}`,
     ogType: "article",
-    jsonLd,
   });
+
+  useEffect(() => {
+    const schemas = [
+      { id: "blog-article-jsonld", data: articleSchema },
+      { id: "blog-breadcrumb-jsonld", data: breadcrumbSchema },
+      ...(faqSchema ? [{ id: "blog-faq-jsonld", data: faqSchema }] : []),
+    ];
+    const activeIds = new Set(schemas.map((schema) => schema.id));
+
+    ["blog-article-jsonld", "blog-breadcrumb-jsonld", "blog-faq-jsonld"].forEach((id) => {
+      if (!activeIds.has(id)) {
+        document.getElementById(id)?.remove();
+      }
+    });
+
+    schemas.forEach(({ id, data }) => {
+      let el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement("script");
+        el.id = id;
+        el.type = "application/ld+json";
+        document.head.appendChild(el);
+      }
+      el.textContent = JSON.stringify(data, null, 2);
+    });
+
+    return () => {
+      schemas.forEach(({ id }) => document.getElementById(id)?.remove());
+    };
+  }, [articleSchema, breadcrumbSchema, faqSchema]);
 
   const related = blogPosts.filter((item) => item.slug !== post.slug).slice(0, 3);
 

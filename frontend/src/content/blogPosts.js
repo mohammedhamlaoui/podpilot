@@ -646,7 +646,7 @@ export const blogPosts = [
           "See Live and Dead trademark matches clearly classified inside your queue",
           "Save hours of copy-pasting by screening dozens of listings in one click",
           "Minimize account suspension risks before starting the browser extension",
-          "Keep your scaling print-on-demand business safe and fully compliant"
+          "Review metadata carefully before publishing at scale"
         ],
       },
     ],
@@ -746,7 +746,7 @@ export const blogPosts = [
     cta: "Automate your Redbubble publishing queue with PodPilot today.",
     faqs: [
       {
-        q: "Is Redbubble upload automation allowed?",
+        q: "How should I use Redbubble upload automation?",
         a: "PodPilot is designed to run through the user's browser session and does not store marketplace passwords. Sellers should review Redbubble's current rules and use automation responsibly."
       },
       {
