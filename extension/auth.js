@@ -19,16 +19,10 @@ var authDebugLog = (...args) => {
 
 const SUPABASE_URL = "https://okmcvbopiwjuusdiqnas.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_QEi_heLvRo0_guA07QCK_A_crkC9wUI";
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://api.podpilot.space";
 
 const SESSION_STORAGE_KEY = "podpilot_session_v1";
 const PLATFORM_ACCESS_STORAGE_KEY = "podpilot_platform_access";
-const DEVICE_ID_STORAGE_KEY = "podpilot_device_id";
-const DEVICE_LABEL = "PodPilot browser extension";
-const DEVICE_ALREADY_ACTIVE_CODE = "device_already_active";
-const DEVICE_SESSION_REVOKED_CODE = "device_session_revoked";
-const DEVICE_SWITCH_MESSAGE = "PodPilot is already connected to another browser for upload automation.";
-const DEVICE_SESSION_REVOKED_MESSAGE = "This upload session was disconnected because upload control was switched to another device.";
 // Refresh the access token when it has less than this many seconds left.
 const REFRESH_LEEWAY_SECONDS = 60;
 
@@ -124,24 +118,6 @@ async function getCachedActivePlatformAccess(maxAgeMs = 10 * 60 * 1000) {
   return null;
 }
 
-async function getTrialDeviceId() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(DEVICE_ID_STORAGE_KEY, (data) => {
-      const existing = data?.[DEVICE_ID_STORAGE_KEY];
-      if (typeof existing === "string" && existing.trim()) {
-        resolve(existing.trim());
-        return;
-      }
-      const next = (
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-      );
-      chrome.storage.local.set({ [DEVICE_ID_STORAGE_KEY]: next }, () => resolve(next));
-    });
-  });
-}
-
 // ── Supabase auth wire calls ────────────────────────────────────────────────
 
 async function supabaseAuth(path, body, { method = "POST", token } = {}) {
@@ -193,7 +169,6 @@ async function signIn(email, password) {
   const data = await supabaseAuth("token?grant_type=password", { email, password });
   const session = normalizeSession(data);
   await setStoredSession(session);
-  await registerDevice();
   try { await fetchPlatformAccess(); } catch (_) { /* fetchPlatformAccess stores locked on failure */ }
   return session;
 }
@@ -201,7 +176,6 @@ async function signIn(email, password) {
 async function signOut() {
   const session = await getStoredSession();
   if (session?.access_token) {
-    await logoutDevice();
     try {
       await supabaseAuth("logout", null, { token: session.access_token });
     } catch (_) {
@@ -257,7 +231,6 @@ async function adoptSession(rawSession) {
   if (!rawSession?.access_token) return null;
   const session = normalizeSession(rawSession);
   await setStoredSession(session);
-  await registerDevice();
   try { await fetchPlatformAccess(); } catch (_) { /* fetchPlatformAccess stores locked on failure */ }
   return session;
 }
@@ -275,27 +248,11 @@ async function apiFetch(path, options = {}) {
   }
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${session.access_token}`);
-  headers.set("X-PodPilot-Device-Id", await getDeviceId());
-  headers.set("X-PodPilot-Client", "extension");
   if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (response.status === 403 || response.status === 409) {
-    const cloned = response.clone();
-    const data = await readResponseJson(cloned);
-    const detail = parseApiDetail(data);
-    if (detail.code === DEVICE_SESSION_REVOKED_CODE) {
-      notifyDeviceSessionRevoked(detail.message);
-      await setStoredSession(null);
-      await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
-      throw new DeviceSessionError(detail.message, detail.code);
-    }
-    if (detail.code === DEVICE_ALREADY_ACTIVE_CODE) {
-      throw new DeviceSessionError(detail.message, detail.code);
-    }
-  }
   if (response.status === 401) {
     await setStoredSession(null);
     await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
@@ -391,12 +348,10 @@ async function getSubscriptionStatus() {
 
 async function getTrialEligibility() {
   try {
-    const deviceId = await getTrialDeviceId();
     const response = await apiFetch("/api/billing/trial-eligibility", {
       method: "GET",
       headers: {
         Accept: "application/json",
-        "X-PodPilot-Device-Id": deviceId,
       },
     });
     if (!response.ok) {
@@ -414,27 +369,6 @@ async function getTrialEligibility() {
 }
 
 class ApiAuthError extends Error {}
-class DeviceSessionError extends Error {
-  constructor(message, code) {
-    super(message || DEVICE_SWITCH_MESSAGE);
-    this.name = "DeviceSessionError";
-    this.code = code || DEVICE_ALREADY_ACTIVE_CODE;
-    this.isDeviceSessionError = true;
-  }
-}
-
-function isDeviceSessionCode(code) {
-  return code === DEVICE_ALREADY_ACTIVE_CODE || code === DEVICE_SESSION_REVOKED_CODE;
-}
-
-function parseApiDetail(data, fallback = "") {
-  const detail = data?.detail || data || {};
-  if (typeof detail === "string") return { message: detail || fallback, code: "" };
-  return {
-    code: detail?.code || data?.code || "",
-    message: detail?.message || data?.message || fallback,
-  };
-}
 
 function sanitizeDebugDetail(value) {
   return String(value || "")
@@ -457,78 +391,6 @@ async function readResponseDetail(response) {
   }
 }
 
-async function readResponseJson(response) {
-  const text = await response.text().catch(() => "");
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    return { detail: text };
-  }
-}
-
-async function getDeviceId() {
-  return getTrialDeviceId();
-}
-
-function notifyDeviceSessionRevoked(message) {
-  try {
-    chrome.runtime.sendMessage(
-      { action: "device_session_revoked", message: message || DEVICE_SESSION_REVOKED_MESSAGE },
-      () => { void chrome.runtime.lastError; }
-    );
-  } catch (_) { /* popup/background may not be listening */ }
-}
-
-async function deviceRequest(path, { method = "POST" } = {}) {
-  const session = await getValidSession();
-  if (!session?.access_token) throw new ApiAuthError("Not signed in.");
-  const deviceId = await getDeviceId();
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-      "X-PodPilot-Device-Id": deviceId,
-      "X-PodPilot-Client": "extension",
-    },
-    body: method === "GET" ? undefined : JSON.stringify({
-      device_id: deviceId,
-      device_label: DEVICE_LABEL,
-    }),
-  });
-  const data = await readResponseJson(response);
-  if (!response.ok) {
-    const detail = parseApiDetail(data, `device request failed (${response.status})`);
-    if (isDeviceSessionCode(detail.code)) {
-      throw new DeviceSessionError(detail.message, detail.code);
-    }
-    throw new Error(detail.message || `device request failed (${response.status})`);
-  }
-  return data || {};
-}
-
-async function registerDevice() {
-  return deviceRequest("/api/device/register");
-}
-
-async function switchDevice() {
-  return deviceRequest("/api/device/switch");
-}
-
-async function heartbeatDevice() {
-  return deviceRequest("/api/device/heartbeat");
-}
-
-async function logoutDevice() {
-  try {
-    return await deviceRequest("/api/device/logout");
-  } catch (_) {
-    return { status: "ignored" };
-  }
-}
-
 async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
   authDebugLog("[PlatformAccess] request", {
     API_BASE,
@@ -543,8 +405,6 @@ async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${session.access_token}`,
-      "X-PodPilot-Device-Id": await getDeviceId(),
-      "X-PodPilot-Client": "extension",
     },
   });
 
@@ -555,17 +415,6 @@ async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
   });
 
   if (!response.ok) {
-    const cloned = response.clone();
-    const data = await readResponseJson(cloned);
-    const parsed = parseApiDetail(data);
-    if (isDeviceSessionCode(parsed.code)) {
-      if (parsed.code === DEVICE_SESSION_REVOKED_CODE) {
-        notifyDeviceSessionRevoked(parsed.message);
-        await setStoredSession(null);
-        await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
-      }
-      throw new DeviceSessionError(parsed.message, parsed.code);
-    }
     const detail = await readResponseDetail(response);
     authDebugLog("[PlatformAccess] error detail", {
       status: response.status,
@@ -748,10 +597,6 @@ const PodPilotAuth = {
   SUPABASE_ANON_KEY,
   API_BASE,
   ApiAuthError,
-  DeviceSessionError,
-  DEVICE_ALREADY_ACTIVE_CODE,
-  DEVICE_SESSION_REVOKED_CODE,
-  DEVICE_SWITCH_MESSAGE,
   signIn,
   signOut,
   getStoredSession,
@@ -770,11 +615,6 @@ const PodPilotAuth = {
   getCurrentUser,
   getSubscriptionStatus,
   getTrialEligibility,
-  getDeviceId,
-  registerDevice,
-  switchDevice,
-  heartbeatDevice,
-  logoutDevice,
 };
 
 // Make available to popup.js (loaded before it via <script>) and to the

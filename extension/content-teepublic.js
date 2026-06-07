@@ -2118,19 +2118,6 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       return;
     }
 
-    if (message.action === 'device_session_revoked') {
-      isStopped = true;
-      isPaused = false;
-      try {
-        setOverlayContent(
-          'Upload session disconnected',
-          message.message || 'This upload session was disconnected because upload control was switched to another device.',
-          0
-        );
-      } catch (_) { /* overlay may not be mounted */ }
-      sendResponse({ ok: true });
-      return;
-    }
   });
 
   // ─── Auto-boot for ?auto=1 ─────────────────────────────────────────────────

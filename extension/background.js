@@ -509,7 +509,7 @@ async function handleControlMessage(message, sender = null) {
       const access = await verifyUploadAccessBeforeQueue();
       if (!access.ok) {
         const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
-        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+        showBillingBlockNotice({ title: "Upload blocked", message });
         return {
           ok: false,
           blocked: Boolean(access.blocked),
@@ -537,7 +537,7 @@ async function handleControlMessage(message, sender = null) {
       const access = await verifyUploadAccessBeforeQueue();
       if (!access.ok) {
         const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
-        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+        showBillingBlockNotice({ title: "Upload blocked", message });
         return {
           ok: false,
           blocked: Boolean(access.blocked),
@@ -560,9 +560,6 @@ async function handleControlMessage(message, sender = null) {
 
     case "clear_local_state":
       return clearLocalState();
-
-    case "device_session_revoked":
-      return handleDeviceSessionRevoked(message.message);
 
     case "upload_result":
       await handleUploadResult(message);
@@ -773,9 +770,6 @@ async function verifyUploadAccessBeforeQueue() {
     }
     return { ok: true, summary };
   } catch (error) {
-    if (isDeviceSessionError(error)) {
-      return handleUploadDeviceError(error);
-    }
     console.warn("[Billing] access check failed:", error?.message || error);
     return { ok: false, blocked: false, error };
   }
@@ -823,9 +817,6 @@ async function verifyPlatformAccessBeforeQueue(marketplace = "redbubble") {
     return { ok: true, access };
   } catch (error) {
     debugTimerEnd(timer, { ok: false, blocked: false });
-    if (isDeviceSessionError(error)) {
-      return handleUploadDeviceError(error);
-    }
     console.warn("[Billing] platform access check failed:", error?.message || error);
     debugLog("[PlatformAccess] final access decision", {
       marketplace: platform,
@@ -844,7 +835,6 @@ async function verifyPlatformAccessBeforeQueue(marketplace = "redbubble") {
 
 async function blockQueueForPlatformAccess(marketplace, platformAccess) {
   const message = platformAccess?.error || platformLockedMessage(marketplace);
-  const isDeviceConflict = platformAccess?.reason === "device_already_active";
   preferredUploadTab = null;
   await setQueueState({
     status: "idle",
@@ -854,7 +844,7 @@ async function blockQueueForPlatformAccess(marketplace, platformAccess) {
     updatedAt: new Date().toISOString(),
   });
   showBillingBlockNotice({
-    title: isDeviceConflict ? "Upload session already active" : (platformAccess?.blocked ? "Platform locked" : "Could not verify platform access"),
+    title: platformAccess?.blocked ? "Platform locked" : "Could not verify platform access",
     message,
   });
   return {
@@ -914,50 +904,7 @@ function showUploadStartError(message) {
   });
 }
 
-function isDeviceSessionError(error) {
-  return Boolean(self.PodPilotAuth?.DeviceSessionError && error instanceof self.PodPilotAuth.DeviceSessionError);
-}
-
-function showUploadControlConflict(message) {
-  const notice = message || "PodPilot is already connected to another browser for upload automation.";
-  showBillingBlockNotice({
-    title: "Upload session already active",
-    message: notice,
-  });
-  try {
-    chrome.runtime.sendMessage(
-      { action: "device_session_conflict", message: notice },
-      () => { void chrome.runtime.lastError; }
-    );
-  } catch (_) { /* popup may not be open */ }
-  return {
-    ok: false,
-    blocked: true,
-    reason: "device_already_active",
-    error: notice,
-  };
-}
-
-async function handleUploadDeviceError(error) {
-  if (error?.code === self.PodPilotAuth?.DEVICE_SESSION_REVOKED_CODE) {
-    const result = await handleDeviceSessionRevoked(error.message);
-    return { ...result, reason: "device_session_revoked" };
-  }
-  return showUploadControlConflict(error?.message);
-}
-
-function isUploadDeviceFailure(result) {
-  return result?.reason === "device_already_active" || result?.reason === "device_session_revoked";
-}
-
-function uploadDeviceFailureTitle(result, fallbackTitle) {
-  if (result?.reason === "device_already_active") return "Upload session already active";
-  if (result?.reason === "device_session_revoked") return "Upload session disconnected";
-  return fallbackTitle;
-}
-
 function uploadAccessFailureMessage(result, fallbackMessage) {
-  if (isUploadDeviceFailure(result)) return result.error || fallbackMessage;
   if (result?.blocked) return buildBlockedMessage(result.summary);
   return fallbackMessage;
 }
@@ -994,10 +941,6 @@ async function createUploadJobForQueue(marketplace, queue) {
     if (error instanceof self.PodPilotAuth.ApiAuthError) {
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
-    }
-    if (isDeviceSessionError(error)) {
-      const result = await handleUploadDeviceError(error);
-      throw new Error(result.error || "Upload session already active.");
     }
     console.warn("[PodPilot] upload-jobs request failed:", error?.message || error);
   }
@@ -1077,10 +1020,6 @@ async function createPreparedUploadSessionForQueue(marketplace, designs) {
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
     }
-    if (isDeviceSessionError(error)) {
-      const result = await handleUploadDeviceError(error);
-      throw new Error(result.error || "Upload session already active.");
-    }
     console.warn("[TP Backend] upload session preparation failed:", error?.message || error);
     return { sessionId: "", designs };
   }
@@ -1138,7 +1077,7 @@ async function startQueueInstant(message) {
   if (!uploadAccess.ok) {
     const message = uploadAccessFailureMessage(uploadAccess, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: uploadDeviceFailureTitle(uploadAccess, uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription"),
+      title: uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription",
       message,
     });
     throw new Error(message);
@@ -1264,11 +1203,11 @@ async function startQueueInstant(message) {
       });
 
       if (access.blocked) {
-        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+        showBillingBlockNotice({ title: "Upload blocked", message });
       } else {
         showBillingBlockNotice({
-          title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
-          message: isUploadDeviceFailure(access) ? message : "Could not verify subscription. Please try again.",
+          title: "Could not verify subscription",
+          message: "Could not verify subscription. Please try again.",
         });
       }
       return;
@@ -1327,7 +1266,7 @@ async function startQueue(designs) {
   if (!access.ok) {
     if (access.blocked) {
       const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
-      showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+      showBillingBlockNotice({ title: "Upload blocked", message });
       return {
         ok: false,
         blocked: true,
@@ -1338,7 +1277,7 @@ async function startQueue(designs) {
     }
     const message = uploadAccessFailureMessage(access, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
+      title: "Could not verify subscription",
       message,
     });
     return { ok: false, blocked: false, reason: access.reason, error: message };
@@ -1480,7 +1419,7 @@ async function startExistingQueue() {
       updatedAt: new Date().toISOString(),
     });
     showBillingBlockNotice({
-      title: uploadDeviceFailureTitle(uploadAccess, uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription"),
+      title: uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription",
       message,
     });
     return {
@@ -1542,42 +1481,6 @@ async function stopQueue() {
   isProcessing = false;
   tpIsProcessing = false;
   return { ok: true, state: await getQueueState() };
-}
-
-async function handleDeviceSessionRevoked(message) {
-  const notice = message || "This upload session was disconnected because upload control was switched to another device.";
-  try {
-    const state = await getQueueState();
-    if (["starting", "running", "paused"].includes(state.status)) {
-      await stopQueue();
-    }
-  } catch (_) { /* continue clearing local state */ }
-  await clearLocalState();
-  try {
-    chrome.runtime.sendMessage(
-      { action: "device_session_revoked", message: notice },
-      () => { void chrome.runtime.lastError; }
-    );
-  } catch (_) { /* popup may not be open */ }
-  try {
-    const tabUrlPatterns = [
-      "https://www.redbubble.com/*",
-      "https://www.teepublic.com/*",
-    ];
-    for (const pattern of tabUrlPatterns) {
-      chrome.tabs.query({ url: pattern }, (tabs) => {
-        (tabs || []).forEach((tab) => {
-          if (!tab?.id) return;
-          chrome.tabs.sendMessage(
-            tab.id,
-            { action: "device_session_revoked", message: notice },
-            () => { void chrome.runtime.lastError; }
-          );
-        });
-      });
-    }
-  } catch (_) { /* tabs API may be unavailable */ }
-  return { ok: false, disconnected: true, error: notice };
 }
 
 async function clearLocalState() {
@@ -1824,10 +1727,6 @@ async function resolveSignedImageUrl(design) {
       // Bubble up so the popup re-prompts for login.
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
-    }
-    if (isDeviceSessionError(error)) {
-      const result = await handleUploadDeviceError(error);
-      throw new Error(result.error || "Upload session already active.");
     }
     console.warn("[PodPilot] /image-url fetch failed:", error?.message || error);
   }
@@ -3046,7 +2945,7 @@ async function startTeePublicQueue(designs) {
   if (!access.ok) {
     if (access.blocked) {
       const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
-      showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+      showBillingBlockNotice({ title: "Upload blocked", message });
       return {
         ok: false,
         blocked: true,
@@ -3057,7 +2956,7 @@ async function startTeePublicQueue(designs) {
     }
     const message = uploadAccessFailureMessage(access, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
+      title: "Could not verify subscription",
       message,
     });
     return { ok: false, blocked: false, reason: access.reason, error: message };

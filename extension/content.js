@@ -1835,18 +1835,6 @@ debugLog('📄 document.readyState at injection time:', document.readyState);
       return false;
     }
 
-    if (message.action === 'device_session_revoked') {
-      overlayState.queueStatus = 'idle';
-      try {
-        setUploadOverlayTerminal(
-          'error',
-          message.message || 'This upload session was disconnected because upload control was switched to another device.'
-        );
-      } catch (_) { /* overlay may not be mounted */ }
-      sendResponse({ ok: true });
-      return false;
-    }
-
     if (message.action === 'fill_duplicate_form') {
       debugLog('📨 fill_duplicate_form message received');
       debugDOM('MESSAGE_RECEIVED');

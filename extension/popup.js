@@ -39,7 +39,6 @@ const loginPassword = $("loginPassword");
 const loginBtn = $("loginBtn");
 const googleLoginBtn = $("googleLoginBtn");
 const loginError = $("loginError");
-const deviceSwitchBtn = $("deviceSwitchBtn");
 
 const designCountLabel = $("designCountLabel");
 const refreshBtn = $("refreshBtn");
@@ -161,7 +160,6 @@ const ppToastMessage = $("ppToastMessage");
 const ppToastClose = $("ppToastClose");
 let ppToastTimer = null;
 let uploadSettings = { runUploadsInBackground: true };
-let pendingDeviceSwitchSession = null;
 
 function showUploadToast(summary) {
   if (!ppToast) return;
@@ -816,7 +814,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       enterDashboard(message.session);
     }
   });
-  deviceSwitchBtn?.addEventListener("click", handleDeviceSwitch);
   signOutBtn.addEventListener("click", handleSignOut);
   refreshBtn.addEventListener("click", refreshAll);
   searchInput.addEventListener("input", () => { page = 1; render(); });
@@ -862,18 +859,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const session = await PodPilotAuth.getValidSession();
   if (!session) { showView("login"); return; }
-  try {
-    await PodPilotAuth.registerDevice();
-    enterDashboard(session);
-  } catch (error) {
-    if (error instanceof PodPilotAuth.DeviceSessionError) {
-      pendingDeviceSwitchSession = session;
-      showDeviceConflict(error.message);
-      return;
-    }
-    loginError.textContent = error?.message || "Could not connect this device.";
-    showView("login");
-  }
+  enterDashboard(session);
 });
 
 async function loadUploadSettings() {
@@ -977,70 +963,24 @@ async function enterDashboard(session) {
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────
-function hideDeviceSwitch() {
-  pendingDeviceSwitchSession = null;
-  if (deviceSwitchBtn) {
-    deviceSwitchBtn.hidden = true;
-    deviceSwitchBtn.disabled = false;
-    deviceSwitchBtn.textContent = "Switch upload control to this device";
-  }
-}
-
-function showDeviceConflict(message) {
-  loginError.textContent = message || "PodPilot is already connected to another browser for upload automation.";
-  if (deviceSwitchBtn) {
-    deviceSwitchBtn.hidden = false;
-    deviceSwitchBtn.disabled = false;
-    deviceSwitchBtn.textContent = "Switch upload control to this device";
-  }
-  showView("login");
-}
-
 async function handleSignIn(e) {
   e.preventDefault();
   loginError.textContent = "";
-  hideDeviceSwitch();
   loginBtn.disabled = true;
   loginBtn.textContent = "Signing in...";
   try {
     const session = await PodPilotAuth.signIn(loginEmail.value.trim(), loginPassword.value);
     enterDashboard(session);
   } catch (err) {
-    if (err instanceof PodPilotAuth.DeviceSessionError) {
-      pendingDeviceSwitchSession = await PodPilotAuth.getStoredSession();
-      showDeviceConflict(err.message);
-    } else {
-      loginError.textContent = err?.message || "Sign-in failed.";
-    }
+    loginError.textContent = err?.message || "Sign-in failed.";
   } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = "Sign In";
   }
 }
 
-async function handleDeviceSwitch() {
-  if (!deviceSwitchBtn) return;
-  deviceSwitchBtn.disabled = true;
-  deviceSwitchBtn.textContent = "Switching...";
-  loginError.textContent = "Switching upload control...";
-  try {
-    await PodPilotAuth.switchDevice();
-    const session = pendingDeviceSwitchSession || await PodPilotAuth.getValidSession();
-    hideDeviceSwitch();
-    if (session) {
-      enterDashboard(session);
-    } else {
-      loginError.textContent = "Please sign in again.";
-      showView("login");
-    }
-  } catch (error) {
-    showDeviceConflict(error?.message || PodPilotAuth.DEVICE_SWITCH_MESSAGE);
-  }
-}
-
 async function handleSignOut() {
   stopPolling();
-  hideDeviceSwitch();
   releasePopupImageObjectUrls();
   try { await PodPilotAuth.signOut(); } catch (_) {}
   await sendMsg({ action: "clear_local_state" });
@@ -1098,18 +1038,6 @@ async function fetchDesigns() {
     return true;
   } catch (err) {
     if (err instanceof PodPilotAuth.ApiAuthError) { showView("login"); return false; }
-    if (err instanceof PodPilotAuth.DeviceSessionError) {
-      if (err.code === PodPilotAuth.DEVICE_ALREADY_ACTIVE_CODE) {
-        pendingDeviceSwitchSession = await PodPilotAuth.getValidSession();
-        showDeviceConflict(err.message);
-      } else {
-        stopPolling();
-        resetUploadLaunchState();
-        loginError.textContent = err.message || "This upload session was disconnected because upload control was switched to another device.";
-        showView("login");
-      }
-      return false;
-    }
     lastDesignFetchFailed = true;
     debugLog("[PodPilot] fetchDesigns failed:", {
       message: err?.message || String(err),
@@ -1145,16 +1073,7 @@ async function refreshAll() {
 
 function startPolling() {
   stopPolling();
-  debugLog("[EXT THUMB] design auto refresh loop remains disabled; device heartbeat enabled");
-  dataPollId = setInterval(() => {
-    PodPilotAuth.heartbeatDevice().catch((error) => {
-      if (error instanceof PodPilotAuth.DeviceSessionError) {
-        stopPolling();
-        loginError.textContent = error.message || "This upload session was disconnected because upload control was switched to another device.";
-        showView("login");
-      }
-    });
-  }, 3 * 60 * 1000);
+  debugLog("[EXT THUMB] design auto refresh loop remains disabled");
 }
 function stopPolling() {
   if (dataPollId) { clearInterval(dataPollId); dataPollId = null; }
@@ -1585,16 +1504,6 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   }
   if (msg.action === "auth_required") showView("login");
-  if (msg.action === "device_session_conflict") {
-    pendingDeviceSwitchSession = null;
-    showDeviceConflict(msg.message || "PodPilot is already connected to another browser for upload automation.");
-  }
-  if (msg.action === "device_session_revoked") {
-    stopPolling();
-    resetUploadLaunchState();
-    loginError.textContent = msg.message || "This upload session was disconnected because upload control was switched to another device.";
-    showView("login");
-  }
 });
 
 // On popup open, surface a recent completion (within the last 30s) that the
