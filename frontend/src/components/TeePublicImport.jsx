@@ -17,6 +17,7 @@ const REQUIRED_COLUMNS = [
   "adult_content",
   "supporting_tags"
 ];
+const TEEPUBLIC_GUIDE_URL = "/guides/podpilot-teepublic-guide.pdf";
 
 function stripExtension(fileName) {
   return String(fileName ?? "").replace(/\.[^/.]+$/, "");
@@ -731,10 +732,15 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
             <Icon name="arrowLeft" />
             <span>Back to Designs</span>
           </button>
-          <button type="button" className="secondary-button">
+          <a
+            className="secondary-button"
+            href={TEEPUBLIC_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <Icon name="book" />
             <span>View Guide</span>
-          </button>
+          </a>
           <button type="button" className="secondary-button" onClick={downloadTemplate}>
             <Icon name="download" />
             <span>Download Template</span>

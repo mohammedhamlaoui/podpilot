@@ -1,17 +1,28 @@
 import Icon from "./Icon";
 
 export default function NotFoundPage({ isAuthenticated, theme }) {
+  const navigateTo = (path) => {
+    window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
   const handleGoHome = (e) => {
     e.preventDefault();
-    window.history.pushState(null, "", "/");
-    // Force App state recalculation by dispatching a popstate event
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    try {
+      const referrer = document.referrer ? new URL(document.referrer) : null;
+      if (referrer?.origin === window.location.origin && window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+    } catch {
+      /* use the fallback route */
+    }
+    navigateTo(isAuthenticated ? "/dashboard" : "/");
   };
 
   const handleGoDashboard = (e) => {
     e.preventDefault();
-    window.history.pushState(null, "", "/dashboard");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    navigateTo("/dashboard");
   };
 
   // Modern Premium Styling using inline styles for absolute contrast and isolation
