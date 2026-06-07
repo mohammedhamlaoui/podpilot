@@ -2117,6 +2117,20 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       sendResponse({ ok: true });
       return;
     }
+
+    if (message.action === 'device_session_revoked') {
+      isStopped = true;
+      isPaused = false;
+      try {
+        setOverlayContent(
+          'Device disconnected',
+          message.message || 'This device was disconnected because your account was opened on another device.',
+          0
+        );
+      } catch (_) { /* overlay may not be mounted */ }
+      sendResponse({ ok: true });
+      return;
+    }
   });
 
   // ─── Auto-boot for ?auto=1 ─────────────────────────────────────────────────

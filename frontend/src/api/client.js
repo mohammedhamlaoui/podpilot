@@ -1,6 +1,12 @@
 import axios from "axios";
 import { supabase } from "../lib/supabaseClient";
 import { trialDeviceHeaders } from "../lib/trialDevice";
+import {
+  devicePayload,
+  getDeviceHeaders,
+  isDeviceSessionRevokedError,
+  parseDeviceError,
+} from "../lib/deviceSession";
 
 // API base URL strategy:
 //   - If VITE_API_BASE_URL is set, use it (production / explicit override).
@@ -16,6 +22,7 @@ const api = axios.create({
 });
 
 const AUTH_REQUIRED_EVENT = "podpilot:auth-required";
+const DEVICE_REVOKED_EVENT = "podpilot:device-session-revoked";
 const PROTECTED_API_PREFIXES = [
   "/api",
   "/designs",
@@ -45,6 +52,15 @@ function notifyAuthRequired(reason) {
   window.dispatchEvent(
     new CustomEvent(AUTH_REQUIRED_EVENT, {
       detail: { reason },
+    }),
+  );
+}
+
+function notifyDeviceSessionRevoked(message) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(DEVICE_REVOKED_EVENT, {
+      detail: { message },
     }),
   );
 }
@@ -109,6 +125,7 @@ async function withProtectedAuth(config = {}) {
   const token = await getLatestAccessToken({ required: true });
   const headers = {
     ...(config.headers || {}),
+    ...getDeviceHeaders(),
     Authorization: `Bearer ${token}`,
   };
   return { ...config, headers };
@@ -123,6 +140,7 @@ async function protectedGet(url, config = {}) {
 // the network when no session exists, which avoids dashboard 401 spam.
 api.interceptors.request.use(async (config) => {
   config.headers = config.headers || {};
+  Object.assign(config.headers, getDeviceHeaders());
   if (config.headers?.Authorization) return config;
   const token = await getLatestAccessToken({ required: isProtectedApiRequest(config.url) });
   if (token) {
@@ -134,6 +152,42 @@ api.interceptors.request.use(async (config) => {
 });
 
 // ── Designs ────────────────────────────────────────────────────────────────
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (isDeviceSessionRevokedError(error)) {
+      const { message } = parseDeviceError(error);
+      notifyDeviceSessionRevoked(message || "This device was disconnected because your account was opened on another device.");
+    }
+    return Promise.reject(error);
+  },
+);
+
+export async function getDeviceStatus() {
+  const response = await protectedGet("/api/device/status");
+  return response.data;
+}
+
+export async function registerDevice() {
+  const response = await api.post("/api/device/register", devicePayload());
+  return response.data;
+}
+
+export async function switchDevice() {
+  const response = await api.post("/api/device/switch", devicePayload());
+  return response.data;
+}
+
+export async function heartbeatDevice() {
+  const response = await api.post("/api/device/heartbeat", devicePayload());
+  return response.data;
+}
+
+export async function logoutDevice() {
+  const response = await api.post("/api/device/logout", devicePayload());
+  return response.data;
+}
 
 export async function listDesigns(marketplace) {
   const params = marketplace ? { marketplace } : {};

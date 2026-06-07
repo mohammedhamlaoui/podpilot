@@ -21,6 +21,7 @@ import time
 from fastapi import Depends, Header, HTTPException, status, Request
 
 from app.core.config import SUPABASE_ANON_KEY, SUPABASE_URL
+from app.services import device_session_service
 
 logger = logging.getLogger("podpilot.auth")
 
@@ -33,6 +34,24 @@ class AuthUser:
 
 
 _AUTH_USER_ENDPOINT = f"{SUPABASE_URL}/auth/v1/user"
+
+_DEVICE_LOCK_EXEMPT_PREFIXES = (
+    "/api/device/",
+    "/api/auth/",
+)
+_DEVICE_LOCK_EXEMPT_PATHS = {
+    "/api/device/status",
+    "/api/device/register",
+    "/api/device/switch",
+    "/api/device/heartbeat",
+    "/api/device/logout",
+}
+
+
+def _requires_device_lock(path: str) -> bool:
+    if path in _DEVICE_LOCK_EXEMPT_PATHS:
+        return False
+    return not any(path.startswith(prefix) for prefix in _DEVICE_LOCK_EXEMPT_PREFIXES)
 
 
 def _extract_bearer(authorization: Optional[str], path: str) -> str:
@@ -64,6 +83,7 @@ def _extract_bearer(authorization: Optional[str], path: str) -> str:
 async def get_current_user(
     request: Request,
     authorization: Optional[str] = Header(default=None),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> AuthUser:
     """FastAPI dependency: returns the authenticated Supabase user.
 
@@ -123,7 +143,11 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return AuthUser(id=str(user_id), email=email, access_token=token)
+    auth_user = AuthUser(id=str(user_id), email=email, access_token=token)
+    if _requires_device_lock(path):
+        device_session_service.validate_device(auth_user.id, x_podpilot_device_id)
+
+    return auth_user
 
 
 # Convenience alias for routes.

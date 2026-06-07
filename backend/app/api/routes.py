@@ -46,7 +46,7 @@ from app.schemas.job import (
     UploadLogIn,
     design_to_response,
 )
-from app.services import rate_limiter, r2_service, supabase_service, subscription_service
+from app.services import device_session_service, rate_limiter, r2_service, supabase_service, subscription_service
 from app.services.ai_copyright_service import (
     AICopyrightImageTooLarge,
     AICopyrightRiskError,
@@ -112,6 +112,11 @@ class AICopyrightCheckIn(BaseModel):
         default=None,
         max_length=MAX_INLINE_IMAGE_BASE64_CHARS + 128,
     )
+
+
+class DeviceRegisterIn(BaseModel):
+    device_id: str = Field(min_length=1, max_length=128)
+    device_label: Optional[str] = Field(default=None, max_length=200)
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -563,6 +568,59 @@ def whoami(user: AuthUser = Depends(get_current_user)) -> dict:
     verify a stored access token without revealing any other data.
     """
     return {"user_id": user.id, "email": user.email}
+
+
+@router.get("/api/device/status")
+def get_device_status(
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+) -> dict:
+    return device_session_service.get_device_status(user.id, x_podpilot_device_id)
+
+
+@router.post("/api/device/register")
+def register_device(
+    payload: DeviceRegisterIn,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    return device_session_service.register_device(
+        user.id,
+        payload.device_id,
+        device_label=payload.device_label,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
+@router.post("/api/device/switch")
+def switch_device(
+    payload: DeviceRegisterIn,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    return device_session_service.switch_device(
+        user.id,
+        payload.device_id,
+        device_label=payload.device_label,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
+@router.post("/api/device/heartbeat")
+def heartbeat_device(
+    payload: DeviceRegisterIn,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    return device_session_service.heartbeat_device(user.id, payload.device_id)
+
+
+@router.post("/api/device/logout")
+def logout_device(
+    payload: DeviceRegisterIn,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    return device_session_service.revoke_device(user.id, payload.device_id)
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Excel preview + confirm Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬

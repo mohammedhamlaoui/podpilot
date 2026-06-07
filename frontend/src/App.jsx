@@ -31,10 +31,25 @@ import StorageNoticeModal from "./components/StorageNoticeModal";
 import PreviewModeBanner from "./components/PreviewModeBanner";
 import { EXTENSION_ID } from "./config";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
-import { getMyPlatformAccess, getMySubscription, getTrialEligibility, listDesigns } from "./api/client";
+import {
+  getMyPlatformAccess,
+  getMySubscription,
+  getTrialEligibility,
+  heartbeatDevice,
+  logoutDevice,
+  registerDevice,
+  switchDevice,
+  listDesigns,
+} from "./api/client";
 import { openPaddleCheckout, isPaddleConfigured } from "./lib/paddle";
 import { getPendingCheckoutPlan, clearPendingCheckoutPlan } from "./lib/pendingCheckout";
 import { debugSubscriptionLog, getSubscriptionFlags, openPricing } from "./lib/subscriptionAccess";
+import {
+  DEVICE_SESSION_REVOKED_MESSAGE,
+  DEVICE_SWITCH_MESSAGE,
+  isDeviceAlreadyActiveError,
+  parseDeviceError,
+} from "./lib/deviceSession";
 import {
   clearDesignCacheForUser,
   DESIGN_CACHE_TTL_MS,
@@ -331,6 +346,38 @@ function SubscriptionHydrationScreen({ error, onRetry, isRetrying }) {
   );
 }
 
+function DeviceLockScreen({ status, message, onSwitch, onSignOut, isSwitching }) {
+  const isConflict = status === "conflict";
+  return (
+    <div className="pp-loading pp-device-lock-screen">
+      <img src="/brand/podpilot-logo.svg" alt="PodPilot" className="pp-loading-logo" />
+      <strong>{isConflict ? "One-device mode" : "Device disconnected"}</strong>
+      <p>
+        {message || (
+          isConflict
+            ? DEVICE_SWITCH_MESSAGE
+            : DEVICE_SESSION_REVOKED_MESSAGE
+        )}
+      </p>
+      {isConflict && (
+        <p className="pp-device-lock-note">
+          PodPilot can be active on one device at a time to prevent duplicate upload sessions.
+        </p>
+      )}
+      <div className="pp-device-lock-actions">
+        {isConflict && (
+          <button type="button" className="primary-button" onClick={onSwitch} disabled={isSwitching}>
+            {isSwitching ? "Switching..." : "Switch to this device"}
+          </button>
+        )}
+        <button type="button" className="secondary-button" onClick={onSignOut}>
+          {isConflict ? "Sign out" : "Sign in again"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function readRouteFromLocation() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
   if (!path) return { route: "dashboard", tab: "designs" };
@@ -413,6 +460,21 @@ function isValidRoute(pathname) {
   return false;
 }
 
+function isDeviceLockedPath(pathname) {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path === "/checkout") return true;
+  return (
+    path === "/dashboard" ||
+    path === "/redbubble" ||
+    path === "/teepublic" ||
+    path === "/billing" ||
+    path === "/subscription" ||
+    path === "/profile" ||
+    path.startsWith("/redbubble/") ||
+    path.startsWith("/teepublic/")
+  );
+}
+
 export default function App() {
   const { loading, isAuthenticated, user, session, signOut } = useAuth();
   const authLoading = loading;
@@ -480,6 +542,11 @@ export default function App() {
   const [isLoadingPlatformAccess, setIsLoadingPlatformAccess] = useState(true);
   const [tpEditorIndex, setTpEditorIndex] = useState(-1);
   const [dashboardToast, setDashboardToast] = useState(null);
+  const [deviceState, setDeviceState] = useState({
+    status: "idle",
+    message: "",
+    isSwitching: false,
+  });
   const [isLoadingDesigns, setIsLoadingDesigns] = useState(false);
   const [isRefreshingDesigns, setIsRefreshingDesigns] = useState(false);
   const hasStartedInitialDesignLoad = useRef(false);
@@ -493,6 +560,8 @@ export default function App() {
     summary: null,
     platformAccess: DEFAULT_PLATFORM_ACCESS,
   });
+  const deviceLockApplies = isDeviceLockedPath(window.location.pathname);
+  const deviceReady = !isAuthenticated || !deviceLockApplies || deviceState.status === "active";
 
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(
     () => window.location.pathname === "/reset-password"
@@ -517,6 +586,7 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated) return;
+    setDeviceState({ status: "idle", message: "", isSwitching: false });
     subscriptionRequestRef.current += 1;
     previousUserIdRef.current = "";
     hasStartedInitialDesignLoad.current = false;
@@ -560,6 +630,76 @@ export default function App() {
   }, [isAuthenticated, userId]);
 
   useEffect(() => {
+    if (!isAuthenticated || !userId || !deviceLockApplies) {
+      if (!deviceLockApplies) {
+        setDeviceState({ status: "idle", message: "", isSwitching: false });
+      }
+      return undefined;
+    }
+    let cancelled = false;
+    setDeviceState((current) => ({
+      ...current,
+      status: current.status === "active" ? "active" : "checking",
+      message: "",
+      isSwitching: false,
+    }));
+    registerDevice()
+      .then(() => {
+        if (!cancelled) {
+          setDeviceState({ status: "active", message: "", isSwitching: false });
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (isDeviceAlreadyActiveError(error)) {
+          const { message } = parseDeviceError(error);
+          setDeviceState({
+            status: "conflict",
+            message: message || DEVICE_SWITCH_MESSAGE,
+            isSwitching: false,
+          });
+          return;
+        }
+        const { message } = parseDeviceError(error);
+        setDeviceState({
+          status: "error",
+          message: message || "Could not register this device. Please refresh and try again.",
+          isSwitching: false,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceLockApplies, isAuthenticated, userId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || deviceState.status !== "active") return undefined;
+    const intervalId = window.setInterval(() => {
+      heartbeatDevice().catch((error) => {
+        const { message } = parseDeviceError(error);
+        setDeviceState({
+          status: "revoked",
+          message: message || DEVICE_SESSION_REVOKED_MESSAGE,
+          isSwitching: false,
+        });
+      });
+    }, 3 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [isAuthenticated, deviceState.status]);
+
+  useEffect(() => {
+    const handleDeviceRevoked = (event) => {
+      setDeviceState({
+        status: "revoked",
+        message: event?.detail?.message || DEVICE_SESSION_REVOKED_MESSAGE,
+        isSwitching: false,
+      });
+    };
+    window.addEventListener("podpilot:device-session-revoked", handleDeviceRevoked);
+    return () => window.removeEventListener("podpilot:device-session-revoked", handleDeviceRevoked);
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return undefined;
     const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setIsPasswordRecovery(true);
@@ -572,7 +712,7 @@ export default function App() {
     manageLoading = true,
     deferInactive = false,
   } = {}) => {
-    if (!isAuthenticated || !userId) return null;
+    if (!isAuthenticated || !userId || !deviceReady) return null;
     const requestId = subscriptionRequestRef.current + 1;
     subscriptionRequestRef.current = requestId;
     if (manageLoading) {
@@ -633,7 +773,7 @@ export default function App() {
       }
       setIsLoadingPlatformAccess(false);
     }
-  }, [isAuthenticated, userId]);
+  }, [deviceReady, isAuthenticated, userId]);
 
   const setMarketplaceDesigns = useCallback((marketplace, value, { writeCache = true } = {}) => {
     const setter = getMarketplaceSetter(marketplace, setRedbubbleDesigns, setTeepublicDesigns);
@@ -678,7 +818,7 @@ export default function App() {
   }, [setMarketplaceDesigns]);
 
   const fetchFreshDesigns = useCallback((marketplace, { preserveCurrent = false } = {}) => {
-    if (!isAuthenticated || !userId) return Promise.resolve(null);
+    if (!isAuthenticated || !userId || !deviceReady) return Promise.resolve(null);
     const requestKey = `${userId}:${marketplace}:${preserveCurrent ? "preserve" : "replace"}`;
     const existing = designRefreshRequestsRef.current.get(requestKey);
     if (existing) return existing;
@@ -704,7 +844,7 @@ export default function App() {
 
     designRefreshRequestsRef.current.set(requestKey, request);
     return request;
-  }, [isAuthenticated, setMarketplaceDesigns, userId]);
+  }, [deviceReady, isAuthenticated, setMarketplaceDesigns, userId]);
 
   const refreshDesigns = useCallback(async ({
     force = false,
@@ -713,7 +853,7 @@ export default function App() {
     preserveCurrent = false,
     reason = "auto",
   } = {}) => {
-    if (!isAuthenticated || !userId) return;
+    if (!isAuthenticated || !userId || !deviceReady) return;
 
     const safeMarketplaces = marketplaces.filter((marketplace) => DESIGN_MARKETPLACES.includes(marketplace));
     const isInitialLoad = !hasStartedInitialDesignLoad.current;
@@ -780,22 +920,23 @@ export default function App() {
     void reason;
   }, [
     fetchFreshDesigns,
+    deviceReady,
     isAuthenticated,
     setMarketplaceDesigns,
     userId,
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !userId) return;
+    if (!isAuthenticated || !userId || !deviceReady) return;
     if (hasCheckoutSuccessFlag()) return;
     void fetchSubscriptionAndAccess({ reason: "auth resolved" });
-  }, [isAuthenticated, userId, fetchSubscriptionAndAccess]);
+  }, [deviceReady, isAuthenticated, userId, fetchSubscriptionAndAccess]);
 
   useEffect(() => { refreshDesigns(); }, [refreshDesigns]);
 
   // Poll every 30s while extension is available; refreshes stay quiet after the initial load.
   useEffect(() => {
-    if (!isAuthenticated || !EXTENSION_ID.trim() || !window.chrome?.runtime?.sendMessage) return undefined;
+    if (!isAuthenticated || !deviceReady || !EXTENSION_ID.trim() || !window.chrome?.runtime?.sendMessage) return undefined;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -815,17 +956,17 @@ export default function App() {
     };
     const intervalId = window.setInterval(tick, 30000);
     return () => { cancelled = true; window.clearInterval(intervalId); };
-  }, [isAuthenticated, refreshDesigns]);
+  }, [deviceReady, isAuthenticated, refreshDesigns]);
 
   // Sync designs to extension
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !deviceReady) return;
     const marketplace = activeRoute === "teepublic" ? "teepublic" : "redbubble";
     syncDesignsToExtension(
       marketplace === "teepublic" ? teepublicDesigns : redbubbleDesigns,
       session?.access_token,
     );
-  }, [redbubbleDesigns, teepublicDesigns, activeRoute, isAuthenticated, session?.access_token]);
+  }, [redbubbleDesigns, teepublicDesigns, activeRoute, deviceReady, isAuthenticated, session?.access_token]);
 
   useEffect(() => {
     localStorage.setItem("rb-theme", theme);
@@ -909,7 +1050,7 @@ export default function App() {
   }, [dashboardToast]);
 
   const refreshSubscriptionAfterCheckout = useCallback(async () => {
-    if (!isAuthenticated || !userId) return false;
+    if (!isAuthenticated || !userId || !deviceReady) return false;
     debugSubscriptionLog("checkout completed, refreshing subscription");
     setDashboardToast({
       type: "success",
@@ -956,12 +1097,12 @@ export default function App() {
       );
     }
     return false;
-  }, [fetchSubscriptionAndAccess, isAuthenticated, userId]);
+  }, [deviceReady, fetchSubscriptionAndAccess, isAuthenticated, userId]);
 
   useEffect(() => {
-    if (!isAuthenticated || !userId || !hasCheckoutSuccessFlag()) return;
+    if (!isAuthenticated || !userId || !deviceReady || !hasCheckoutSuccessFlag()) return;
     void refreshSubscriptionAfterCheckout();
-  }, [isAuthenticated, userId, refreshSubscriptionAfterCheckout]);
+  }, [deviceReady, isAuthenticated, userId, refreshSubscriptionAfterCheckout]);
 
   // Resume Paddle checkout right after login/signup if a plan was pending.
   // Runs once when auth flips to authenticated; clears the pending state
@@ -971,7 +1112,7 @@ export default function App() {
   // only after Paddle's overlay actually opens so a transient init failure
   // doesn't lose the user's intent.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !deviceReady) return;
     const pendingCheckout = getPendingCheckoutPlan();
     if (!pendingCheckout) return;
     const plan = pendingCheckout.plan;
@@ -1023,7 +1164,7 @@ export default function App() {
         message: error?.message || "Could not open checkout. Please try again from Pricing.",
       });
     });
-  }, [isAuthenticated, refreshSubscriptionAfterCheckout, user?.id, user?.email]);
+  }, [deviceReady, isAuthenticated, refreshSubscriptionAfterCheckout, user?.id, user?.email]);
 
   function handleImportComplete(persistedDesigns) {
     const marketplace = activeRoute === "teepublic" ? "teepublic" : "redbubble";
@@ -1067,6 +1208,7 @@ export default function App() {
   async function handleSignOut() {
     localStorage.setItem("rb-auth-toast", JSON.stringify({ type: "success", message: AUTH_MESSAGES.logoutSuccess }));
     try {
+      await logoutDevice().catch(() => {});
       await clearDesignCacheForUser(userId);
       setRedbubbleDesigns([]);
       setTeepublicDesigns([]);
@@ -1074,6 +1216,25 @@ export default function App() {
     } catch (error) {
       localStorage.removeItem("rb-auth-toast");
       setDashboardToast({ type: "error", message: error?.message || "Logout failed." });
+    }
+  }
+
+  async function handleDeviceSwitch() {
+    setDeviceState((current) => ({ ...current, isSwitching: true }));
+    try {
+      await switchDevice();
+      setDeviceState({ status: "active", message: "", isSwitching: false });
+      setDashboardToast({
+        type: "success",
+        message: "This device is now connected.",
+      });
+    } catch (error) {
+      const { message } = parseDeviceError(error);
+      setDeviceState({
+        status: "conflict",
+        message: message || DEVICE_SWITCH_MESSAGE,
+        isSwitching: false,
+      });
     }
   }
 
@@ -1162,6 +1323,26 @@ export default function App() {
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  if (deviceLockApplies && deviceState.status !== "active") {
+    if (deviceState.status === "checking" || deviceState.status === "idle") {
+      return (
+        <div className="pp-loading">
+          <img src="/brand/podpilot-logo.svg" alt="PodPilot" className="pp-loading-logo" />
+          <strong>Checking device...</strong>
+        </div>
+      );
+    }
+    return (
+      <DeviceLockScreen
+        status={deviceState.status}
+        message={deviceState.message}
+        isSwitching={deviceState.isSwitching}
+        onSwitch={handleDeviceSwitch}
+        onSignOut={handleSignOut}
+      />
+    );
   }
 
   const isExtensionAuth = new URLSearchParams(window.location.search).get("source") === "extension";

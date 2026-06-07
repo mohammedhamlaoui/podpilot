@@ -549,6 +549,9 @@ async function handleControlMessage(message, sender = null) {
     case "clear_local_state":
       return clearLocalState();
 
+    case "device_session_revoked":
+      return handleDeviceSessionRevoked(message.message);
+
     case "upload_result":
       await handleUploadResult(message);
       return { ok: true };
@@ -1459,6 +1462,42 @@ async function stopQueue() {
   isProcessing = false;
   tpIsProcessing = false;
   return { ok: true, state: await getQueueState() };
+}
+
+async function handleDeviceSessionRevoked(message) {
+  const notice = message || "This device was disconnected because your account was opened on another device.";
+  try {
+    const state = await getQueueState();
+    if (["starting", "running", "paused"].includes(state.status)) {
+      await stopQueue();
+    }
+  } catch (_) { /* continue clearing local state */ }
+  await clearLocalState();
+  try {
+    chrome.runtime.sendMessage(
+      { action: "device_session_revoked", message: notice },
+      () => { void chrome.runtime.lastError; }
+    );
+  } catch (_) { /* popup may not be open */ }
+  try {
+    const tabUrlPatterns = [
+      "https://www.redbubble.com/*",
+      "https://www.teepublic.com/*",
+    ];
+    for (const pattern of tabUrlPatterns) {
+      chrome.tabs.query({ url: pattern }, (tabs) => {
+        (tabs || []).forEach((tab) => {
+          if (!tab?.id) return;
+          chrome.tabs.sendMessage(
+            tab.id,
+            { action: "device_session_revoked", message: notice },
+            () => { void chrome.runtime.lastError; }
+          );
+        });
+      });
+    }
+  } catch (_) { /* tabs API may be unavailable */ }
+  return { ok: false, disconnected: true, error: notice };
 }
 
 async function clearLocalState() {
