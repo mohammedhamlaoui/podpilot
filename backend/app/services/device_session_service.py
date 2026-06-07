@@ -1,4 +1,4 @@
-"""Single-device session lock for authenticated PodPilot users."""
+"""Upload-control device lock for PodPilot automation sessions."""
 from __future__ import annotations
 
 import logging
@@ -18,9 +18,9 @@ DEVICE_TIMEOUT_MINUTES = 30
 DEVICE_ALREADY_ACTIVE_CODE = "device_already_active"
 DEVICE_SESSION_REVOKED_CODE = "device_session_revoked"
 DEVICE_REQUIRED_CODE = "device_session_required"
-DEVICE_ALREADY_ACTIVE_MESSAGE = "Your PodPilot account is already active on another device."
-DEVICE_SESSION_REVOKED_MESSAGE = "This device was disconnected because your account was opened on another device."
-DEVICE_REQUIRED_MESSAGE = "One-device mode requires this device to be registered."
+DEVICE_ALREADY_ACTIVE_MESSAGE = "PodPilot is already connected to another browser for upload automation."
+DEVICE_SESSION_REVOKED_MESSAGE = "This upload session was disconnected because upload control was switched to another device."
+DEVICE_REQUIRED_MESSAGE = "Upload control requires this device to be registered."
 
 
 def _now() -> datetime:

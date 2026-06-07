@@ -982,16 +982,16 @@ function hideDeviceSwitch() {
   if (deviceSwitchBtn) {
     deviceSwitchBtn.hidden = true;
     deviceSwitchBtn.disabled = false;
-    deviceSwitchBtn.textContent = "Switch to this device";
+    deviceSwitchBtn.textContent = "Switch upload control to this device";
   }
 }
 
 function showDeviceConflict(message) {
-  loginError.textContent = message || PodPilotAuth.DEVICE_SWITCH_MESSAGE;
+  loginError.textContent = message || "PodPilot is already connected to another browser for upload automation.";
   if (deviceSwitchBtn) {
     deviceSwitchBtn.hidden = false;
     deviceSwitchBtn.disabled = false;
-    deviceSwitchBtn.textContent = "Switch to this device";
+    deviceSwitchBtn.textContent = "Switch upload control to this device";
   }
   showView("login");
 }
@@ -1022,7 +1022,7 @@ async function handleDeviceSwitch() {
   if (!deviceSwitchBtn) return;
   deviceSwitchBtn.disabled = true;
   deviceSwitchBtn.textContent = "Switching...";
-  loginError.textContent = "Disconnecting other device...";
+  loginError.textContent = "Switching upload control...";
   try {
     await PodPilotAuth.switchDevice();
     const session = pendingDeviceSwitchSession || await PodPilotAuth.getValidSession();
@@ -1098,6 +1098,18 @@ async function fetchDesigns() {
     return true;
   } catch (err) {
     if (err instanceof PodPilotAuth.ApiAuthError) { showView("login"); return false; }
+    if (err instanceof PodPilotAuth.DeviceSessionError) {
+      if (err.code === PodPilotAuth.DEVICE_ALREADY_ACTIVE_CODE) {
+        pendingDeviceSwitchSession = await PodPilotAuth.getValidSession();
+        showDeviceConflict(err.message);
+      } else {
+        stopPolling();
+        resetUploadLaunchState();
+        loginError.textContent = err.message || "This upload session was disconnected because upload control was switched to another device.";
+        showView("login");
+      }
+      return false;
+    }
     lastDesignFetchFailed = true;
     debugLog("[PodPilot] fetchDesigns failed:", {
       message: err?.message || String(err),
@@ -1138,7 +1150,7 @@ function startPolling() {
     PodPilotAuth.heartbeatDevice().catch((error) => {
       if (error instanceof PodPilotAuth.DeviceSessionError) {
         stopPolling();
-        loginError.textContent = error.message || "This device was disconnected because your account was opened on another device.";
+        loginError.textContent = error.message || "This upload session was disconnected because upload control was switched to another device.";
         showView("login");
       }
     });
@@ -1573,10 +1585,14 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   }
   if (msg.action === "auth_required") showView("login");
+  if (msg.action === "device_session_conflict") {
+    pendingDeviceSwitchSession = null;
+    showDeviceConflict(msg.message || "PodPilot is already connected to another browser for upload automation.");
+  }
   if (msg.action === "device_session_revoked") {
     stopPolling();
     resetUploadLaunchState();
-    loginError.textContent = msg.message || "This device was disconnected because your account was opened on another device.";
+    loginError.textContent = msg.message || "This upload session was disconnected because upload control was switched to another device.";
     showView("login");
   }
 });

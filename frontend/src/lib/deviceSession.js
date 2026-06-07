@@ -1,10 +1,10 @@
 const DEVICE_ID_STORAGE_KEY = "podpilot_device_id";
-const DEVICE_LABEL = "PodPilot web dashboard";
+const DEVICE_LABEL = "PodPilot web upload control";
 export const DEVICE_ALREADY_ACTIVE_CODE = "device_already_active";
 export const DEVICE_SESSION_REVOKED_CODE = "device_session_revoked";
-export const DEVICE_ALREADY_ACTIVE_MESSAGE = "Your PodPilot account is already active on another device.";
-export const DEVICE_SWITCH_MESSAGE = "Your PodPilot account is already active on another device. Switch to this device to continue. The other device will be disconnected.";
-export const DEVICE_SESSION_REVOKED_MESSAGE = "This device was disconnected because your account was opened on another device.";
+export const DEVICE_ALREADY_ACTIVE_MESSAGE = "PodPilot is already connected to another browser for upload automation.";
+export const DEVICE_SWITCH_MESSAGE = DEVICE_ALREADY_ACTIVE_MESSAGE;
+export const DEVICE_SESSION_REVOKED_MESSAGE = "This upload session was disconnected because upload control was switched to another device.";
 
 function fallbackUuid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;

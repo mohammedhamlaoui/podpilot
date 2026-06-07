@@ -508,9 +508,15 @@ async function handleControlMessage(message, sender = null) {
       }
       const access = await verifyUploadAccessBeforeQueue();
       if (!access.ok) {
-        const message = access.blocked ? buildBlockedMessage(access.summary) : "Could not verify subscription.";
-        showBillingBlockNotice({ title: "Upload blocked", message });
-        return { ok: false, blocked: Boolean(access.blocked), error: message, summary: access.summary };
+        const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
+        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+        return {
+          ok: false,
+          blocked: Boolean(access.blocked),
+          reason: access.reason,
+          error: message,
+          summary: access.summary,
+        };
       }
       return pauseQueue();
     }
@@ -530,9 +536,15 @@ async function handleControlMessage(message, sender = null) {
       }
       const access = await verifyUploadAccessBeforeQueue();
       if (!access.ok) {
-        const message = access.blocked ? buildBlockedMessage(access.summary) : "Could not verify subscription.";
-        showBillingBlockNotice({ title: "Upload blocked", message });
-        return { ok: false, blocked: Boolean(access.blocked), error: message, summary: access.summary };
+        const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
+        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+        return {
+          ok: false,
+          blocked: Boolean(access.blocked),
+          reason: access.reason,
+          error: message,
+          summary: access.summary,
+        };
       }
       await setQueueState({ status: "running", lastError: "" });
       if (marketplace === "teepublic") processTpNext();
@@ -761,6 +773,9 @@ async function verifyUploadAccessBeforeQueue() {
     }
     return { ok: true, summary };
   } catch (error) {
+    if (isDeviceSessionError(error)) {
+      return handleUploadDeviceError(error);
+    }
     console.warn("[Billing] access check failed:", error?.message || error);
     return { ok: false, blocked: false, error };
   }
@@ -808,6 +823,9 @@ async function verifyPlatformAccessBeforeQueue(marketplace = "redbubble") {
     return { ok: true, access };
   } catch (error) {
     debugTimerEnd(timer, { ok: false, blocked: false });
+    if (isDeviceSessionError(error)) {
+      return handleUploadDeviceError(error);
+    }
     console.warn("[Billing] platform access check failed:", error?.message || error);
     debugLog("[PlatformAccess] final access decision", {
       marketplace: platform,
@@ -826,6 +844,7 @@ async function verifyPlatformAccessBeforeQueue(marketplace = "redbubble") {
 
 async function blockQueueForPlatformAccess(marketplace, platformAccess) {
   const message = platformAccess?.error || platformLockedMessage(marketplace);
+  const isDeviceConflict = platformAccess?.reason === "device_already_active";
   preferredUploadTab = null;
   await setQueueState({
     status: "idle",
@@ -835,7 +854,7 @@ async function blockQueueForPlatformAccess(marketplace, platformAccess) {
     updatedAt: new Date().toISOString(),
   });
   showBillingBlockNotice({
-    title: platformAccess?.blocked ? "Platform locked" : "Could not verify platform access",
+    title: isDeviceConflict ? "Upload session already active" : (platformAccess?.blocked ? "Platform locked" : "Could not verify platform access"),
     message,
   });
   return {
@@ -895,6 +914,54 @@ function showUploadStartError(message) {
   });
 }
 
+function isDeviceSessionError(error) {
+  return Boolean(self.PodPilotAuth?.DeviceSessionError && error instanceof self.PodPilotAuth.DeviceSessionError);
+}
+
+function showUploadControlConflict(message) {
+  const notice = message || "PodPilot is already connected to another browser for upload automation.";
+  showBillingBlockNotice({
+    title: "Upload session already active",
+    message: notice,
+  });
+  try {
+    chrome.runtime.sendMessage(
+      { action: "device_session_conflict", message: notice },
+      () => { void chrome.runtime.lastError; }
+    );
+  } catch (_) { /* popup may not be open */ }
+  return {
+    ok: false,
+    blocked: true,
+    reason: "device_already_active",
+    error: notice,
+  };
+}
+
+async function handleUploadDeviceError(error) {
+  if (error?.code === self.PodPilotAuth?.DEVICE_SESSION_REVOKED_CODE) {
+    const result = await handleDeviceSessionRevoked(error.message);
+    return { ...result, reason: "device_session_revoked" };
+  }
+  return showUploadControlConflict(error?.message);
+}
+
+function isUploadDeviceFailure(result) {
+  return result?.reason === "device_already_active" || result?.reason === "device_session_revoked";
+}
+
+function uploadDeviceFailureTitle(result, fallbackTitle) {
+  if (result?.reason === "device_already_active") return "Upload session already active";
+  if (result?.reason === "device_session_revoked") return "Upload session disconnected";
+  return fallbackTitle;
+}
+
+function uploadAccessFailureMessage(result, fallbackMessage) {
+  if (isUploadDeviceFailure(result)) return result.error || fallbackMessage;
+  if (result?.blocked) return buildBlockedMessage(result.summary);
+  return fallbackMessage;
+}
+
 function getDesignId(design, index = 0) {
   return String(design?.id || design?.design_id || `${design?.filename || "design"}-${index}`);
 }
@@ -927,6 +994,10 @@ async function createUploadJobForQueue(marketplace, queue) {
     if (error instanceof self.PodPilotAuth.ApiAuthError) {
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
+    }
+    if (isDeviceSessionError(error)) {
+      const result = await handleUploadDeviceError(error);
+      throw new Error(result.error || "Upload session already active.");
     }
     console.warn("[PodPilot] upload-jobs request failed:", error?.message || error);
   }
@@ -1006,6 +1077,10 @@ async function createPreparedUploadSessionForQueue(marketplace, designs) {
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
     }
+    if (isDeviceSessionError(error)) {
+      const result = await handleUploadDeviceError(error);
+      throw new Error(result.error || "Upload session already active.");
+    }
     console.warn("[TP Backend] upload session preparation failed:", error?.message || error);
     return { sessionId: "", designs };
   }
@@ -1061,11 +1136,9 @@ async function startQueueInstant(message) {
 
   const uploadAccess = await verifyUploadAccessBeforeQueue();
   if (!uploadAccess.ok) {
-    const message = uploadAccess.blocked
-      ? buildBlockedMessage(uploadAccess.summary)
-      : "Could not verify subscription. Please try again.";
+    const message = uploadAccessFailureMessage(uploadAccess, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription",
+      title: uploadDeviceFailureTitle(uploadAccess, uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription"),
       message,
     });
     throw new Error(message);
@@ -1181,20 +1254,21 @@ async function startQueueInstant(message) {
     const access = await verifyUploadAccessBeforeQueue();
     if (!access.ok) {
       preferredUploadTab = null;
+      const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
       await setQueueState({
         status: "idle",
         uploadTabId: null,
         uploadTabMarketplace: "",
-        lastError: access.blocked ? buildBlockedMessage(access.summary) : "Could not verify subscription.",
+        lastError: message,
         updatedAt: new Date().toISOString(),
       });
 
       if (access.blocked) {
-        showBillingBlockNotice({ title: "Upload blocked", message: buildBlockedMessage(access.summary) });
+        showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
       } else {
         showBillingBlockNotice({
-          title: "Could not verify subscription",
-          message: "Could not verify subscription. Please try again.",
+          title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
+          message: isUploadDeviceFailure(access) ? message : "Could not verify subscription. Please try again.",
         });
       }
       return;
@@ -1252,15 +1326,22 @@ async function startQueue(designs) {
   const access = await verifyUploadAccessBeforeQueue();
   if (!access.ok) {
     if (access.blocked) {
-      const message = buildBlockedMessage(access.summary);
-      showBillingBlockNotice({ title: "Upload blocked", message });
-      return { ok: false, blocked: true, reason: access.summary?.reason || "blocked", summary: access.summary };
+      const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
+      showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+      return {
+        ok: false,
+        blocked: true,
+        reason: access.reason || access.summary?.reason || "blocked",
+        summary: access.summary,
+        error: message,
+      };
     }
+    const message = uploadAccessFailureMessage(access, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: "Could not verify subscription",
-      message: "Could not verify subscription. Please try again.",
+      title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
+      message,
     });
-    return { ok: false, blocked: false, error: access.error?.message || "verification failed" };
+    return { ok: false, blocked: false, reason: access.reason, error: message };
   }
 
   const queue = designs.map((design, index) => normalizeQueueDesign(design, index));
@@ -1392,21 +1473,20 @@ async function startExistingQueue() {
   }
   const uploadAccess = await verifyUploadAccessBeforeQueue();
   if (!uploadAccess.ok) {
-    const message = uploadAccess.blocked
-      ? buildBlockedMessage(uploadAccess.summary)
-      : "Could not verify subscription. Please try again.";
+    const message = uploadAccessFailureMessage(uploadAccess, "Could not verify subscription. Please try again.");
     await setQueueState({
       status: "idle",
       lastError: message,
       updatedAt: new Date().toISOString(),
     });
     showBillingBlockNotice({
-      title: uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription",
+      title: uploadDeviceFailureTitle(uploadAccess, uploadAccess.blocked ? "Upload blocked" : "Could not verify subscription"),
       message,
     });
     return {
       ok: false,
       blocked: Boolean(uploadAccess.blocked),
+      reason: uploadAccess.reason,
       error: message,
       summary: uploadAccess.summary,
     };
@@ -1465,7 +1545,7 @@ async function stopQueue() {
 }
 
 async function handleDeviceSessionRevoked(message) {
-  const notice = message || "This device was disconnected because your account was opened on another device.";
+  const notice = message || "This upload session was disconnected because upload control was switched to another device.";
   try {
     const state = await getQueueState();
     if (["starting", "running", "paused"].includes(state.status)) {
@@ -1744,6 +1824,10 @@ async function resolveSignedImageUrl(design) {
       // Bubble up so the popup re-prompts for login.
       try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
       throw new Error("Session expired. Please sign in again.");
+    }
+    if (isDeviceSessionError(error)) {
+      const result = await handleUploadDeviceError(error);
+      throw new Error(result.error || "Upload session already active.");
     }
     console.warn("[PodPilot] /image-url fetch failed:", error?.message || error);
   }
@@ -2961,15 +3045,22 @@ async function startTeePublicQueue(designs) {
   const access = await verifyUploadAccessBeforeQueue();
   if (!access.ok) {
     if (access.blocked) {
-      const message = buildBlockedMessage(access.summary);
-      showBillingBlockNotice({ title: "Upload blocked", message });
-      return { ok: false, blocked: true, reason: access.summary?.reason || "blocked", summary: access.summary };
+      const message = uploadAccessFailureMessage(access, "Could not verify subscription.");
+      showBillingBlockNotice({ title: uploadDeviceFailureTitle(access, "Upload blocked"), message });
+      return {
+        ok: false,
+        blocked: true,
+        reason: access.reason || access.summary?.reason || "blocked",
+        summary: access.summary,
+        error: message,
+      };
     }
+    const message = uploadAccessFailureMessage(access, "Could not verify subscription. Please try again.");
     showBillingBlockNotice({
-      title: "Could not verify subscription",
-      message: "Could not verify subscription. Please try again.",
+      title: uploadDeviceFailureTitle(access, "Could not verify subscription"),
+      message,
     });
-    return { ok: false, blocked: false, error: access.error?.message || "verification failed" };
+    return { ok: false, blocked: false, reason: access.reason, error: message };
   }
 
   const session = await createPreparedUploadSessionForQueue("teepublic", designs);

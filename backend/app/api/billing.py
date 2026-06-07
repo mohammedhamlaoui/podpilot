@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.core import config
 from app.core.auth import AuthUser, get_current_user
-from app.services import rate_limiter, subscription_service
+from app.services import device_session_service, rate_limiter, subscription_service
 from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
 
 
@@ -53,6 +53,23 @@ class UsageIncrementIn(BaseModel):
 
 class StartTrialIn(BaseModel):
     plan_key: Optional[str] = None
+
+
+def _is_extension_client(client_header: Optional[str]) -> bool:
+    return str(client_header or "").strip().lower() in {"extension", "upload", "upload-control"}
+
+
+def _require_upload_device(user: AuthUser, device_id: Optional[str]) -> None:
+    device_session_service.validate_device(user.id, device_id)
+
+
+def _require_upload_device_if_extension(
+    user: AuthUser,
+    device_id: Optional[str],
+    client_header: Optional[str],
+) -> None:
+    if _is_extension_client(client_header):
+        _require_upload_device(user, device_id)
 
 
 def _extract_forwarded_ip(value: Optional[str]) -> Optional[str]:
@@ -157,13 +174,22 @@ def get_my_subscription(user: AuthUser = Depends(get_current_user)) -> dict:
 
 
 @router.get("/api/me/platform-access")
-def get_my_platform_access(user: AuthUser = Depends(get_current_user)) -> dict:
+def get_my_platform_access(
+    user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+    x_podpilot_client: Optional[str] = Header(default=None, alias="X-PodPilot-Client"),
+) -> dict:
+    _require_upload_device_if_extension(user, x_podpilot_device_id, x_podpilot_client)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     return subscription_service.get_user_platform_access(user.id)
 
 
 @router.post("/api/billing/check-upload-access")
-def check_upload_access(user: AuthUser = Depends(get_current_user)) -> dict:
+def check_upload_access(
+    user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     return subscription_service.get_subscription_access(user.id)
 
@@ -172,7 +198,9 @@ def check_upload_access(user: AuthUser = Depends(get_current_user)) -> dict:
 def increment_upload_usage(
     payload: UsageIncrementIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     access = subscription_service.get_subscription_access(user.id)
     status = str(access.get("status") or "").lower()
     if not access.get("has_subscription") or status not in {"trialing", "active"}:

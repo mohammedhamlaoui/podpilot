@@ -1840,7 +1840,7 @@ debugLog('📄 document.readyState at injection time:', document.readyState);
       try {
         setUploadOverlayTerminal(
           'error',
-          message.message || 'This device was disconnected because your account was opened on another device.'
+          message.message || 'This upload session was disconnected because upload control was switched to another device.'
         );
       } catch (_) { /* overlay may not be mounted */ }
       sendResponse({ ok: true });

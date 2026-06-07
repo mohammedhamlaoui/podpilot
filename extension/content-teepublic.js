@@ -2123,8 +2123,8 @@ debugLog('[PodPilot-TP] content-teepublic.js injected —', window.location.href
       isPaused = false;
       try {
         setOverlayContent(
-          'Device disconnected',
-          message.message || 'This device was disconnected because your account was opened on another device.',
+          'Upload session disconnected',
+          message.message || 'This upload session was disconnected because upload control was switched to another device.',
           0
         );
       } catch (_) { /* overlay may not be mounted */ }

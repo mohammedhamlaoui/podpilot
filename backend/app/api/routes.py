@@ -119,6 +119,23 @@ class DeviceRegisterIn(BaseModel):
     device_label: Optional[str] = Field(default=None, max_length=200)
 
 
+def _is_extension_client(client_header: Optional[str]) -> bool:
+    return str(client_header or "").strip().lower() in {"extension", "upload", "upload-control"}
+
+
+def _require_upload_device(user: AuthUser, device_id: Optional[str]) -> None:
+    device_session_service.validate_device(user.id, device_id)
+
+
+def _require_upload_device_if_extension(
+    user: AuthUser,
+    device_id: Optional[str],
+    client_header: Optional[str],
+) -> None:
+    if _is_extension_client(client_header):
+        _require_upload_device(user, device_id)
+
+
 # Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 def _validate_marketplace(marketplace: str) -> str:
@@ -1503,7 +1520,10 @@ async def upload_design_images_bulk(
 def list_designs(
     marketplace: Optional[str] = Query(default=None),
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+    x_podpilot_client: Optional[str] = Header(default=None, alias="X-PodPilot-Client"),
 ) -> dict:
+    _require_upload_device_if_extension(user, x_podpilot_device_id, x_podpilot_client)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     if marketplace is not None:
         marketplace = _validate_marketplace(marketplace)
@@ -1549,11 +1569,14 @@ def get_design_thumbnail(
 def get_design_image_url(
     design_id: str,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+    x_podpilot_client: Optional[str] = Header(default=None, alias="X-PodPilot-Client"),
 ) -> dict:
     """Mint a fresh signed GET URL for the design image. The Chrome
     extension calls this right before each upload so the URL covers the
     entire Redbubble upload step.
     """
+    _require_upload_device_if_extension(user, x_podpilot_device_id, x_podpilot_client)
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found.")
@@ -1824,7 +1847,9 @@ def update_design_status_endpoint(
     design_id: str,
     payload: DesignStatusUpdateIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found.")
@@ -1869,7 +1894,9 @@ def update_design_status_endpoint(
 def create_upload_job(
     payload: UploadJobCreateIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     payload.marketplace = _validate_marketplace(payload.marketplace)
     _require_marketplace_access(user.id, payload.marketplace)
     owned_design_ids: list[str] = []
@@ -1904,7 +1931,9 @@ def patch_upload_job(
     job_id: str,
     payload: UploadJobUpdateIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     patch = payload.to_patch()
     if not patch:
         raise HTTPException(status_code=400, detail="No fields to update.")
@@ -1948,12 +1977,15 @@ def list_upload_jobs(
 def list_pending_designs_for_extension(
     marketplace: Optional[str] = Query(default=None),
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+    x_podpilot_client: Optional[str] = Header(default=None, alias="X-PodPilot-Client"),
 ) -> dict:
     """Return every design the extension should upload now.
 
     The Chrome extension popup calls this right after login, then again
     each time it finishes a row, so it always has the freshest queue.
     """
+    _require_upload_device_if_extension(user, x_podpilot_device_id, x_podpilot_client)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     if marketplace is not None:
         marketplace = _validate_marketplace(marketplace)
@@ -1983,7 +2015,9 @@ def list_pending_designs_for_extension(
 def get_prepared_upload_queue(
     marketplace: str,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     marketplace = _validate_marketplace(marketplace)
     _require_marketplace_access(user.id, marketplace)
@@ -1999,7 +2033,9 @@ def create_upload_session(
     marketplace: str,
     payload: UploadSessionCreateIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     marketplace = _validate_marketplace(marketplace)
     _require_marketplace_access(user.id, marketplace)
@@ -2042,7 +2078,9 @@ def update_upload_session_item_status(
     design_id: str,
     payload: UploadSessionItemStatusIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     job = supabase_service.get_upload_job_for_user(session_id, user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Upload session not found.")
@@ -2106,7 +2144,9 @@ def update_upload_session_item_status(
 def create_upload_log(
     payload: UploadLogIn,
     user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
 ) -> dict:
+    _require_upload_device(user, x_podpilot_device_id)
     if payload.design_id:
         owned = supabase_service.get_design_for_user(payload.design_id, user.id)
         if owned is None:

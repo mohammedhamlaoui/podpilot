@@ -27,8 +27,8 @@ const DEVICE_ID_STORAGE_KEY = "podpilot_device_id";
 const DEVICE_LABEL = "PodPilot browser extension";
 const DEVICE_ALREADY_ACTIVE_CODE = "device_already_active";
 const DEVICE_SESSION_REVOKED_CODE = "device_session_revoked";
-const DEVICE_SWITCH_MESSAGE = "Your PodPilot account is already active on another device. Switch to this device to continue. The other device will be disconnected.";
-const DEVICE_SESSION_REVOKED_MESSAGE = "This device was disconnected because your account was opened on another device.";
+const DEVICE_SWITCH_MESSAGE = "PodPilot is already connected to another browser for upload automation.";
+const DEVICE_SESSION_REVOKED_MESSAGE = "This upload session was disconnected because upload control was switched to another device.";
 // Refresh the access token when it has less than this many seconds left.
 const REFRESH_LEEWAY_SECONDS = 60;
 
@@ -276,6 +276,7 @@ async function apiFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${session.access_token}`);
   headers.set("X-PodPilot-Device-Id", await getDeviceId());
+  headers.set("X-PodPilot-Client", "extension");
   if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -490,6 +491,7 @@ async function deviceRequest(path, { method = "POST" } = {}) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${session.access_token}`,
       "X-PodPilot-Device-Id": deviceId,
+      "X-PodPilot-Client": "extension",
     },
     body: method === "GET" ? undefined : JSON.stringify({
       device_id: deviceId,
@@ -542,6 +544,7 @@ async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
       Accept: "application/json",
       Authorization: `Bearer ${session.access_token}`,
       "X-PodPilot-Device-Id": await getDeviceId(),
+      "X-PodPilot-Client": "extension",
     },
   });
 

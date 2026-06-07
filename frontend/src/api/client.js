@@ -4,7 +4,9 @@ import { trialDeviceHeaders } from "../lib/trialDevice";
 import {
   devicePayload,
   getDeviceHeaders,
+  isDeviceAlreadyActiveError,
   isDeviceSessionRevokedError,
+  DEVICE_SESSION_REVOKED_MESSAGE,
   parseDeviceError,
 } from "../lib/deviceSession";
 
@@ -22,6 +24,7 @@ const api = axios.create({
 });
 
 const AUTH_REQUIRED_EVENT = "podpilot:auth-required";
+const DEVICE_CONFLICT_EVENT = "podpilot:upload-device-conflict";
 const DEVICE_REVOKED_EVENT = "podpilot:device-session-revoked";
 const PROTECTED_API_PREFIXES = [
   "/api",
@@ -60,6 +63,15 @@ function notifyDeviceSessionRevoked(message) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent(DEVICE_REVOKED_EVENT, {
+      detail: { message },
+    }),
+  );
+}
+
+function notifyUploadDeviceConflict(message) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(DEVICE_CONFLICT_EVENT, {
       detail: { message },
     }),
   );
@@ -156,9 +168,13 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (isDeviceAlreadyActiveError(error)) {
+      const { message } = parseDeviceError(error);
+      notifyUploadDeviceConflict(message || "PodPilot is already connected to another browser for upload automation.");
+    }
     if (isDeviceSessionRevokedError(error)) {
       const { message } = parseDeviceError(error);
-      notifyDeviceSessionRevoked(message || "This device was disconnected because your account was opened on another device.");
+      notifyDeviceSessionRevoked(message || DEVICE_SESSION_REVOKED_MESSAGE);
     }
     return Promise.reject(error);
   },
