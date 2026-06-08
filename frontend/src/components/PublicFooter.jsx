@@ -20,8 +20,9 @@ export default function PublicFooter() {
           <h3 className="landing-footer-title">Product</h3>
           <a href="/pricing" className="landing-footer-link">Pricing</a>
           <a href="/#how-it-works" className="landing-footer-link">How It Works</a>
-          <a href="/blog/redbubble-upload-automation" className="landing-footer-link">Redbubble Upload Automation</a>
-          <a href="/blog/teepublic-upload-automation" className="landing-footer-link">TeePublic Upload Automation</a>
+          <a href="/redbubble-upload-automation" className="landing-footer-link">Redbubble Upload Automation</a>
+          <a href="/teepublic-upload-automation" className="landing-footer-link">TeePublic Upload Automation</a>
+          <a href="/ai-listing-generator" className="landing-footer-link">AI Listing Generator</a>
           <a href="/blog" className="landing-footer-link">Blog</a>
         </div>
         

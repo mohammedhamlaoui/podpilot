@@ -23,15 +23,43 @@ const seoAliasMeta = {
       "Generate product titles, descriptions, main tags, and supporting tags for Redbubble and TeePublic listings with PodPilot.",
   },
   "/redbubble-upload-automation": {
-    title: "Redbubble Upload Automation Tool",
+    title: "Redbubble Upload Automation Tool for POD Sellers",
     description:
-      "Prepare and upload Redbubble designs faster with PodPilot's browser-based upload automation, AI listings, and queue workflow.",
+      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing drafts, and run browser-based upload queues.",
   },
   "/teepublic-upload-automation": {
-    title: "TeePublic Upload Automation Tool",
+    title: "TeePublic Upload Automation Tool for POD Sellers",
     description:
-      "Automate repeated TeePublic upload steps with PodPilot's browser extension, listing editor, and AI metadata tools.",
+      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing drafts, product settings, and browser-based upload queues from one dashboard.",
   },
+};
+
+const seoAliasHeadings = {
+  "/redbubble-upload-automation": "Redbubble Upload Automation for Print-on-Demand Sellers",
+  "/teepublic-upload-automation": "TeePublic Upload Automation for POD Sellers",
+};
+
+const seoAliasLinks = {
+  "/ai-listing-generator": [
+    { label: "Redbubble upload automation", href: "/redbubble-upload-automation" },
+    { label: "TeePublic upload automation", href: "/teepublic-upload-automation" },
+    { label: "Pricing", href: "/pricing" },
+    { label: "Help Center", href: "/help" },
+  ],
+  "/redbubble-upload-automation": [
+    { label: "TeePublic upload automation", href: "/teepublic-upload-automation" },
+    { label: "AI listing generator", href: "/ai-listing-generator" },
+    { label: "Pricing", href: "/pricing" },
+    { label: "Help Center", href: "/help" },
+    { label: "Blog", href: "/blog" },
+  ],
+  "/teepublic-upload-automation": [
+    { label: "Redbubble upload automation", href: "/redbubble-upload-automation" },
+    { label: "AI listing generator", href: "/ai-listing-generator" },
+    { label: "Pricing", href: "/pricing" },
+    { label: "Help Center", href: "/help" },
+    { label: "Blog", href: "/blog" },
+  ],
 };
 
 
@@ -102,6 +130,11 @@ function BlogIndex({ theme, setTheme }) {
             Practical guides for Redbubble and TeePublic sellers who want faster metadata prep,
             safer checks, and browser-based upload automation.
           </p>
+          <div className="blog-hero-links" aria-label="Popular PodPilot SEO guides">
+            <a href="/redbubble-upload-automation">Redbubble upload automation</a>
+            <a href="/teepublic-upload-automation">TeePublic upload automation</a>
+            <a href="/ai-listing-generator">AI listing generator</a>
+          </div>
         </section>
 
         <section className="blog-featured" aria-label="Featured guide">
@@ -166,34 +199,62 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
   const aliasMeta = seoAliasMeta[canonicalPath] || {};
   const seoTitle = aliasMeta.title || post.title;
   const seoDescription = aliasMeta.description || post.metaDescription;
-  const articleSchema = {
+  const pageHeading = seoAliasHeadings[canonicalPath] || post.title;
+  const isSeoLandingPage = Boolean(canonicalPath);
+  const softwareSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
-    "@id": canonicalUrl,
-    headline: seoTitle,
+    "@type": "SoftwareApplication",
+    "@id": `${canonicalUrl}#software`,
+    name: "PodPilot",
+    applicationCategory: "BusinessApplication",
+    applicationSubCategory: "Print-on-Demand Upload Automation",
+    operatingSystem: "Web, Chrome Extension",
+    url: canonicalUrl,
     description: seoDescription,
-    image: `https://podpilot.space${post.image}`,
-    author: {
-      "@type": "Organization",
-      name: "PodPilot",
-      url: "https://podpilot.space",
-    },
     publisher: {
       "@type": "Organization",
       "@id": "https://podpilot.space/#organization",
       name: "PodPilot",
     },
-    url: canonicalUrl,
-    mainEntityOfPage: canonicalUrl,
-    keywords: post.secondaryKeywords?.join(", "),
+    featureList: [
+      "Browser-based Redbubble upload automation",
+      "Browser-based TeePublic upload automation",
+      "Bulk design import and metadata matching",
+      "AI listing drafts",
+      "Informational trademark and safety review",
+      "Upload queue and status tracking",
+    ],
   };
+  const articleSchema = isSeoLandingPage
+    ? softwareSchema
+    : {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "@id": canonicalUrl,
+        headline: seoTitle,
+        description: seoDescription,
+        image: `https://podpilot.space${post.image}`,
+        author: {
+          "@type": "Organization",
+          name: "PodPilot",
+          url: "https://podpilot.space",
+        },
+        publisher: {
+          "@type": "Organization",
+          "@id": "https://podpilot.space/#organization",
+          name: "PodPilot",
+        },
+        url: canonicalUrl,
+        mainEntityOfPage: canonicalUrl,
+        keywords: post.secondaryKeywords?.join(", "),
+      };
   const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: "https://podpilot.space/" },
       { "@type": "ListItem", position: 2, name: "Blog", item: "https://podpilot.space/blog" },
-      { "@type": "ListItem", position: 3, name: post.title, item: canonicalUrl },
+      { "@type": "ListItem", position: 3, name: pageHeading, item: canonicalUrl },
     ],
   };
   const faqSchema = post.faqs?.length
@@ -262,7 +323,7 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
               <span>{post.category}</span>
               <span>{post.readTime}</span>
             </div>
-            <h1>{post.title}</h1>
+            <h1>{pageHeading}</h1>
             <p>{post.metaDescription}</p>
           </header>
 
@@ -298,6 +359,17 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
                 <a href="#faq">Frequently Asked Questions</a>
               )}
             </nav>
+
+            {seoAliasLinks[canonicalPath] && (
+              <aside className="blog-seo-box">
+                <strong>Useful PodPilot pages</strong>
+                <div>
+                  {seoAliasLinks[canonicalPath].map((link) => (
+                    <a className="blog-internal-link" href={link.href} key={link.href}>{link.label}</a>
+                  ))}
+                </div>
+              </aside>
+            )}
 
             {post.comparisonTable && (
               <section className="blog-comparison-section" id="comparison-table">
