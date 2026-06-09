@@ -260,7 +260,15 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
       });
       return;
     }
-    if (!["ai_credits_1000", "ai_credits_10000"].includes(packId)) {
+    const allowedPacks = [
+      "ai_credits_250",
+      "ai_credits_500",
+      "ai_credits_1000",
+      "ai_credits_2500",
+      "ai_credits_5000",
+      "ai_credits_10000"
+    ];
+    if (!allowedPacks.includes(packId)) {
       setCheckoutNotice({
         type: "info",
         message: "This AI Listing Credits pack is coming soon. Stay tuned!",

@@ -120,6 +120,7 @@ MARKERAPI_BASE_URL = _optional(
 # `require_paddle_config()` so a missing var produces one clear runtime
 # error instead of crashing the whole app at import time.
 PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
+IS_PRODUCTION = PADDLE_ENVIRONMENT.lower() == "production"
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
 PADDLE_STARTER_PRICE_ID = _optional("PADDLE_STARTER_PRICE_ID", "")
 PADDLE_GROWTH_PRICE_ID = _optional("PADDLE_GROWTH_PRICE_ID", "")
@@ -129,14 +130,29 @@ PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 # New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback.
 # Legacy PADDLE_*_PRICE_ID values are treated as the 3-day trial monthly
 # prices. Set PADDLE_*_MONTHLY_PRICE_ID to separate no-trial Paddle prices.
-PADDLE_REDBUBBLE_PRICE_ID = _optional("PADDLE_REDBUBBLE_PRICE_ID", "pri_01ks8msd36y7rs8yssgwdrtm9w")
-PADDLE_TEEPUBLIC_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PRICE_ID", "pri_01ks8mz28veqdt6sr3p80zcjcb")
-PADDLE_ALL_PLATFORMS_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PRICE_ID", "pri_01ks8n0g4v8f9nq71yzqhkagt3")
+PADDLE_REDBUBBLE_PRICE_ID = _optional(
+    "PADDLE_REDBUBBLE_PRICE_ID",
+    "pri_01ktpvtc6gmzyrvpwkvf3hbb4g" if IS_PRODUCTION else "pri_01ks8msd36y7rs8yssgwdrtm9w"
+)
+PADDLE_TEEPUBLIC_PRICE_ID = _optional(
+    "PADDLE_TEEPUBLIC_PRICE_ID",
+    "pri_01ktpw4w40em67xhj8f09y84rg" if IS_PRODUCTION else "pri_01ks8mz28veqdt6sr3p80zcjcb"
+)
+PADDLE_ALL_PLATFORMS_PRICE_ID = _optional(
+    "PADDLE_ALL_PLATFORMS_PRICE_ID",
+    "pri_01ktpxvt2ybj8w2dt9b3b43cxm" if IS_PRODUCTION else "pri_01ks8n0g4v8f9nq71yzqhkagt3"
+)
 PADDLE_REDBUBBLE_PAID_PRICE_ID = _optional("PADDLE_REDBUBBLE_PAID_PRICE_ID", "")
 PADDLE_TEEPUBLIC_PAID_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PAID_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_PAID_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PAID_PRICE_ID", "")
-PADDLE_AI_TOKENS_1000_PRICE_ID = _optional("PADDLE_AI_TOKENS_1000_PRICE_ID", "pri_01ks8n5345bwms59tp4ayz0rqp")
-PADDLE_AI_TOKENS_10000_PRICE_ID = _optional("PADDLE_AI_TOKENS_10000_PRICE_ID", "pri_01ks8n74nkvh85t5trtjk99bcb")
+PADDLE_AI_TOKENS_1000_PRICE_ID = _optional(
+    "PADDLE_AI_TOKENS_1000_PRICE_ID",
+    "pri_01ktpyrg5eaeyhr5ethm11awfq" if IS_PRODUCTION else "pri_01ks8n5345bwms59tp4ayz0rqp"
+)
+PADDLE_AI_TOKENS_10000_PRICE_ID = _optional(
+    "PADDLE_AI_TOKENS_10000_PRICE_ID",
+    "pri_01ktpytpg0e6dsqqf25pczqqy5" if IS_PRODUCTION else "pri_01ks8n74nkvh85t5trtjk99bcb"
+)
 
 # Explicit monthly and annual subscription price IDs. The *_TRIAL_* IDs should
 # point to Paddle prices with trial_period=3 days. The non-trial IDs should
@@ -153,16 +169,43 @@ PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID = _optional(
     "PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID",
     PADDLE_ALL_PLATFORMS_PRICE_ID,
 )
-PADDLE_REDBUBBLE_MONTHLY_PRICE_ID = _optional("PADDLE_REDBUBBLE_MONTHLY_PRICE_ID", PADDLE_REDBUBBLE_PAID_PRICE_ID)
-PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID = _optional("PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID", PADDLE_TEEPUBLIC_PAID_PRICE_ID)
-PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID", PADDLE_ALL_PLATFORMS_PAID_PRICE_ID)
+PADDLE_REDBUBBLE_MONTHLY_PRICE_ID = _optional(
+    "PADDLE_REDBUBBLE_MONTHLY_PRICE_ID",
+    "pri_01ktpw0tp8eat88076zcxzvsn3" if IS_PRODUCTION else PADDLE_REDBUBBLE_PAID_PRICE_ID
+)
+PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID = _optional(
+    "PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID",
+    "pri_01ktpwbz6sss2xk225bf382vjr" if IS_PRODUCTION else PADDLE_TEEPUBLIC_PAID_PRICE_ID
+)
+PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional(
+    "PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID",
+    "pri_01ktpy0fz9bjmh9gd4kzbta53c" if IS_PRODUCTION else PADDLE_ALL_PLATFORMS_PAID_PRICE_ID
+)
 
-PADDLE_REDBUBBLE_ANNUAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_PRICE_ID", "")
-PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID", "")
-PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID", "")
-PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID", "")
-PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID", "")
-PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID", "")
+PADDLE_REDBUBBLE_ANNUAL_PRICE_ID = _optional(
+    "PADDLE_REDBUBBLE_ANNUAL_PRICE_ID",
+    "pri_01ktpw024fdhrmamvvepkqkgvk" if IS_PRODUCTION else ""
+)
+PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID = _optional(
+    "PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID",
+    "pri_01ktpwd7h3p4gbnfgqd9cq19jh" if IS_PRODUCTION else ""
+)
+PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID = _optional(
+    "PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID",
+    "pri_01ktpy87y4wz6k061kb5e2p08r" if IS_PRODUCTION else ""
+)
+PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional(
+    "PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID",
+    "pri_01ktpvw8gzcp4kqtp0dmz20mca" if IS_PRODUCTION else ""
+)
+PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional(
+    "PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID",
+    "pri_01ktpwcnn5qwq8c0fpznebf2xn" if IS_PRODUCTION else ""
+)
+PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional(
+    "PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID",
+    "pri_01ktpy7m3p9epe0d3sqc2hsk80" if IS_PRODUCTION else ""
+)
 
 # Free-trial abuse prevention. TRIAL_HASH_SALT is required only on the
 # trial eligibility/start-trial code paths so the backend can boot while
@@ -187,6 +230,31 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     pid = (price_id or "").strip()
     if not pid:
         return ""
+
+    # Map new Live Paddle Price IDs first
+    live_price_map = {
+        "pri_01ktpvtc6gmzyrvpwkvf3hbb4g": "redbubble",
+        "pri_01ktpw0tp8eat88076zcxzvsn3": "redbubble",
+        "pri_01ktpvw8gzcp4kqtp0dmz20mca": "redbubble",
+        "pri_01ktpw024fdhrmamvvepkqkgvk": "redbubble",
+        "pri_01ktpw4w40em67xhj8f09y84rg": "teepublic",
+        "pri_01ktpwbz6sss2xk225bf382vjr": "teepublic",
+        "pri_01ktpwcnn5qwq8c0fpznebf2xn": "teepublic",
+        "pri_01ktpwd7h3p4gbnfgqd9cq19jh": "teepublic",
+        "pri_01ktpxvt2ybj8w2dt9b3b43cxm": "all_platforms",
+        "pri_01ktpy0fz9bjmh9gd4kzbta53c": "all_platforms",
+        "pri_01ktpy7m3p9epe0d3sqc2hsk80": "all_platforms",
+        "pri_01ktpy87y4wz6k061kb5e2p08r": "all_platforms",
+        "pri_01ktpypvykz2xc6y5n6pb1nxe9": "tokens_250",
+        "pri_01ktpyqe5z0v82zd4x3c5wvmm8": "tokens_500",
+        "pri_01ktpyrg5eaeyhr5ethm11awfq": "tokens_1000",
+        "pri_01ktpys919mc2pqyhqrfv8z9x6": "tokens_2500",
+        "pri_01ktpzh04zbx8x91xsc1af1heg": "tokens_5000",
+        "pri_01ktpytpg0e6dsqqf25pczqqy5": "tokens_10000",
+    }
+    if pid in live_price_map:
+        return live_price_map[pid]
+
     if pid == PADDLE_STARTER_PRICE_ID:
         return "starter"
     if pid == PADDLE_GROWTH_PRICE_ID:

@@ -457,7 +457,11 @@ def _normalize_billing_cycle(billing_cycle: str) -> str:
 def _normalize_credit_pack_id(credit_pack_id: Optional[str]) -> str:
     value = str(credit_pack_id or "").strip().lower()
     aliases = {
+        "ai_credits_250": "tokens_250",
+        "ai_credits_500": "tokens_500",
         "ai_credits_1000": "tokens_1000",
+        "ai_credits_2500": "tokens_2500",
+        "ai_credits_5000": "tokens_5000",
         "ai_credits_10000": "tokens_10000",
     }
     return aliases.get(value, value)
@@ -482,10 +486,27 @@ def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str
 
 
 def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
-    price_map = {
+    is_prod = config.PADDLE_ENVIRONMENT.lower() == "production"
+
+    price_map_prod = {
+        "tokens_250": "pri_01ktpypvykz2xc6y5n6pb1nxe9",
+        "tokens_500": "pri_01ktpyqe5z0v82zd4x3c5wvmm8",
+        "tokens_1000": "pri_01ktpyrg5eaeyhr5ethm11awfq",
+        "tokens_2500": "pri_01ktpys919mc2pqyhqrfv8z9x6",
+        "tokens_5000": "pri_01ktpzh04zbx8x91xsc1af1heg",
+        "tokens_10000": "pri_01ktpytpg0e6dsqqf25pczqqy5",
+    }
+
+    price_map_sandbox = {
+        "tokens_250": "pri_01ks8n5345bwms59tp4ayz0rqp",
+        "tokens_500": "pri_01ks8n5345bwms59tp4ayz0rqp",
         "tokens_1000": config.PADDLE_AI_TOKENS_1000_PRICE_ID,
+        "tokens_2500": config.PADDLE_AI_TOKENS_10000_PRICE_ID,
+        "tokens_5000": config.PADDLE_AI_TOKENS_10000_PRICE_ID,
         "tokens_10000": config.PADDLE_AI_TOKENS_10000_PRICE_ID,
     }
+
+    price_map = price_map_prod if is_prod else price_map_sandbox
     return (price_map.get(credit_pack_id) or "").strip()
 
 

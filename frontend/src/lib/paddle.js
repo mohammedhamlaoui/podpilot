@@ -22,6 +22,8 @@ import {
   isAnnualPaddleConfigured,
 } from "../config/paddle";
 
+import { getPaddlePrice } from "../config/paddlePrices";
+
 function normalizePlanKey(plan) {
   const value = String(plan || "").toLowerCase().trim();
   if (!value) return "";
@@ -83,6 +85,9 @@ function getPaddle() {
 
   console.log("[Paddle] clientToken exists=", Boolean(PADDLE_CONFIG.clientToken));
   console.log("[Paddle] script loaded");
+  if (import.meta.env.DEV) {
+    console.log("[Checkout] Paddle loaded");
+  }
   paddleInstancePromise = initializePaddle({
     environment: PADDLE_CONFIG.environment === "production" ? "production" : "sandbox",
     token: PADDLE_CONFIG.clientToken,
@@ -105,11 +110,17 @@ function getPaddle() {
         throw new Error("Paddle SDK failed to initialize.");
       }
       console.log("[Paddle] initialized");
+      if (import.meta.env.DEV) {
+        console.log("[Checkout] Paddle initialized");
+      }
       return paddle;
     })
     .catch((error) => {
       // eslint-disable-next-line no-console
       console.error("[Paddle] checkout init failed", error);
+      if (import.meta.env.DEV) {
+        console.error("[Checkout] checkout error", error.message || error);
+      }
       paddleInstancePromise = null; // allow retry
       throw error;
     });
@@ -158,13 +169,30 @@ export async function openPaddleCheckout({
   let resolvedCheckoutConfig = checkoutConfig || null;
   const planKey = normalizePlanKey(plan);
   const normalizedBillingCycle = normalizeBillingCycle(billingCycle);
+  const resolvedTrialEligible = trialEligible ?? resolvedCheckoutConfig?.trial_eligible;
+
+  // Resolve price client-side from central configuration first
+  const clientPriceId = getPaddlePrice({
+    plan: planKey || plan || creditPackId,
+    billing: normalizedBillingCycle,
+    trialEligible: resolvedTrialEligible,
+  });
+  if (clientPriceId) {
+    resolvedPriceId = clientPriceId;
+  }
+
   if (!resolvedPriceId) {
     const mappedPlan = planKey;
     if (["redbubble", "teepublic", "all_platforms"].includes(mappedPlan)) {
       try {
         const result = await getCheckoutConfig(mappedPlan, normalizedBillingCycle);
         resolvedCheckoutConfig = result || null;
-        resolvedPriceId = result.selected_price_id || result.price_id;
+        const finalTrialEligible = trialEligible ?? result?.trial_eligible;
+        resolvedPriceId = getPaddlePrice({
+          plan: mappedPlan,
+          billing: normalizedBillingCycle,
+          trialEligible: finalTrialEligible,
+        }) || result.selected_price_id || result.price_id;
       } catch (err) {
         console.error("[Paddle] Failed to get checkout price ID:", err);
         const detail = err.response?.data?.detail || "Checkout is temporarily unavailable.";
@@ -179,6 +207,9 @@ export async function openPaddleCheckout({
     const error = new Error(`Checkout price is missing for this plan.`);
     // eslint-disable-next-line no-console
     console.error("[Paddle] checkout error", error.message);
+    if (import.meta.env.DEV) {
+      console.error("[Checkout] checkout error", error.message || error);
+    }
     throw error;
   }
 
@@ -199,6 +230,9 @@ export async function openPaddleCheckout({
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("[Paddle] checkout init failed", error);
+    if (import.meta.env.DEV) {
+      console.error("[Checkout] checkout error", error.message || error);
+    }
     throw error;
   }
 
@@ -217,7 +251,6 @@ export async function openPaddleCheckout({
   if (resolvedIntentId) customData.checkout_intent_id = String(resolvedIntentId);
   if (planKey) customData.plan_key = planKey;
   customData.billing_cycle = normalizedBillingCycle;
-  const resolvedTrialEligible = trialEligible ?? resolvedCheckoutConfig?.trial_eligible;
   if (typeof resolvedTrialEligible === "boolean") customData.trial_eligible = resolvedTrialEligible;
   const resolvedCreditPackId = creditPackId || resolvedCheckoutConfig?.credit_pack_id;
   if (resolvedCreditPackId) customData.credit_pack_id = String(resolvedCreditPackId);
@@ -242,8 +275,8 @@ export async function openPaddleCheckout({
       paddle.Checkout.open({
         settings: {
           displayMode: "inline",
-          frameTarget: "paddle-checkout-frame",
-          frameInitialHeight: 450,
+          frameTarget: frameTarget || "paddle-checkout-container",
+          frameInitialHeight: 650,
           frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
           theme: "light",
           successUrl: `${window.location.origin}/dashboard?checkout=success`
@@ -254,11 +287,15 @@ export async function openPaddleCheckout({
       });
     } else {
       console.log("[Paddle] opening overlay checkout");
+      if (import.meta.env.DEV) {
+        console.log("[Checkout] opening overlay");
+      }
       paddle.Checkout.open({
         items: [{ priceId: resolvedPriceId, quantity: 1 }],
         customer: email ? { email } : undefined,
         customData: Object.keys(customData).length > 0 ? customData : undefined,
         settings: {
+          displayMode: "overlay",
           successUrl: `${window.location.origin}/dashboard?checkout=success`
         }
       });
@@ -266,6 +303,9 @@ export async function openPaddleCheckout({
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("[Paddle] checkout error", error);
+    if (import.meta.env.DEV) {
+      console.error("[Checkout] checkout error", error.message || error);
+    }
     throw error;
   }
 }

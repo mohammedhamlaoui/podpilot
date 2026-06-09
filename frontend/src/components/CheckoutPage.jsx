@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { openPaddleCheckout, isPaddleConfigured } from "../lib/paddle";
+import { getPaddlePrice } from "../config/paddlePrices";
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
 import { getCheckoutConfig } from "../api/client";
 import Icon from "./Icon";
@@ -158,7 +159,9 @@ export default function CheckoutPage({ theme, setTheme }) {
   const planInfo = PLANS_INFO[plan] || PLANS_INFO["all-platforms"];
   const billingInfo = planInfo[billing] || planInfo.annual;
   const isTrialEligible = !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
-  const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
+  const selectedPriceId = !checkoutConfigLoading
+    ? getPaddlePrice({ plan, billing, trialEligible: isTrialEligible })
+    : "";
   const checkoutButtonLabel = checkoutConfig?.button_label || (isTrialEligible ? "Start 3-day free trial" : "Subscribe now");
   const trialDays = Number(checkoutConfig?.trial_days || 0);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
@@ -220,18 +223,42 @@ export default function CheckoutPage({ theme, setTheme }) {
     });
   }
 
-  // Run checkout opening
+  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  const isProductionEnv = import.meta.env.VITE_PADDLE_ENVIRONMENT === "production";
+  const showLocalhostWarning = isProductionEnv && isLocalhost;
+
+  // Dev-only logs for checkout parameters
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log("[Checkout] hostname", window.location.hostname);
+      console.log("[Checkout] paddle environment", import.meta.env.VITE_PADDLE_ENVIRONMENT);
+      console.log("[Checkout] plan", plan);
+      console.log("[Checkout] billing", billing);
+      console.log("[Checkout] trialEligible", isTrialEligible);
+      console.log("[Checkout] selectedPriceId", selectedPriceId);
+    }
+  }, [plan, billing, isTrialEligible, selectedPriceId]);
+
+  useEffect(() => {
+    initializationAttempted.current = false;
+  }, [selectedPriceId, plan, billing]);
+
+  useEffect(() => {
+    if (showLocalhostWarning) return;
     if (!selectedPriceId || !isAuthenticated || !customerUserId) return;
     if (initializationAttempted.current) return;
 
-    const target = document.querySelector(".paddle-checkout-frame");
-    console.log("[Checkout] inline useEffect running");
-    console.log("[Checkout] selectedPriceId=", selectedPriceId);
-    console.log("[Paddle] frame target found=", Boolean(target));
+    // Check if container exists in DOM
+    const container = document.getElementById("paddle-checkout-container");
+    if (!container) return;
 
-    if (!target) return;
     initializationAttempted.current = true;
+    setLoadingPaddle(true);
+    setPaddleLoadError(false);
+
+    if (import.meta.env.DEV) {
+      console.log("[Checkout] opening inline checkout");
+    }
 
     openPaddleCheckout({
       priceId: selectedPriceId,
@@ -239,29 +266,37 @@ export default function CheckoutPage({ theme, setTheme }) {
       checkoutIntentId,
       trialEligible: isTrialEligible,
       plan,
-      email: userEmail,
+      email: customerEmail || undefined,
       userId: customerUserId,
       billingCycle: billing,
       mode: "inline",
-      frameTarget: "paddle-checkout-frame",
+      frameTarget: "paddle-checkout-container",
       onCheckoutComplete: () => {
         setCheckoutSuccess(true);
       },
       onCheckoutClosed: () => {
         initializationAttempted.current = false;
+        setLoadingPaddle(false);
       },
+      onEvent: (event) => {
+        const name = event?.name || event?.event || event?.type;
+        if (name === "checkout.loaded") {
+          setLoadingPaddle(false);
+          if (import.meta.env.DEV) {
+            console.log("[Checkout] inline checkout opened");
+          }
+        }
+      }
     }).catch((err) => {
       console.error("[Paddle] Inline checkout failure", err);
+      if (import.meta.env.DEV) {
+        console.error("[Checkout] checkout error", err.message || err);
+      }
       initializationAttempted.current = false;
+      setLoadingPaddle(false);
       setPaddleLoadError(true);
-      setCheckoutNotice({
-        type: "error",
-        message: err.message || "Could not open checkout. Please try again.",
-      });
     });
-  }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
-
-
+  }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, showLocalhostWarning, customerEmail]);
 
   // Handle overlay checkout fallback
   const handleOverlayFallback = async () => {
@@ -291,6 +326,9 @@ export default function CheckoutPage({ theme, setTheme }) {
       });
     } catch (err) {
       console.error("[Paddle] Overlay fallback failure", err);
+      if (import.meta.env.DEV) {
+        console.error("[Checkout] checkout error", err.message || err);
+      }
       setLoadingPaddle(false);
       setCheckoutNotice({
         type: "error",
@@ -475,69 +513,103 @@ export default function CheckoutPage({ theme, setTheme }) {
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: PADDLE FRAME */}
+              {/* RIGHT COLUMN: PADDLE CHECKOUT CARD */}
               <div className="checkout-right-column">
-                <div className="paddle-checkout-frame-wrapper" style={{ position: "relative" }}>
-                  <div className="paddle-checkout-frame" style={{ minHeight: 450, width: "100%" }} />
+                <div className="checkout-secure-card" style={{
+                  padding: "24px",
+                  borderRadius: "16px",
+                  background: "var(--pp-card-background, #ffffff)",
+                  border: "1px solid var(--pp-card-border, #e5e7eb)",
+                  boxShadow: "0 10px 30px -10px rgba(0, 0, 0, 0.08)",
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: "650px",
+                  position: "relative"
+                }}>
+                  <style dangerouslySetInnerHTML={{__html: `
+                    @keyframes pp-spin {
+                      to { transform: rotate(360deg); }
+                    }
+                  `}} />
 
+                  {/* Card Title */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px", borderBottom: "1px solid var(--pp-card-border, #e5e7eb)", paddingBottom: "12px" }}>
+                    <h3 style={{ fontSize: "18px", fontWeight: "700", margin: 0, color: "var(--pp-text-heading, #1f2937)", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <ShieldCheck size={20} style={{ color: "var(--accent, #7c3aed)" }} />
+                      Secure checkout
+                    </h3>
+                  </div>
 
-                  {paddleLoadError && (
-                    <div 
-                      className="paddle-error-state" 
-                      style={{ 
-                        position: "absolute", 
-                        top: 0, 
-                        left: 0, 
-                        right: 0, 
-                        bottom: 0, 
-                        zIndex: 10,
-                        background: "var(--pp-card-background, #ffffff)" 
-                      }}
-                    >
-                      <HelpCircle size={36} />
-                      <h4>Checkout could not load</h4>
-                      <p>Try opening the secure overlay checkout instead if the payment form fails to appear.</p>
+                  {showLocalhostWarning ? (
+                    <div className="paddle-error-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "12px", padding: "24px", textAlign: "center" }}>
+                      <HelpCircle size={36} style={{ color: "var(--pp-text-muted, #9ca3af)" }} />
+                      <h4 style={{ fontWeight: 700 }}>Local Testing Restriction</h4>
+                      <p style={{ fontSize: "14px", color: "var(--pp-text-muted, #6b7280)", margin: 0, lineHeight: 1.5 }}>
+                        Live Paddle checkout must be tested on the approved production domain. Use sandbox locally or test on podpilot.space.
+                      </p>
+                    </div>
+                  ) : !selectedPriceId ? (
+                    <div className="paddle-error-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "12px", padding: "24px", textAlign: "center" }}>
+                      <HelpCircle size={36} style={{ color: "var(--pp-text-muted, #9ca3af)" }} />
+                      <h4 style={{ fontWeight: 700 }}>Checkout is not configured for this plan yet.</h4>
+                      <p style={{ fontSize: "14px", color: "var(--pp-text-muted, #6b7280)", margin: 0 }}>
+                        {checkoutConfigError || "Please check back later or contact support."}
+                      </p>
+                    </div>
+                  ) : paddleLoadError ? (
+                    <div className="paddle-error-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: "16px", padding: "24px", textAlign: "center" }}>
+                      <HelpCircle size={36} style={{ color: "var(--pp-text-muted, #ef4444)" }} />
+                      <h4 style={{ fontWeight: 700, margin: 0 }}>Checkout could not load</h4>
+                      <p style={{ fontSize: "14px", color: "var(--pp-text-muted, #6b7280)", margin: 0, lineHeight: 1.5 }}>
+                        Checkout could not load. Please refresh or contact support.
+                      </p>
                       <button
                         type="button"
                         onClick={handleOverlayFallback}
-                        disabled={loadingPaddle || !selectedPriceId}
+                        disabled={loadingPaddle}
                         className="landing-btn landing-btn-primary"
-                        style={{ marginTop: "12px", minHeight: "38px", padding: "0 16px" }}
+                        style={{ marginTop: "12px", minHeight: "40px", padding: "0 24px" }}
                       >
-                        Open Secure Overlay Checkout
+                        {loadingPaddle ? "Opening secure checkout..." : "Open secure checkout"}
                       </button>
                     </div>
-                  )}
+                  ) : (
+                    <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: "650px" }}>
+                      {loadingPaddle && (
+                        <div className="paddle-loading-overlay" style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          zIndex: 5,
+                          background: "var(--pp-card-background, #ffffff)"
+                        }}>
+                          <div className="spinner" style={{
+                            width: "40px",
+                            height: "40px",
+                            border: "4px solid rgba(124, 58, 237, 0.1)",
+                            borderTop: "4px solid var(--accent, #7c3aed)",
+                            borderRadius: "50%",
+                            animation: "pp-spin 1s linear infinite",
+                            marginBottom: "16px"
+                          }} />
+                          <p style={{ color: "var(--pp-text-muted, #6b7280)", fontWeight: "500", margin: 0 }}>Preparing secure checkout...</p>
+                        </div>
+                      )}
 
-                  {checkoutConfigLoading && (
-                    <div className="paddle-loading-skeleton" role="status" aria-live="polite">
-                      <div className="paddle-skeleton-header">
-                        <span className="skeleton-pill wide" />
-                        <span className="skeleton-pill" />
-                      </div>
-                      <div className="paddle-skeleton-card">
-                        <span className="skeleton-line" />
-                        <span className="skeleton-line short" />
-                        <span className="skeleton-input" />
-                        <span className="paddle-skeleton-button" />
-                      </div>
-                      <p>Verifying checkout details...</p>
-                    </div>
-                  )}
-
-                  {!checkoutConfigLoading && !selectedPriceId && (
-                    <div className="paddle-error-state">
-                      <HelpCircle size={36} />
-                      <h4>Checkout is temporarily unavailable.</h4>
-                      <p>{checkoutConfigError || "Paddle price ID is missing for this plan."}</p>
-                    </div>
-                  )}
-
-                  {!checkoutConfigLoading && !paddleReady && selectedPriceId && (
-                    <div className="paddle-error-state">
-                      <HelpCircle size={36} />
-                      <h4>Payment System Unavailable</h4>
-                      <p>Paddle Client Token or Price IDs are missing in the workspace environment variables. Please check your configuration.</p>
+                      <div
+                        id="paddle-checkout-container"
+                        className="paddle-checkout-container"
+                        style={{
+                          width: "100%",
+                          minHeight: "650px"
+                        }}
+                      />
                     </div>
                   )}
                 </div>
