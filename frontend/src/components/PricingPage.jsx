@@ -167,7 +167,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
 
   useSeo({
     title: "Pricing for Redbubble & TeePublic Upload Automation",
-    description: "Choose a PodPilot plan for Redbubble, TeePublic, or both. Start with a 3-day free trial, unlimited upload automation, and AI listing tools for POD sellers.",
+    description: "Choose a PodPilot plan for Redbubble, TeePublic, or both. Eligible accounts may see a trial offer, with upload automation and AI listing tools for POD sellers.",
     canonical: "/pricing",
     jsonLd: {
       "@context": "https://schema.org",

@@ -100,6 +100,7 @@ const landingJsonLd = [
     about: { "@id": "https://podpilot.space/#software" },
   },
   {
+    "@context": "https://schema.org",
     "@type": "FAQPage",
     "@id": "https://podpilot.space/#landing-faq",
     mainEntity: faqs.map((faq) => ({

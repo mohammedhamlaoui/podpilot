@@ -57,7 +57,7 @@ const faqItems = [
   {
     id: "subscriptions",
     question: "How do subscriptions and billing cycles work?",
-    answer: "We offer monthly and annual subscriptions billed securely through Paddle, our merchant of record. Annual subscriptions include a built-in discount, showing a lower monthly equivalent rate billed as a single yearly charge. Subscriptions come with a 3-day free trial, allowing you to test all features completely risk-free before billing starts."
+    answer: "We offer monthly and annual subscriptions billed securely through Paddle, our merchant of record. Annual subscriptions include a built-in discount, showing a lower monthly equivalent rate billed as a single yearly charge. Trial availability may depend on account eligibility and the checkout offer shown at the time of purchase."
   },
   {
     id: "cancel",
