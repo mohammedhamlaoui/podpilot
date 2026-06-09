@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 const BASE_URL = "https://podpilot.space";
-const DEFAULT_IMAGE = `${BASE_URL}/brand/podpilot-og.png`;
+const DEFAULT_IMAGE = `${BASE_URL}/brand/podpilot-og-v2.png`;
 const SITE_NAME = "PodPilot";
 
 /**
