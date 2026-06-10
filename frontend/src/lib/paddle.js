@@ -27,7 +27,6 @@ import { getPaddlePrice } from "../config/paddlePrices";
 function normalizePlanKey(plan) {
   const value = String(plan || "").toLowerCase().trim();
   if (!value) return "";
-  if (value === "growth") return "all_platforms";
   if (value === "all-platforms") return "all_platforms";
   if (value === "all_platforms") return "all_platforms";
   if (value.endsWith("_paid")) return normalizePlanKey(value.replace(/_paid$/, ""));
@@ -89,7 +88,7 @@ function getPaddle() {
     console.log("[Checkout] Paddle loaded");
   }
   paddleInstancePromise = initializePaddle({
-    environment: PADDLE_CONFIG.environment === "production" ? "production" : "sandbox",
+    environment: PADDLE_CONFIG.environment === "sandbox" ? "sandbox" : "production",
     token: PADDLE_CONFIG.clientToken,
     eventCallback: (event) => {
       try {

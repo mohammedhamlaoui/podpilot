@@ -17,7 +17,7 @@ function read(name) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-const environment = read("VITE_PADDLE_ENVIRONMENT") || "sandbox";
+const environment = read("VITE_PADDLE_ENVIRONMENT") || "production";
 const clientToken = read("VITE_PADDLE_CLIENT_TOKEN");
 const tokens1000PriceId = read("VITE_PADDLE_AI_TOKENS_1000_PRICE_ID");
 const tokens10000PriceId = read("VITE_PADDLE_AI_TOKENS_10000_PRICE_ID");
@@ -47,9 +47,6 @@ export function isPaddleConfigured() {
  */
 export function getPaddlePriceId(plan) {
   let key = String(plan || "").toLowerCase().trim();
-  if (key === "growth") key = "all_platforms";
-  if (key === "growth_annual") key = "all_platforms_annual";
-  if (key === "growth_paid") key = "all_platforms_paid";
   return PADDLE_CONFIG.prices[key] || "";
 }
 

@@ -215,15 +215,13 @@ def _log_custom_data_keys(custom_data: dict[str, Any]) -> None:
 
 def _normalize_custom_plan(value: Any) -> str:
     plan = str(value or "").strip().lower()
-    if plan in {"growth", "all-platforms"}:
-        return "all_platforms"
     if plan.endswith("_paid"):
         plan = plan[:-5]
     if plan.endswith("_annual"):
         plan = plan[:-7]
     if plan == "all-platforms":
         return "all_platforms"
-    if plan in {"redbubble", "teepublic", "all_platforms", "starter", "growth", "pro"}:
+    if plan in {"redbubble", "teepublic", "all_platforms"}:
         return plan
     return ""
 
@@ -328,7 +326,6 @@ def _upsert_subscription(payload: dict[str, Any]) -> None:
     if existing:
         update = {k: v for k, v in payload.items() if v is not None or k in {
             "cancel_at_period_end",
-            "monthly_upload_limit",
             "status",
             "plan",
         }}
@@ -652,7 +649,6 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
         "current_period_starts_at": current_period_starts_at,
         "current_period_ends_at": current_period_ends_at,
         "cancel_at_period_end": cancel_at_period_end,
-        "monthly_upload_limit": monthly_limit,
         "billing_anchor": billing_anchor,
     }
     billing_cycle = _extract_billing_cycle(custom)
@@ -660,7 +656,7 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
         payload["billing_cycle"] = billing_cycle
     # Drop None values so we don't overwrite existing valid columns with
     # nulls — except for fields we explicitly want to set even if null
-    # (e.g. cancel_at_period_end, status, plan, monthly_upload_limit).
+    # (e.g. cancel_at_period_end, status, plan).
     _upsert_subscription(payload)
     if valid_intent and status in {"trialing", "active"}:
         try:

@@ -399,9 +399,6 @@ const PLAN_LABELS = {
   redbubble: "Redbubble Plan",
   teepublic: "TeePublic Plan",
   all_platforms: "All Platforms Plan",
-  starter: "PodPilot Starter",
-  growth: "PodPilot Growth",
-  pro: "PodPilot Pro",
 };
 
 const STATUS_LABELS = {

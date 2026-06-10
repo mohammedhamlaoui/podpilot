@@ -103,7 +103,7 @@ function readCheckoutParams() {
   let planParam = searchParams.get("plan") || "all-platforms";
   let billingParam = searchParams.get("billing") || "annual";
 
-  if (planParam === "all-platforms" || planParam === "all_platforms" || planParam === "growth") {
+  if (planParam === "all-platforms" || planParam === "all_platforms") {
     planParam = "all-platforms";
   } else if (planParam === "redbubble") {
     planParam = "redbubble";
@@ -411,7 +411,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     <div className="checkout-plan-logo-wrap">
                       {plan === "redbubble" && <Icon name="redbubble" className="checkout-plan-logo" />}
                       {plan === "teepublic" && <Icon name="teepublic" className="checkout-plan-logo" />}
-                      {(plan === "all-platforms" || plan === "growth") && (
+                      {plan === "all-platforms" && (
                         <div className="checkout-plan-logo-group">
                           <Icon name="redbubble" className="checkout-plan-logo" />
                           <Icon name="teepublic" className="checkout-plan-logo" />

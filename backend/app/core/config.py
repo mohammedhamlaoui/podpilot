@@ -5,6 +5,7 @@ backend process. They unlock every user's data and every file in R2.
 """
 import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -119,12 +120,9 @@ MARKERAPI_BASE_URL = _optional(
 # without Paddle. Modules that need Paddle should call
 # `require_paddle_config()` so a missing var produces one clear runtime
 # error instead of crashing the whole app at import time.
-PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
+PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "production")
 IS_PRODUCTION = PADDLE_ENVIRONMENT.lower() == "production"
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
-PADDLE_STARTER_PRICE_ID = _optional("PADDLE_STARTER_PRICE_ID", "")
-PADDLE_GROWTH_PRICE_ID = _optional("PADDLE_GROWTH_PRICE_ID", "")
-PADDLE_PRO_PRICE_ID = _optional("PADDLE_PRO_PRICE_ID", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 
 # New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback.
@@ -132,26 +130,26 @@ PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 # prices. Set PADDLE_*_MONTHLY_PRICE_ID to separate no-trial Paddle prices.
 PADDLE_REDBUBBLE_PRICE_ID = _optional(
     "PADDLE_REDBUBBLE_PRICE_ID",
-    "pri_01ktpvtc6gmzyrvpwkvf3hbb4g" if IS_PRODUCTION else "pri_01ks8msd36y7rs8yssgwdrtm9w"
+    "pri_01ktpvtc6gmzyrvpwkvf3hbb4g"
 )
 PADDLE_TEEPUBLIC_PRICE_ID = _optional(
     "PADDLE_TEEPUBLIC_PRICE_ID",
-    "pri_01ktpw4w40em67xhj8f09y84rg" if IS_PRODUCTION else "pri_01ks8mz28veqdt6sr3p80zcjcb"
+    "pri_01ktpw4w40em67xhj8f09y84rg"
 )
 PADDLE_ALL_PLATFORMS_PRICE_ID = _optional(
     "PADDLE_ALL_PLATFORMS_PRICE_ID",
-    "pri_01ktpxvt2ybj8w2dt9b3b43cxm" if IS_PRODUCTION else "pri_01ks8n0g4v8f9nq71yzqhkagt3"
+    "pri_01ktpxvt2ybj8w2dt9b3b43cxm"
 )
 PADDLE_REDBUBBLE_PAID_PRICE_ID = _optional("PADDLE_REDBUBBLE_PAID_PRICE_ID", "")
 PADDLE_TEEPUBLIC_PAID_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PAID_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_PAID_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PAID_PRICE_ID", "")
 PADDLE_AI_TOKENS_1000_PRICE_ID = _optional(
     "PADDLE_AI_TOKENS_1000_PRICE_ID",
-    "pri_01ktpyrg5eaeyhr5ethm11awfq" if IS_PRODUCTION else "pri_01ks8n5345bwms59tp4ayz0rqp"
+    "pri_01ktpyrg5eaeyhr5ethm11awfq"
 )
 PADDLE_AI_TOKENS_10000_PRICE_ID = _optional(
     "PADDLE_AI_TOKENS_10000_PRICE_ID",
-    "pri_01ktpytpg0e6dsqqf25pczqqy5" if IS_PRODUCTION else "pri_01ks8n74nkvh85t5trtjk99bcb"
+    "pri_01ktpytpg0e6dsqqf25pczqqy5"
 )
 
 # Explicit monthly and annual subscription price IDs. The *_TRIAL_* IDs should
@@ -171,40 +169,40 @@ PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID = _optional(
 )
 PADDLE_REDBUBBLE_MONTHLY_PRICE_ID = _optional(
     "PADDLE_REDBUBBLE_MONTHLY_PRICE_ID",
-    "pri_01ktpw0tp8eat88076zcxzvsn3" if IS_PRODUCTION else PADDLE_REDBUBBLE_PAID_PRICE_ID
+    "pri_01ktpw0tp8eat88076zcxzvsn3"
 )
 PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID = _optional(
     "PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID",
-    "pri_01ktpwbz6sss2xk225bf382vjr" if IS_PRODUCTION else PADDLE_TEEPUBLIC_PAID_PRICE_ID
+    "pri_01ktpwbz6sss2xk225bf382vjr"
 )
 PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional(
     "PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID",
-    "pri_01ktpy0fz9bjmh9gd4kzbta53c" if IS_PRODUCTION else PADDLE_ALL_PLATFORMS_PAID_PRICE_ID
+    "pri_01ktpy0fz9bjmh9gd4kzbta53c"
 )
 
 PADDLE_REDBUBBLE_ANNUAL_PRICE_ID = _optional(
     "PADDLE_REDBUBBLE_ANNUAL_PRICE_ID",
-    "pri_01ktpw024fdhrmamvvepkqkgvk" if IS_PRODUCTION else ""
+    "pri_01ktpw024fdhrmamvvepkqkgvk"
 )
 PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID = _optional(
     "PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID",
-    "pri_01ktpwd7h3p4gbnfgqd9cq19jh" if IS_PRODUCTION else ""
+    "pri_01ktpwd7h3p4gbnfgqd9cq19jh"
 )
 PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID = _optional(
     "PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID",
-    "pri_01ktpy87y4wz6k061kb5e2p08r" if IS_PRODUCTION else ""
+    "pri_01ktpy87y4wz6k061kb5e2p08r"
 )
 PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional(
     "PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID",
-    "pri_01ktpvw8gzcp4kqtp0dmz20mca" if IS_PRODUCTION else ""
+    "pri_01ktpvw8gzcp4kqtp0dmz20mca"
 )
 PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional(
     "PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID",
-    "pri_01ktpwcnn5qwq8c0fpznebf2xn" if IS_PRODUCTION else ""
+    "pri_01ktpwcnn5qwq8c0fpznebf2xn"
 )
 PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional(
     "PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID",
-    "pri_01ktpy7m3p9epe0d3sqc2hsk80" if IS_PRODUCTION else ""
+    "pri_01ktpy7m3p9epe0d3sqc2hsk80"
 )
 
 # Free-trial abuse prevention. TRIAL_HASH_SALT is required only on the
@@ -213,14 +211,6 @@ PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional(
 TRIAL_HASH_SALT = _optional("TRIAL_HASH_SALT", "")
 TRIAL_IP_LOOKBACK_DAYS = int(_optional("TRIAL_IP_LOOKBACK_DAYS", "0"))
 
-PADDLE_PLAN_LIMITS = {
-    "starter": 300,
-    "growth": 1500,
-    "pro": 5000,
-    "redbubble": 999999,
-    "teepublic": 999999,
-    "all_platforms": 999999,
-}
 
 
 def paddle_plan_for_price_id(price_id: str) -> str:
@@ -254,13 +244,6 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     }
     if pid in live_price_map:
         return live_price_map[pid]
-
-    if pid == PADDLE_STARTER_PRICE_ID:
-        return "starter"
-    if pid == PADDLE_GROWTH_PRICE_ID:
-        return "growth"
-    if pid == PADDLE_PRO_PRICE_ID:
-        return "pro"
     
     # Fallback to existing price variables
     if pid == PADDLE_REDBUBBLE_PRICE_ID:
@@ -311,8 +294,9 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     return ""
 
 
-def paddle_plan_limit(plan: str) -> int:
-    return PADDLE_PLAN_LIMITS.get((plan or "").lower(), 0)
+def paddle_plan_limit(plan: str) -> Optional[int]:
+    """Return None for unlimited plans (the new subscription system)."""
+    return None
 
 
 def _missing_paddle_keys() -> list[str]:
@@ -321,9 +305,6 @@ def _missing_paddle_keys() -> list[str]:
         for name, value in [
             ("PADDLE_API_KEY", PADDLE_API_KEY),
             ("PADDLE_WEBHOOK_SECRET", PADDLE_WEBHOOK_SECRET),
-            ("PADDLE_STARTER_PRICE_ID", PADDLE_STARTER_PRICE_ID),
-            ("PADDLE_GROWTH_PRICE_ID", PADDLE_GROWTH_PRICE_ID),
-            ("PADDLE_PRO_PRICE_ID", PADDLE_PRO_PRICE_ID),
         ]
         if not value
     ]

@@ -39,7 +39,7 @@ const pricingPlans = [
   },
   {
     name: "Redbubble + TeePublic",
-    planId: "growth",
+    planId: "all_platforms",
     price: "$6.99/month",
     badge: "Best for bulk sellers",
     details: [
@@ -246,8 +246,8 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
     if (!planId || checkoutPlan) return;
     setCheckoutPlan(planId);
     
-    // Normalize "growth" to "all-platforms" for the URL spec, or keep as is
-    const urlPlan = planId === "growth" ? "all-platforms" : planId;
+    // Normalize "all_platforms" to "all-platforms" for the URL spec, or keep as is
+    const urlPlan = planId === "all_platforms" ? "all-platforms" : planId;
     window.location.href = `/checkout?plan=${urlPlan}&billing=${billingInterval}`;
   }
 
@@ -365,8 +365,8 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
             {pricingPlans.map((plan) => {
               const isAnnual = billingInterval === "annual";
               const priceText = isAnnual
-                ? (plan.planId === "growth" ? "$5.83" : "$4.16")
-                : (plan.planId === "growth" ? "$6.99" : "$4.99");
+                ? (plan.planId === "all_platforms" ? "$5.83" : "$4.16")
+                : (plan.planId === "all_platforms" ? "$6.99" : "$4.99");
               const subLabel = isAnnual ? "Billed annually" : "Billed monthly";
 
               const isConfigured = isAnnual
@@ -375,13 +375,12 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
 
               const isLoading = checkoutPlan === plan.planId;
               const isCurrentPlan = subscription?.has_subscription && (
-                subscription.plan?.toLowerCase() === plan.planId?.toLowerCase() ||
-                (subscription.plan?.toLowerCase() === "all_platforms" && plan.planId?.toLowerCase() === "growth")
+                subscription.plan?.toLowerCase() === plan.planId?.toLowerCase()
               );
 
               const disabled = (Boolean(checkoutPlan) && !isLoading) || !isConfigured;
 
-              const yearlyTotal = plan.planId === "growth" ? "$69.90" : "$49.90";
+              const yearlyTotal = plan.planId === "all_platforms" ? "$69.90" : "$49.90";
               const subscribeLabel = showTrialOffer ? "Start 3-day free trial" : "Subscribe now";
               const buttonText = isAnnual
                 ? (!isAnnualPaddleConfigured(plan.planId)
@@ -401,7 +400,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                         {plan.planId === "teepublic" && (
                           <Icon name="teepublic" className="landing-plan-title-logo" />
                         )}
-                        {plan.planId === "growth" && (
+                        {plan.planId === "all_platforms" && (
                           <div className="landing-plan-title-logos-group">
                             <Icon name="redbubble" className="landing-plan-title-logo" />
                             <Icon name="teepublic" className="landing-plan-title-logo" />
@@ -413,7 +412,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                     {plan.badge && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                         <span className="landing-plan-badge">{plan.badge}</span>
-                        {plan.planId === "growth" && (
+                        {plan.planId === "all_platforms" && (
                           <span style={{ 
                             fontSize: "10px", 
                             fontWeight: "700", 

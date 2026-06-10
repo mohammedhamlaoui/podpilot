@@ -31,18 +31,12 @@ ACTIVE_UPLOAD_STATUSES = {"trialing", "active"}
 CANCELED_STATUS = "canceled"
 
 PLAN_LIMITS = {
-    "starter": 300,
-    "growth": 1500,
-    "pro": 5000,
-    "redbubble": 999999,
-    "teepublic": 999999,
-    "all_platforms": 999999,
+    "redbubble": None,
+    "teepublic": None,
+    "all_platforms": None,
 }
 
 DAILY_AI_TOKENS = {
-    "starter": 15,
-    "growth": 50,
-    "pro": 150,
     "redbubble": 30,
     "teepublic": 30,
     "all_platforms": 75,
@@ -52,10 +46,6 @@ PLATFORM_ACCESS_BY_PLAN = {
     "redbubble": {"redbubble": True, "teepublic": False},
     "teepublic": {"redbubble": False, "teepublic": True},
     "all_platforms": {"redbubble": True, "teepublic": True},
-    # Legacy plans keep full platform access.
-    "starter": {"redbubble": True, "teepublic": True},
-    "growth": {"redbubble": True, "teepublic": True},
-    "pro": {"redbubble": True, "teepublic": True},
 }
 
 SUBSCRIPTION_REQUIRED_DETAIL = "Subscription required. Start your free trial to use this feature."
@@ -72,7 +62,7 @@ CHECKOUT_INTENT_REUSE_MINUTES = 10
 
 def normalize_plan(plan: Optional[str]) -> str:
     value = str(plan or "").strip().lower()
-    if value in {"all-platforms", "all_platforms", "growth"}:
+    if value in {"all-platforms", "all_platforms"}:
         return "all_platforms"
     if value.endswith("_paid"):
         return normalize_plan(value[:-5])
@@ -85,8 +75,8 @@ def get_current_month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
-def get_plan_limit(plan: str) -> int:
-    return PLAN_LIMITS.get(normalize_plan(plan), 0)
+def get_plan_limit(plan: str) -> Optional[int]:
+    return PLAN_LIMITS.get(normalize_plan(plan))
 
 
 def _raise_supabase_error(action: str, error: Exception) -> None:
@@ -856,9 +846,9 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
             "trial_active": False,
             "plan": None,
             "status": "inactive",
-            "monthly_upload_limit": 0,
+            "monthly_upload_limit": None,
             "uploaded_count": uploaded_count,
-            "remaining_uploads": 0,
+            "remaining_uploads": None,
             "can_upload": False,
             "reason": reason,
             "trial_ends_at": None,
@@ -877,19 +867,23 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
     plan = normalize_plan(subscription.get("plan")) or None
     status = (subscription.get("status") or "inactive").lower()
     monthly_limit = get_plan_limit(plan or "")
-    remaining_uploads = max(monthly_limit - uploaded_count, 0)
     current_period_ends_at = _as_iso(subscription.get("current_period_ends_at"))
+    is_active = _is_subscription_current(status, current_period_ends_at)
 
     reason: Optional[str] = None
-    if monthly_limit <= 0:
+    if not plan:
         reason = "Unknown subscription plan"
-    elif not _is_subscription_current(status, current_period_ends_at):
+    elif not is_active:
         if status == CANCELED_STATUS:
             reason = "Subscription period has ended"
         else:
             reason = "No active subscription found"
-    elif remaining_uploads <= 0:
-        reason = "Monthly upload limit reached"
+    elif monthly_limit is not None:
+        remaining_uploads = max(monthly_limit - uploaded_count, 0)
+        if remaining_uploads <= 0:
+            reason = "Monthly upload limit reached"
+    else:
+        remaining_uploads = None
 
     can_upload = reason is None
     if can_upload:
@@ -897,7 +891,6 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
     else:
         logger.info("[Billing] upload blocked user=%s reason=%s", short_user_id(user_id), reason)
 
-    is_active = _is_subscription_current(status, current_period_ends_at)
     trial_active = status == "trialing" and is_active
 
     # Resolve AI token values safely

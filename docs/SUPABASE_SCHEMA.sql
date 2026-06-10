@@ -119,9 +119,6 @@ create table if not exists public.subscriptions (
   user_id uuid not null references auth.users(id) on delete cascade,
   plan text
     check (plan is null or plan in (
-      'starter',
-      'growth',
-      'pro',
       'redbubble',
       'teepublic',
       'all_platforms'
@@ -143,7 +140,6 @@ create table if not exists public.subscriptions (
   current_period_starts_at timestamptz,
   current_period_ends_at timestamptz,
   cancel_at_period_end boolean not null default false,
-  monthly_upload_limit integer,
   billing_anchor timestamptz,
   billing_cycle text check (billing_cycle is null or billing_cycle in ('monthly', 'annual')),
   ai_tokens integer not null default 0,
