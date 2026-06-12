@@ -41,6 +41,9 @@ function normalizeBillingCycle(cycle) {
 // eventCallback (registered at init) drains them when the matching event
 // fires.
 const PADDLE_LISTENERS = new Set();
+const PADDLE_DEBUG =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
 
 function dispatchPaddleEvent(event) {
   const name = event?.name || event?.event || event?.type;
@@ -66,6 +69,7 @@ function dispatchPaddleEvent(event) {
 let paddleInstancePromise = null;
 
 function logPaddleDebug(message, extra = {}) {
+  if (!PADDLE_DEBUG) return;
   // eslint-disable-next-line no-console
   console.log(`[Paddle] ${message}`, {
     environment: PADDLE_CONFIG.environment,
@@ -90,15 +94,18 @@ function getPaddle() {
     );
   }
 
-  logPaddleDebug("initializing SDK");
-  console.log("[Paddle] script loading");
+  if (PADDLE_DEBUG) {
+    logPaddleDebug("initializing SDK");
+    // eslint-disable-next-line no-console
+    console.log("[Paddle] script loading");
+  }
   paddleInstancePromise = initializePaddle({
     environment: PADDLE_CONFIG.environment === "production" ? "production" : "sandbox",
     token: PADDLE_CONFIG.clientToken,
     eventCallback: (event) => {
       try {
         const name = event?.name || event?.event || event?.type;
-        if (name) {
+        if (PADDLE_DEBUG && name) {
           // eslint-disable-next-line no-console
           console.debug("[Paddle] event", name);
         }
@@ -113,7 +120,10 @@ function getPaddle() {
       if (!paddle) {
         throw new Error("Paddle SDK failed to initialize.");
       }
-      console.log("[Paddle] initialized");
+      if (PADDLE_DEBUG) {
+        // eslint-disable-next-line no-console
+        console.log("[Paddle] initialized");
+      }
       return paddle;
     })
     .catch((error) => {
@@ -194,19 +204,25 @@ export async function openPaddleCheckout({
 
   mode = mode || displayMode;
   priceId = resolvedPriceId;
-  logPaddleDebug("openPaddleCheckout called", {
-    mode,
-    selectedPriceId: priceId,
-    plan: planKey,
-    billing: normalizedBillingCycle,
-    trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible,
-  });
+  if (PADDLE_DEBUG) {
+    logPaddleDebug("openPaddleCheckout called", {
+      mode,
+      selectedPriceId: priceId,
+      plan: planKey,
+      billing: normalizedBillingCycle,
+      trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible,
+    });
+  }
 
   let paddle;
   try {
     paddle = await getPaddle();
-    console.log("[Paddle] script loaded");
-    console.log("[Paddle] initialized");
+    if (PADDLE_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.log("[Paddle] script loaded");
+      // eslint-disable-next-line no-console
+      console.log("[Paddle] initialized");
+    }
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("[Paddle] checkout init failed", error);
@@ -236,7 +252,7 @@ export async function openPaddleCheckout({
   if (plan) customData.plan = String(plan);
   if (trialUsageId) customData.trial_usage_id = String(trialUsageId);
 
-  if (import.meta.env.DEV) {
+  if (PADDLE_DEBUG) {
     // eslint-disable-next-line no-console
     console.log("[Paddle] customData sent", {
       hasUserId: Boolean(customData.user_id),
@@ -253,14 +269,19 @@ export async function openPaddleCheckout({
       customer: email ? { email } : undefined,
       customData: Object.keys(customData).length > 0 ? customData : undefined,
     };
-    logPaddleDebug("checkout payload prepared", {
-      mode,
-      selectedPriceId: resolvedPriceId,
-      payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
-      itemKeys: Object.keys(checkoutPayload.items[0]),
-    });
+    if (PADDLE_DEBUG) {
+      logPaddleDebug("checkout payload prepared", {
+        mode,
+        selectedPriceId: resolvedPriceId,
+        payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
+        itemKeys: Object.keys(checkoutPayload.items[0]),
+      });
+    }
     if (mode === "inline" && frameTarget) {
-      console.log("[Paddle] opening inline checkout");
+      if (PADDLE_DEBUG) {
+        // eslint-disable-next-line no-console
+        console.log("[Paddle] opening inline checkout");
+      }
       paddle.Checkout.open({
         settings: {
           displayMode: "inline",
@@ -273,7 +294,10 @@ export async function openPaddleCheckout({
         ...checkoutPayload
       });
     } else {
-      console.log("[Paddle] opening overlay checkout");
+      if (PADDLE_DEBUG) {
+        // eslint-disable-next-line no-console
+        console.log("[Paddle] opening overlay checkout");
+      }
       paddle.Checkout.open({
         ...checkoutPayload,
         settings: {

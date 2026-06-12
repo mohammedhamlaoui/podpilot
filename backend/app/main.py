@@ -10,13 +10,18 @@ from fastapi.responses import JSONResponse
 from app.api.billing import router as billing_router
 from app.api.paddle_webhook import router as paddle_webhook_router
 from app.api.routes import router
-from app.core.config import ALLOWED_ORIGINS
+from app.core.config import ALLOWED_ORIGINS, DEBUG
 from app.services import supabase_service
 
 # Configure logging so podpilot.delete and other loggers show in console.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="PodPilot API")
+app = FastAPI(
+    title="PodPilot API",
+    docs_url="/docs" if DEBUG else None,
+    redoc_url="/redoc" if DEBUG else None,
+    openapi_url="/openapi.json" if DEBUG else None,
+)
 
 
 @app.exception_handler(RequestValidationError)

@@ -9,6 +9,9 @@ import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 import { useSeo } from "../utils/useSeo";
 
+const CHECKOUT_DEBUG =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
 
 const PLANS_INFO = {
   redbubble: {
@@ -120,7 +123,10 @@ function readCheckoutParams() {
 }
 
 export default function CheckoutPage({ theme, setTheme }) {
-  console.log("[Checkout] mounted");
+  if (CHECKOUT_DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log("[Checkout] mounted");
+  }
   const auth = useAuth();
   const authLoading = auth?.loading;
   const isAuthenticated = Boolean(auth?.user);
@@ -146,8 +152,12 @@ export default function CheckoutPage({ theme, setTheme }) {
   }, []);
 
   const { plan, billing } = params;
-  console.log("[Checkout] plan=", plan);
-  console.log("[Checkout] billing=", billing);
+  if (CHECKOUT_DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log("[Checkout] plan=", plan);
+    // eslint-disable-next-line no-console
+    console.log("[Checkout] billing=", billing);
+  }
 
   useEffect(() => {
     if (authLoading || isAuthenticated) return;
@@ -162,7 +172,10 @@ export default function CheckoutPage({ theme, setTheme }) {
   const checkoutButtonLabel = checkoutConfig?.button_label || (isTrialEligible ? "Start 3-day free trial" : "Subscribe now");
   const trialDays = Number(checkoutConfig?.trial_days || 0);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
-  console.log("[Checkout] selectedPriceId=", selectedPriceId);
+  if (CHECKOUT_DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log("[Checkout] selectedPriceId=", selectedPriceId);
+  }
 
   useSeo({
     title: `Checkout - ${planInfo.name}`,
@@ -226,9 +239,14 @@ export default function CheckoutPage({ theme, setTheme }) {
     if (initializationAttempted.current) return;
 
     const target = document.querySelector(".paddle-checkout-frame");
-    console.log("[Checkout] inline useEffect running");
-    console.log("[Checkout] selectedPriceId=", selectedPriceId);
-    console.log("[Paddle] frame target found=", Boolean(target));
+    if (CHECKOUT_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.log("[Checkout] inline useEffect running");
+      // eslint-disable-next-line no-console
+      console.log("[Checkout] selectedPriceId=", selectedPriceId);
+      // eslint-disable-next-line no-console
+      console.log("[Paddle] frame target found=", Boolean(target));
+    }
 
     if (!target) return;
     initializationAttempted.current = true;
