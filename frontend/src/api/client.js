@@ -26,6 +26,8 @@ const api = axios.create({
 const AUTH_REQUIRED_EVENT = "podpilot:auth-required";
 const DEVICE_CONFLICT_EVENT = "podpilot:upload-device-conflict";
 const DEVICE_REVOKED_EVENT = "podpilot:device-session-revoked";
+const DEV_AUTH_LOGS = import.meta.env.DEV;
+const PROTECTED_CACHE_TTL_MS = 30000;
 const PROTECTED_API_PREFIXES = [
   "/api",
   "/designs",
@@ -36,6 +38,19 @@ const PROTECTED_API_PREFIXES = [
 ];
 
 let currentAccessToken = null;
+let refreshSessionPromise = null;
+const protectedResourceCache = new Map();
+
+function devLog(message, payload) {
+  if (!DEV_AUTH_LOGS) return;
+  if (payload === undefined) {
+    // eslint-disable-next-line no-console
+    console.debug(message);
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.debug(message, payload);
+}
 
 export class AuthSessionMissingError extends Error {
   constructor(message = "Please sign in again.") {
@@ -91,9 +106,14 @@ function isProtectedApiRequest(url = "") {
   return PROTECTED_API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
+function clearProtectedResourceCache() {
+  protectedResourceCache.clear();
+}
+
 async function getLatestAccessToken({ required = false } = {}) {
   if (!supabase) {
     if (required) {
+      devLog("[Auth] session missing");
       notifyAuthRequired("supabase_not_configured");
       throw new AuthSessionMissingError();
     }
@@ -105,6 +125,7 @@ async function getLatestAccessToken({ required = false } = {}) {
     const token = data.session?.access_token || null;
     currentAccessToken = token;
     if (required && !token) {
+      devLog("[Auth] session missing");
       notifyAuthRequired("missing_session");
       throw new AuthSessionMissingError();
     }
@@ -113,11 +134,36 @@ async function getLatestAccessToken({ required = false } = {}) {
     if (isAuthSessionMissingError(error)) throw error;
     console.warn("[PodPilot] Could not read Supabase session:", error?.message || error);
     if (required) {
+      devLog("[Auth] session missing");
       notifyAuthRequired("session_read_failed");
       throw new AuthSessionMissingError();
     }
     return null;
   }
+}
+
+async function refreshAccessTokenOnce() {
+  if (!supabase) {
+    devLog("[Auth] retry failed", { reason: "supabase_not_configured" });
+    throw new AuthSessionMissingError();
+  }
+
+  if (!refreshSessionPromise) {
+    devLog("[Auth] refresh after 401");
+    refreshSessionPromise = supabase.auth.refreshSession()
+      .then(({ data, error }) => {
+        if (error) throw error;
+        const token = data.session?.access_token || null;
+        if (!token) throw new AuthSessionMissingError();
+        currentAccessToken = token;
+        return token;
+      })
+      .finally(() => {
+        refreshSessionPromise = null;
+      });
+  }
+
+  return refreshSessionPromise;
 }
 
 if (supabase) {
@@ -130,6 +176,7 @@ if (supabase) {
 
   supabase.auth.onAuthStateChange((_event, nextSession) => {
     currentAccessToken = nextSession?.access_token || null;
+    clearProtectedResourceCache();
   });
 }
 
@@ -145,6 +192,39 @@ async function withProtectedAuth(config = {}) {
 
 async function protectedGet(url, config = {}) {
   return api.get(url, await withProtectedAuth(config));
+}
+
+async function cachedProtectedGet(url, config = {}, { cacheKey = url, force = false, logLabel = "" } = {}) {
+  const cached = protectedResourceCache.get(cacheKey);
+  const now = Date.now();
+  if (!force && cached) {
+    if (cached.promise) {
+      if (logLabel) devLog(`[${logLabel}] skipped duplicate fetch`, { cacheKey });
+      return cached.promise;
+    }
+    if (now - cached.timestamp < PROTECTED_CACHE_TTL_MS) {
+      if (logLabel) devLog(`[${logLabel}] skipped duplicate fetch`, { cacheKey });
+      return cached.data;
+    }
+  }
+
+  if (logLabel) devLog(`[${logLabel}] fetching platform access`, { cacheKey });
+  const promise = protectedGet(url, config)
+    .then((response) => {
+      protectedResourceCache.set(cacheKey, {
+        data: response.data,
+        timestamp: Date.now(),
+        promise: null,
+      });
+      return response.data;
+    })
+    .catch((error) => {
+      protectedResourceCache.delete(cacheKey);
+      throw error;
+    });
+
+  protectedResourceCache.set(cacheKey, { promise, timestamp: now, data: cached?.data });
+  return promise;
 }
 
 // Inject the freshest Supabase access token on every request that did not
@@ -167,7 +247,35 @@ api.interceptors.request.use(async (config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const status = Number(error?.response?.status);
+    const originalConfig = error?.config || {};
+    const shouldRefresh =
+      (status === 401 || status === 403) &&
+      !originalConfig._podpilotAuthRetry &&
+      isProtectedApiRequest(originalConfig.url || "");
+
+    if (shouldRefresh) {
+      try {
+        const token = await refreshAccessTokenOnce();
+        originalConfig._podpilotAuthRetry = true;
+        originalConfig.headers = {
+          ...(originalConfig.headers || {}),
+          Authorization: `Bearer ${token}`,
+        };
+        const retryResponse = await api(originalConfig);
+        devLog("[Auth] retry success", { endpoint: originalConfig.url });
+        return retryResponse;
+      } catch (refreshError) {
+        devLog("[Auth] retry failed", {
+          endpoint: originalConfig.url,
+          status: refreshError?.response?.status || refreshError?.status || null,
+        });
+        clearProtectedResourceCache();
+        notifyAuthRequired("session_expired");
+      }
+    }
+
     if (isDeviceAlreadyActiveError(error)) {
       const { message } = parseDeviceError(error);
       notifyUploadDeviceConflict(message || "PodPilot is already connected to another browser for upload automation.");
@@ -393,14 +501,20 @@ export async function whoami() {
 
 // ── Billing / subscription ────────────────────────────────────────────────
 
-export async function getMySubscription() {
-  const response = await protectedGet("/api/me/subscription");
-  return response.data;
+export async function getMySubscription({ force = false } = {}) {
+  return cachedProtectedGet("/api/me/subscription", {}, {
+    cacheKey: "me:subscription",
+    force,
+    logLabel: "Access",
+  });
 }
 
-export async function getMyPlatformAccess() {
-  const response = await protectedGet("/api/me/platform-access");
-  return response.data;
+export async function getMyPlatformAccess({ force = false } = {}) {
+  return cachedProtectedGet("/api/me/platform-access", {}, {
+    cacheKey: "me:platform-access",
+    force,
+    logLabel: "Access",
+  });
 }
 
 export async function createBillingPortalSession() {
@@ -408,11 +522,14 @@ export async function createBillingPortalSession() {
   return response.data;
 }
 
-export async function getTrialEligibility() {
-  const response = await protectedGet("/api/billing/trial-eligibility", {
+export async function getTrialEligibility({ force = false } = {}) {
+  return cachedProtectedGet("/api/billing/trial-eligibility", {
     headers: trialDeviceHeaders(),
+  }, {
+    cacheKey: "billing:trial-eligibility",
+    force,
+    logLabel: "Access",
   });
-  return response.data;
 }
 
 export async function startTrialCheckout(planKey) {

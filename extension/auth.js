@@ -239,21 +239,37 @@ async function adoptSession(rawSession) {
  * Authenticated fetch against the PodPilot backend. Automatically:
  *   - refreshes the access token if needed
  *   - attaches Authorization: Bearer <jwt>
- *   - on 401, drops the session so the popup re-prompts for login
+ *   - on 401/403, refreshes once and retries before re-prompting for login
  */
 async function apiFetch(path, options = {}) {
-  const session = await getValidSession();
+  let session = await getValidSession();
   if (!session) {
     throw new ApiAuthError("Not signed in.");
   }
-  const headers = new Headers(options.headers || {});
-  headers.set("Authorization", `Bearer ${session.access_token}`);
-  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
+
+  const buildHeaders = (accessToken) => {
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
+    return headers;
+  };
+
+  let response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
+  if ((response.status === 401 || response.status === 403) && session.refresh_token) {
+    try {
+      session = await refreshSession(session.refresh_token);
+      response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
+    } catch (error) {
+      console.warn("[PodPilot] session refresh after backend auth failure failed:", error?.message || error);
+      await setStoredSession(null);
+      await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
+      throw new ApiAuthError("Session expired. Please sign in again.");
+    }
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (response.status === 401) {
+  if (response.status === 401 || response.status === 403) {
     await setStoredSession(null);
     await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
     throw new ApiAuthError("Session expired. Please sign in again.");
