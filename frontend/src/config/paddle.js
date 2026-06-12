@@ -17,7 +17,40 @@ function read(name) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-const environment = read("VITE_PADDLE_ENVIRONMENT") || "sandbox";
+function currentHostname() {
+  if (typeof window === "undefined") return "";
+  return window.location?.hostname || "";
+}
+
+function isProductionHostname(hostname = currentHostname()) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "podpilot.space" || host === "www.podpilot.space";
+}
+
+function normalizeEnvironment(value) {
+  const normalized = String(value || "").toLowerCase().trim();
+  if (normalized === "production" || normalized === "live") return "production";
+  if (normalized === "sandbox" || normalized === "test") return "sandbox";
+  return "";
+}
+
+function resolvePaddleEnvironment() {
+  const configured = normalizeEnvironment(
+    read("VITE_PADDLE_ENVIRONMENT") || read("VITE_PADDLE_ENV"),
+  );
+
+  if (isProductionHostname()) {
+    if (configured === "sandbox") {
+      // eslint-disable-next-line no-console
+      console.warn("[Paddle] ignoring sandbox env on production hostname.");
+    }
+    return "production";
+  }
+
+  return configured || (env.DEV ? "sandbox" : "production");
+}
+
+const environment = resolvePaddleEnvironment();
 const clientToken = read("VITE_PADDLE_CLIENT_TOKEN");
 const tokens250PriceId = read("VITE_PADDLE_AI_TOKENS_250_PRICE_ID");
 const tokens500PriceId = read("VITE_PADDLE_AI_TOKENS_500_PRICE_ID");
@@ -29,6 +62,8 @@ const tokens10000PriceId = read("VITE_PADDLE_AI_TOKENS_10000_PRICE_ID");
 export const PADDLE_CONFIG = Object.freeze({
   environment,            // "sandbox" or "production"
   clientToken,            // Paddle browser client token (public)
+  isProductionHostname: isProductionHostname(),
+  clientTokenLooksSandbox: /^test_/i.test(clientToken),
   prices: Object.freeze({
     tokens_250: tokens250PriceId,
     tokens_500: tokens500PriceId,
@@ -45,7 +80,8 @@ export const PADDLE_CONFIG = Object.freeze({
  * "Billing temporarily unavailable" state if env is missing.
  */
 export function isPaddleConfigured() {
-  return Boolean(PADDLE_CONFIG.clientToken);
+  if (!PADDLE_CONFIG.clientToken) return false;
+  return !(PADDLE_CONFIG.isProductionHostname && PADDLE_CONFIG.clientTokenLooksSandbox);
 }
 
 /**
@@ -76,6 +112,8 @@ export function isPaidPaddleConfigured(plan) {
 if (typeof window !== "undefined" && !isPaddleConfigured()) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[PodPilot] Paddle client token is missing. Subscription price IDs are resolved by the backend.",
+    PADDLE_CONFIG.clientTokenLooksSandbox && PADDLE_CONFIG.isProductionHostname
+      ? "[PodPilot] Sandbox Paddle client token is configured on production. Set the live client token."
+      : "[PodPilot] Paddle client token is missing. Subscription price IDs are resolved by the backend.",
   );
 }

@@ -65,6 +65,16 @@ function dispatchPaddleEvent(event) {
 
 let paddleInstancePromise = null;
 
+function logPaddleDebug(message, extra = {}) {
+  // eslint-disable-next-line no-console
+  console.log(`[Paddle] ${message}`, {
+    environment: PADDLE_CONFIG.environment,
+    clientTokenExists: Boolean(PADDLE_CONFIG.clientToken),
+    clientTokenLooksSandbox: Boolean(PADDLE_CONFIG.clientTokenLooksSandbox),
+    ...extra,
+  });
+}
+
 /**
  * Lazy, single-flight initializer. Calling more than once just returns the
  * cached promise, so multiple buttons share one Paddle instance.
@@ -80,8 +90,8 @@ function getPaddle() {
     );
   }
 
-  console.log("[Paddle] clientToken exists=", Boolean(PADDLE_CONFIG.clientToken));
-  console.log("[Paddle] script loaded");
+  logPaddleDebug("initializing SDK");
+  console.log("[Paddle] script loading");
   paddleInstancePromise = initializePaddle({
     environment: PADDLE_CONFIG.environment === "production" ? "production" : "sandbox",
     token: PADDLE_CONFIG.clientToken,
@@ -182,14 +192,15 @@ export async function openPaddleCheckout({
     throw error;
   }
 
-  const clientToken = PADDLE_CONFIG.clientToken;
-  const environment = PADDLE_CONFIG.environment;
-
   mode = mode || displayMode;
   priceId = resolvedPriceId;
-  console.log("[Paddle] openPaddleCheckout called", { mode, priceId });
-  console.log("[Paddle] clientToken exists=", Boolean(clientToken));
-  console.log("[Paddle] environment=", environment);
+  logPaddleDebug("openPaddleCheckout called", {
+    mode,
+    selectedPriceId: priceId,
+    plan: planKey,
+    billing: normalizedBillingCycle,
+    trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible,
+  });
 
   let paddle;
   try {
@@ -237,6 +248,17 @@ export async function openPaddleCheckout({
   }
 
   try {
+    const checkoutPayload = {
+      items: [{ priceId: resolvedPriceId, quantity: 1 }],
+      customer: email ? { email } : undefined,
+      customData: Object.keys(customData).length > 0 ? customData : undefined,
+    };
+    logPaddleDebug("checkout payload prepared", {
+      mode,
+      selectedPriceId: resolvedPriceId,
+      payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
+      itemKeys: Object.keys(checkoutPayload.items[0]),
+    });
     if (mode === "inline" && frameTarget) {
       console.log("[Paddle] opening inline checkout");
       paddle.Checkout.open({
@@ -248,16 +270,12 @@ export async function openPaddleCheckout({
           theme: "light",
           successUrl: `${window.location.origin}/dashboard?checkout=success`
         },
-        items: [{ priceId: resolvedPriceId, quantity: 1 }],
-        customer: email ? { email } : undefined,
-        customData: Object.keys(customData).length > 0 ? customData : undefined
+        ...checkoutPayload
       });
     } else {
       console.log("[Paddle] opening overlay checkout");
       paddle.Checkout.open({
-        items: [{ priceId: resolvedPriceId, quantity: 1 }],
-        customer: email ? { email } : undefined,
-        customData: Object.keys(customData).length > 0 ? customData : undefined,
+        ...checkoutPayload,
         settings: {
           successUrl: `${window.location.origin}/dashboard?checkout=success`
         }
