@@ -65,6 +65,16 @@ function dispatchPaddleEvent(event) {
 
 let paddleInstancePromise = null;
 
+function logPaddleDebug(message, extra = {}) {
+  // eslint-disable-next-line no-console
+  console.log(`[Paddle] ${message}`, {
+    environment: PADDLE_CONFIG.environment,
+    clientTokenExists: Boolean(PADDLE_CONFIG.clientToken),
+    clientTokenLooksSandbox: Boolean(PADDLE_CONFIG.clientTokenLooksSandbox),
+    ...extra,
+  });
+}
+
 /**
  * Lazy, single-flight initializer. Calling more than once just returns the
  * cached promise, so multiple buttons share one Paddle instance.
@@ -80,8 +90,8 @@ function getPaddle() {
     );
   }
 
-  console.log("[Paddle] clientToken exists=", Boolean(PADDLE_CONFIG.clientToken));
-  console.log("[Paddle] script loaded");
+  logPaddleDebug("initializing SDK");
+  console.log("[Paddle] script loading");
   paddleInstancePromise = initializePaddle({
     environment: PADDLE_CONFIG.environment === "production" ? "production" : "sandbox",
     token: PADDLE_CONFIG.clientToken,
@@ -182,14 +192,12 @@ export async function openPaddleCheckout({
     throw error;
   }
 
-  const clientToken = PADDLE_CONFIG.clientToken;
-  const environment = PADDLE_CONFIG.environment;
-
   mode = mode || displayMode;
   priceId = resolvedPriceId;
-  console.log("[Paddle] openPaddleCheckout called", { mode, priceId });
-  console.log("[Paddle] clientToken exists=", Boolean(clientToken));
-  console.log("[Paddle] environment=", environment);
+  logPaddleDebug("openPaddleCheckout called", {
+    mode,
+    selectedPriceId: priceId,
+  });
 
   let paddle;
   try {
