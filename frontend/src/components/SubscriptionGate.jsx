@@ -18,8 +18,8 @@ import { getMySubscription, createBillingPortalSession, getTrialEligibility } fr
 import { Spinner } from "./LoadingComponents";
 import Icon from "./Icon";
 
-const POLL_INTERVAL_MS = 1500;
-const POLL_DURATION_MS = 30000; // 30 seconds total per spec
+const POLL_INTERVAL_MS = 30000;
+const POLL_DURATION_MS = 60000;
 const CHECKOUT_QUERY_KEY = "checkout";
 const CHECKOUT_QUERY_VALUE = "success";
 
@@ -166,9 +166,9 @@ export default function SubscriptionGate({ children, onSignOut }) {
     };
   }, [userId]);
 
-  const fetchSummary = useCallback(async () => {
+  const fetchSummary = useCallback(async ({ force = false } = {}) => {
     try {
-      const data = await getMySubscription();
+      const data = await getMySubscription({ force });
       setSummary(data);
       // eslint-disable-next-line no-console
       console.log(
@@ -240,7 +240,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
     const tick = async () => {
       // Wait for Supabase auth to hydrate before hitting a 401.
       if (!userId) return;
-      const data = await fetchSummary();
+      const data = await fetchSummary({ force: true });
       if (cancelled) return;
       if (isAllowed(data)) {
         clearCheckoutFlagFromUrl();
@@ -268,7 +268,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
 
   async function handleRetryCheck() {
     setError("");
-    const data = await fetchSummary();
+    const data = await fetchSummary({ force: true });
     if (isAllowed(data)) {
       // eslint-disable-next-line no-console
       console.log("[SubscriptionGate] allowed=true, rendering dashboard");
