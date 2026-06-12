@@ -1,7 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { openPaddleCheckout, isPaddleConfigured } from "../lib/paddle";
+import {
+  CHECKOUT_CONFIGURATION_ERROR_MESSAGE,
+  isCheckoutConfigurationError,
+  openPaddleCheckout,
+  isPaddleConfigured,
+} from "../lib/paddle";
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
 import { getCheckoutConfig } from "../api/client";
 import Icon from "./Icon";
@@ -122,6 +127,33 @@ function readCheckoutParams() {
   return { plan: planParam, billing: billingParam };
 }
 
+function checkoutMessageForError(error, fallback) {
+  if (error?.code === "CHECKOUT_CONFIGURATION_ERROR" || isCheckoutConfigurationError(error)) {
+    return CHECKOUT_CONFIGURATION_ERROR_MESSAGE;
+  }
+  return error?.response?.data?.detail || error?.message || fallback;
+}
+
+function getPaddleEventName(event) {
+  return String(event?.name || event?.event || event?.type || "").toLowerCase();
+}
+
+function getPaddleEventMessage(event) {
+  const payload = event?.payload || event?.data || event?.error || event;
+  return (
+    payload?.message
+    || payload?.detail
+    || payload?.error?.message
+    || payload?.errors?.[0]?.message
+    || ""
+  );
+}
+
+function isPaddleCheckoutErrorEvent(event) {
+  const name = getPaddleEventName(event);
+  return name.includes("error") || name.includes("failed");
+}
+
 export default function CheckoutPage({ theme, setTheme }) {
   if (CHECKOUT_DEBUG) {
     // eslint-disable-next-line no-console
@@ -233,6 +265,17 @@ export default function CheckoutPage({ theme, setTheme }) {
     });
   }
 
+  function handlePaddleEvent(event) {
+    if (!isPaddleCheckoutErrorEvent(event)) return;
+    const message = getPaddleEventMessage(event);
+    const error = new Error(message || "Paddle checkout error");
+    setPaddleLoadError(true);
+    setCheckoutNotice({
+      type: "error",
+      message: checkoutMessageForError(error, "Checkout is temporarily unavailable. Please try again."),
+    });
+  }
+
   // Run checkout opening
   useEffect(() => {
     if (!selectedPriceId || !isAuthenticated || !customerUserId) return;
@@ -268,13 +311,14 @@ export default function CheckoutPage({ theme, setTheme }) {
       onCheckoutClosed: () => {
         initializationAttempted.current = false;
       },
+      onEvent: handlePaddleEvent,
     }).catch((err) => {
       console.error("[Paddle] Inline checkout failure", err);
       initializationAttempted.current = false;
       setPaddleLoadError(true);
       setCheckoutNotice({
         type: "error",
-        message: err.message || "Could not open checkout. Please try again.",
+        message: checkoutMessageForError(err, "Could not open checkout. Please try again."),
       });
     });
   }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
@@ -306,13 +350,14 @@ export default function CheckoutPage({ theme, setTheme }) {
         onCheckoutClosed: () => {
           setLoadingPaddle(false);
         },
+        onEvent: handlePaddleEvent,
       });
     } catch (err) {
       console.error("[Paddle] Overlay fallback failure", err);
       setLoadingPaddle(false);
       setCheckoutNotice({
         type: "error",
-        message: err.message || "Could not open overlay checkout. Please try again.",
+        message: checkoutMessageForError(err, "Could not open overlay checkout. Please try again."),
       });
     }
   };
