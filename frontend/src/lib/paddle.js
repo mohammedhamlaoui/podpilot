@@ -36,6 +36,49 @@ function normalizeBillingCycle(cycle) {
   return String(cycle || "monthly").toLowerCase().trim() === "annual" ? "annual" : "monthly";
 }
 
+function normalizeCustomerEmail(email) {
+  const value = String(email || "").trim();
+  return value.includes("@") ? value : "";
+}
+
+function normalizeCountryCode(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/^[A-Za-z]{2}$/);
+  if (direct) return raw.toUpperCase();
+  const localeRegion = raw.match(/[-_]([A-Za-z]{2})$/);
+  if (localeRegion) return localeRegion[1].toUpperCase();
+  return "";
+}
+
+function inferBrowserCountryCode() {
+  if (typeof navigator === "undefined") return "";
+  const candidates = [
+    navigator.language,
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+  ];
+  for (const candidate of candidates) {
+    const country = normalizeCountryCode(candidate);
+    if (country) return country;
+  }
+  return "";
+}
+
+function resolveCheckoutCountryCode(countryCode) {
+  return normalizeCountryCode(countryCode) || inferBrowserCountryCode() || "MA";
+}
+
+function buildCheckoutCustomer({ email, countryCode }) {
+  const normalizedEmail = normalizeCustomerEmail(email);
+  if (!normalizedEmail) return undefined;
+  const resolvedCountry = resolveCheckoutCountryCode(countryCode);
+  const customer = { email: normalizedEmail };
+  if (resolvedCountry) {
+    customer.address = { countryCode: resolvedCountry };
+  }
+  return customer;
+}
+
 // One-shot listener registry. Each call to openPaddleCheckout() pushes its
 // onCheckoutComplete / onCheckoutClosed callbacks here; the global Paddle
 // eventCallback (registered at init) drains them when the matching event
@@ -202,6 +245,7 @@ export async function openPaddleCheckout({
   checkoutIntentId,
   plan,
   email,
+  countryCode,
   userId,
   trialUsageId,
   trialEligible,
@@ -300,7 +344,8 @@ export async function openPaddleCheckout({
   if (typeof resolvedTrialEligible === "boolean") customData.trial_eligible = resolvedTrialEligible;
   const resolvedCreditPackId = creditPackId || resolvedCheckoutConfig?.credit_pack_id;
   if (resolvedCreditPackId) customData.credit_pack_id = String(resolvedCreditPackId);
-  if (email) customData.email = String(email);
+  const checkoutCustomer = buildCheckoutCustomer({ email, countryCode });
+  if (checkoutCustomer?.email) customData.email = checkoutCustomer.email;
   if (plan) customData.plan = String(plan);
   if (trialUsageId) customData.trial_usage_id = String(trialUsageId);
 
@@ -312,13 +357,15 @@ export async function openPaddleCheckout({
       plan_key: customData.plan_key,
       credit_pack_id: customData.credit_pack_id,
       billing_cycle: customData.billing_cycle,
+      hasCustomerEmail: Boolean(checkoutCustomer?.email),
+      hasCustomerCountry: Boolean(checkoutCustomer?.address?.countryCode),
     });
   }
 
   try {
     const checkoutPayload = {
       items: [{ priceId: resolvedPriceId, quantity: 1 }],
-      customer: email ? { email } : undefined,
+      customer: checkoutCustomer,
       customData: Object.keys(customData).length > 0 ? customData : undefined,
     };
     if (PADDLE_DEBUG) {
@@ -360,7 +407,7 @@ export async function openPaddleCheckout({
   } catch (error) {
     const checkoutPayload = {
       items: [{ priceId: resolvedPriceId, quantity: 1 }],
-      customer: email ? { email } : undefined,
+      customer: checkoutCustomer,
       customData: Object.keys(customData).length > 0 ? customData : undefined,
     };
     logCheckoutFailure(error, {

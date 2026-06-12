@@ -186,6 +186,36 @@ function isPaddleCheckoutErrorEvent(event) {
   return name.includes("error") || name.includes("failed");
 }
 
+function normalizeCountryCode(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/^[A-Za-z]{2}$/);
+  if (direct) return raw.toUpperCase();
+  const localeRegion = raw.match(/[-_]([A-Za-z]{2})$/);
+  return localeRegion ? localeRegion[1].toUpperCase() : "";
+}
+
+function countryCodeFromUser(user) {
+  const metadata = user?.user_metadata || {};
+  const appMetadata = user?.app_metadata || {};
+  const candidates = [
+    metadata.country_code,
+    metadata.countryCode,
+    metadata.country,
+    metadata.billing_country,
+    metadata.address_country,
+    metadata.locale,
+    appMetadata.country_code,
+    appMetadata.countryCode,
+    appMetadata.country,
+  ];
+  for (const candidate of candidates) {
+    const country = normalizeCountryCode(candidate);
+    if (country) return country;
+  }
+  return "";
+}
+
 export default function CheckoutPage({ theme, setTheme }) {
   if (CHECKOUT_DEBUG) {
     // eslint-disable-next-line no-console
@@ -196,6 +226,7 @@ export default function CheckoutPage({ theme, setTheme }) {
   const isAuthenticated = Boolean(auth?.user);
   const customerEmail = auth?.user?.email || "";
   const customerUserId = auth?.user?.id || "";
+  const customerCountryCode = countryCodeFromUser(auth?.user);
   const userEmail = customerEmail;
   const paddleReady = isPaddleConfigured();
 
@@ -359,6 +390,7 @@ export default function CheckoutPage({ theme, setTheme }) {
       trialEligible: isTrialEligible,
       plan,
       email: userEmail,
+      countryCode: customerCountryCode,
       userId: customerUserId,
       billingCycle: billing,
       mode: "inline",
@@ -381,7 +413,7 @@ export default function CheckoutPage({ theme, setTheme }) {
         message: cleanMessage,
       });
     });
-  }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
+  }, [billing, checkoutConfig, checkoutIntentId, customerCountryCode, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
 
 
 
@@ -403,6 +435,7 @@ export default function CheckoutPage({ theme, setTheme }) {
         trialEligible: isTrialEligible,
         plan,
         email: customerEmail || undefined,
+        countryCode: customerCountryCode,
         userId: customerUserId || undefined,
         billingCycle: billing,
         displayMode: "overlay",
