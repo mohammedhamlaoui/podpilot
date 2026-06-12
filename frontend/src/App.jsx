@@ -208,6 +208,9 @@ const SUBSCRIPTION_POLL_ATTEMPTS = 2;
 const CHECKOUT_QUERY_KEY = "checkout";
 const CHECKOUT_QUERY_VALUE = "success";
 const DESIGN_MARKETPLACES = ["redbubble", "teepublic"];
+const CHECKOUT_DEBUG =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
 
 function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1016,15 +1019,19 @@ export default function App() {
     }
     const userId = user?.id || "";
     const email = user?.email || "";
-    // eslint-disable-next-line no-console
-    console.log(`[AuthFlow] pendingCheckoutPlan=${plan} billing=${billingCycle}`);
+    if (CHECKOUT_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.log(`[AuthFlow] pendingCheckoutPlan=${plan} billing=${billingCycle}`);
+    }
     setDashboardToast({
       type: "success",
       message: "Account ready. Opening secure Paddle checkout...",
     });
     Promise.resolve().then(() => {
-      // eslint-disable-next-line no-console
-      console.log(`[Paddle] opening checkout plan=${plan} user_id=${userId}`);
+      if (CHECKOUT_DEBUG) {
+        // eslint-disable-next-line no-console
+        console.log(`[Paddle] opening checkout plan=${plan} user_id=${userId}`);
+      }
       return openPaddleCheckout({
       plan,
       billingCycle,
