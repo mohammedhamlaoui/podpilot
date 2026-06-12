@@ -861,13 +861,7 @@ function buildBlockedMessage(summary) {
   }
   const platform = summary?.plan ? ` plan=${summary.plan}` : "";
   const reason = summary?.reason || "Your current plan does not allow more uploads right now.";
-  const used = Number.isFinite(summary?.uploaded_count) ? summary.uploaded_count : null;
-  const limit = Number.isFinite(summary?.monthly_upload_limit) ? summary.monthly_upload_limit : null;
-  const usage =
-    used !== null && limit !== null
-      ? ` Used ${used} / ${limit} this period.`
-      : "";
-  return `Upload blocked${platform}. ${reason}${usage}`.trim();
+  return `Upload blocked${platform}. ${reason}`.trim();
 }
 
 /**

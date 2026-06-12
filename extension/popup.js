@@ -399,9 +399,6 @@ const PLAN_LABELS = {
   redbubble: "Redbubble Plan",
   teepublic: "TeePublic Plan",
   all_platforms: "All Platforms Plan",
-  starter: "PodPilot Starter",
-  growth: "PodPilot Growth",
-  pro: "PodPilot Pro",
 };
 
 const STATUS_LABELS = {
@@ -712,8 +709,7 @@ async function loadSubscription() {
     if (summary) {
       debugLog(
         "[Extension Account] plan=" + (summary.plan || "(none)") +
-        " status=" + (summary.status || "(none)") +
-        " remaining=" + (summary.remaining_uploads ?? "?"),
+        " status=" + (summary.status || "(none)"),
       );
     }
     // Re-render so the upload button picks up the new gate state.
@@ -1450,10 +1446,7 @@ async function handleUpload() {
     resetUploadLaunchState();
     if (startResp.blocked) {
       showConnectionWarning(
-        (startResp.summary?.reason || "Your current plan does not allow more uploads right now.") +
-        (Number.isFinite(startResp.summary?.uploaded_count) && Number.isFinite(startResp.summary?.monthly_upload_limit)
-          ? ` (${startResp.summary.uploaded_count}/${startResp.summary.monthly_upload_limit})`
-          : "")
+        startResp.summary?.reason || "Your current plan does not allow uploads right now."
       );
     } else {
       showConnectionWarning(startResp.error || "Could not start upload. Please try again.");

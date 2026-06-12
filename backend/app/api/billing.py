@@ -123,9 +123,6 @@ def fetch_paddle_transactions(paddle_customer_id: str) -> list[dict]:
                 "redbubble": "Redbubble Plan",
                 "teepublic": "TeePublic Plan",
                 "all_platforms": "All Platforms Plan",
-                "growth": "All Platforms Plan",
-                "starter": "Starter Plan",
-                "pro": "Pro Plan",
             }
             plan_name = plan_names.get(plan_key, "PodPilot Subscription")
 
@@ -445,7 +442,7 @@ TRIAL_DAYS = 3
 
 def _normalize_checkout_plan(plan_key: str) -> str:
     plan = (plan_key or "").strip().lower()
-    if plan in {"growth", "all-platforms"}:
+    if plan == "all-platforms":
         return "all_platforms"
     return plan
 
