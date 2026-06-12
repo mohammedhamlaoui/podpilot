@@ -121,7 +121,8 @@ export function resolvePaddlePriceId(plan) {
 }
 
 /**
- * Open Paddle checkout for the given plan id ("redbubble" | "teepublic" | "all_platforms" | "tokens_1000" | "tokens_10000").
+ * Open Paddle checkout for the given plan id, including subscription plans
+ * and AI credit packs resolved by the backend checkout endpoint.
  * Returns a promise that resolves once the checkout overlay is opened.
  *
  * Optional callbacks fire later, asynchronously, when Paddle reports

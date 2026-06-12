@@ -571,7 +571,7 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
     items = data.get("items") or []
     paddle_price_id = _first_price_id(items) or _safe_iso(data.get("price_id"))
     plan = config.paddle_plan_for_price_id(paddle_price_id or "")
-    if plan in {"tokens_1000", "tokens_10000"}:
+    if plan in config.AI_TOKEN_PACKS:
         logger.info("[Paddle] subscription event with token pack price_id=%s ignored for plan mapping", short_id(paddle_price_id))
         plan = ""
     if not plan:
@@ -733,11 +733,9 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                 short_id(transaction_id),
             )
             return
-        if plan_key == "tokens_1000":
-            tokens_to_add += 1000
-            credit_price_id = pid
-        elif plan_key == "tokens_10000":
-            tokens_to_add += 10000
+        pack = config.AI_TOKEN_PACKS.get(plan_key)
+        if pack:
+            tokens_to_add += pack[0]
             credit_price_id = pid
 
     if tokens_to_add > 0:

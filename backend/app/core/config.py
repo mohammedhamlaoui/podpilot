@@ -132,8 +132,20 @@ PADDLE_ALL_PLATFORMS_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PRICE_ID", "pri_
 PADDLE_REDBUBBLE_PAID_PRICE_ID = _optional("PADDLE_REDBUBBLE_PAID_PRICE_ID", "")
 PADDLE_TEEPUBLIC_PAID_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PAID_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_PAID_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PAID_PRICE_ID", "")
+PADDLE_AI_TOKENS_250_PRICE_ID = _optional("PADDLE_AI_TOKENS_250_PRICE_ID", "")
+PADDLE_AI_TOKENS_500_PRICE_ID = _optional("PADDLE_AI_TOKENS_500_PRICE_ID", "")
 PADDLE_AI_TOKENS_1000_PRICE_ID = _optional("PADDLE_AI_TOKENS_1000_PRICE_ID", "pri_01ks8n5345bwms59tp4ayz0rqp")
+PADDLE_AI_TOKENS_2500_PRICE_ID = _optional("PADDLE_AI_TOKENS_2500_PRICE_ID", "")
+PADDLE_AI_TOKENS_5000_PRICE_ID = _optional("PADDLE_AI_TOKENS_5000_PRICE_ID", "")
 PADDLE_AI_TOKENS_10000_PRICE_ID = _optional("PADDLE_AI_TOKENS_10000_PRICE_ID", "pri_01ks8n74nkvh85t5trtjk99bcb")
+AI_TOKEN_PACKS = {
+    "tokens_250": (250, PADDLE_AI_TOKENS_250_PRICE_ID),
+    "tokens_500": (500, PADDLE_AI_TOKENS_500_PRICE_ID),
+    "tokens_1000": (1000, PADDLE_AI_TOKENS_1000_PRICE_ID),
+    "tokens_2500": (2500, PADDLE_AI_TOKENS_2500_PRICE_ID),
+    "tokens_5000": (5000, PADDLE_AI_TOKENS_5000_PRICE_ID),
+    "tokens_10000": (10000, PADDLE_AI_TOKENS_10000_PRICE_ID),
+}
 
 # Explicit monthly and annual subscription price IDs. The *_TRIAL_* IDs should
 # point to Paddle prices with trial_period=3 days. The non-trial IDs should
@@ -217,10 +229,9 @@ def paddle_plan_for_price_id(price_id: str) -> str:
         return "teepublic"
     if PADDLE_ALL_PLATFORMS_PAID_PRICE_ID and pid == PADDLE_ALL_PLATFORMS_PAID_PRICE_ID:
         return "all_platforms"
-    if pid == PADDLE_AI_TOKENS_1000_PRICE_ID:
-        return "tokens_1000"
-    if pid == PADDLE_AI_TOKENS_10000_PRICE_ID:
-        return "tokens_10000"
+    for pack_key, (_, pack_price_id) in AI_TOKEN_PACKS.items():
+        if pack_price_id and pid == pack_price_id:
+            return pack_key
     return ""
 
 

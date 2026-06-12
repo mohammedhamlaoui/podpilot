@@ -453,11 +453,9 @@ def _normalize_billing_cycle(billing_cycle: str) -> str:
 
 def _normalize_credit_pack_id(credit_pack_id: Optional[str]) -> str:
     value = str(credit_pack_id or "").strip().lower()
-    aliases = {
-        "ai_credits_1000": "tokens_1000",
-        "ai_credits_10000": "tokens_10000",
-    }
-    return aliases.get(value, value)
+    if value.startswith("ai_credits_"):
+        return "tokens_" + value.removeprefix("ai_credits_")
+    return value
 
 
 def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str:
@@ -479,11 +477,10 @@ def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str
 
 
 def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
-    price_map = {
-        "tokens_1000": config.PADDLE_AI_TOKENS_1000_PRICE_ID,
-        "tokens_10000": config.PADDLE_AI_TOKENS_10000_PRICE_ID,
-    }
-    return (price_map.get(credit_pack_id) or "").strip()
+    pack = config.AI_TOKEN_PACKS.get(credit_pack_id)
+    if not pack:
+        return ""
+    return (pack[1] or "").strip()
 
 
 @router.post("/api/billing/checkout")
