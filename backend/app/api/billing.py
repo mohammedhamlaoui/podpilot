@@ -232,17 +232,17 @@ def get_trial_eligibility(
     except HTTPException as ex:
         # Check if it's a configuration issue (like trial_usage table missing or TRIAL_HASH_SALT missing)
         logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=HTTPException status_code=%s",
+            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=HTTPException status_code=%s detail=%s",
             short_user_id(user.id),
             ex.status_code,
+            str(ex.detail)[:200],
         )
-        if ex.status_code == 503:
-            # Table missing migration or salt missing: return clean unknown ineligible response instead of blocking 503
+        if ex.status_code >= 500:
+            # Internal Supabase/config failures should not block checkout UI.
             return {
                 "eligible": False,
                 "reason": "unknown"
             }
-        # Otherwise re-raise true Supabase connection failures or other HTTPExceptions
         raise ex
     except RuntimeError as ex:
         # Catch RuntimeError from missing TRIAL_HASH_SALT in production
@@ -476,6 +476,11 @@ def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str
     return (price_map.get((plan, cycle, trial)) or "").strip()
 
 
+def _checkout_price_suffix(price_id: str) -> str:
+    value = str(price_id or "").strip()
+    return value[-8:] if len(value) > 8 else value or "missing"
+
+
 def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
     pack = config.AI_TOKEN_PACKS.get(credit_pack_id)
     if not pack:
@@ -577,6 +582,15 @@ def get_checkout_price_id(
             status_code=400,
             detail=f"Price not configured for plan '{payload.plan_key}' ({cycle})",
         )
+
+    logger.info(
+        "[Checkout] resolved subscription price user=%s plan=%s billing=%s trial_eligible=%s price_suffix=%s",
+        short_user_id(user.id),
+        plan,
+        cycle,
+        trial_eligible,
+        _checkout_price_suffix(resolved_id),
+    )
 
     intent, reused = subscription_service.create_or_reuse_checkout_intent(
         user_id=user.id,

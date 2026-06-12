@@ -86,6 +86,46 @@ def _raise_supabase_error(action: str, error: Exception) -> None:
     ) from error
 
 
+def _supabase_error_code(error: Exception) -> str:
+    for name in ("code", "error_code"):
+        value = getattr(error, name, None)
+        if value:
+            return str(value)
+    payload = getattr(error, "args", None)
+    if payload and isinstance(payload[0], dict):
+        value = payload[0].get("code")
+        if value:
+            return str(value)
+    return "unknown"
+
+
+def _safe_error_message(error: Exception) -> str:
+    for name in ("message", "details"):
+        value = getattr(error, name, None)
+        if value:
+            return str(value).replace("\n", " ")[:240]
+    payload = getattr(error, "args", None)
+    if payload and isinstance(payload[0], dict):
+        for key in ("message", "details", "hint"):
+            value = payload[0].get(key)
+            if value:
+                return str(value).replace("\n", " ")[:240]
+    return str(error).replace("\n", " ")[:240]
+
+
+def _log_checkout_intent_error(action: str, error: Exception, *, user_id: Optional[str] = None) -> None:
+    logger.error(
+        "[CheckoutIntent] table=%s operation=%s user_present=%s user=%s error_type=%s code=%s message=%s",
+        CHECKOUT_INTENT_TABLE,
+        action,
+        bool(user_id),
+        short_user_id(user_id),
+        safe_error_type(error),
+        _supabase_error_code(error),
+        _safe_error_message(error),
+    )
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -110,6 +150,7 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
 
 def _table_missing(error: Exception, table: str) -> bool:
     message = str(error).lower()
+    code = _supabase_error_code(error).lower()
     return (
         table in message
         and (
@@ -118,11 +159,37 @@ def _table_missing(error: Exception, table: str) -> bool:
             or "undefined_table" in message
             or "could not find the table" in message
             or "pgrst205" in message
+            or code in {"42p01", "pgrst205"}
         )
     )
 
 
-def _raise_checkout_intents_missing(error: Exception) -> None:
+def _column_missing(error: Exception) -> bool:
+    message = str(error).lower()
+    code = _supabase_error_code(error).lower()
+    return (
+        "column" in message
+        and (
+            "does not exist" in message
+            or "undefined_column" in message
+            or "pgrst204" in message
+            or code in {"42703", "pgrst204"}
+        )
+    )
+
+
+def _permission_denied(error: Exception) -> bool:
+    message = str(error).lower()
+    code = _supabase_error_code(error).lower()
+    return (
+        "permission denied" in message
+        or "rls" in message
+        or "row-level security" in message
+        or code == "42501"
+    )
+
+
+def _raise_checkout_intents_missing(error: Exception, action: str) -> None:
     raise HTTPException(
         status_code=503,
         detail=(
@@ -132,10 +199,30 @@ def _raise_checkout_intents_missing(error: Exception) -> None:
     ) from error
 
 
-def _raise_checkout_intent_error(action: str, error: Exception) -> None:
+def _raise_checkout_intent_error(action: str, error: Exception, *, user_id: Optional[str] = None) -> None:
+    _log_checkout_intent_error(action, error, user_id=user_id)
     if _table_missing(error, CHECKOUT_INTENT_TABLE):
-        _raise_checkout_intents_missing(error)
-    _raise_supabase_error(action, error)
+        _raise_checkout_intents_missing(error, action)
+    if _column_missing(error):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The paddle_checkout_intents table schema is missing a required column. "
+                "Run docs/migration_paddle_checkout_intents.sql in Supabase first."
+            ),
+        ) from error
+    if _permission_denied(error):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The backend cannot access paddle_checkout_intents. "
+                "Check the Supabase service role key and RLS policies."
+            ),
+        ) from error
+    raise HTTPException(
+        status_code=500,
+        detail=f"Supabase query failed while {action}.",
+    ) from error
 
 
 def _as_iso(value: Any) -> Optional[str]:
@@ -428,7 +515,7 @@ def get_recent_checkout_intent(
             query = query.eq("credit_pack_id", credit_pack_id)
         response = query.execute()
     except Exception as error:
-        _raise_checkout_intent_error("reading recent checkout intent", error)
+        _raise_checkout_intent_error("reading recent checkout intent", error, user_id=user_id)
     rows = [dict(row) for row in list(response.data or [])]
     return rows[0] if rows else None
 
@@ -452,14 +539,28 @@ def create_or_reuse_checkout_intent(
     if not selected_price_id:
         raise HTTPException(status_code=400, detail="Checkout price is missing.")
 
-    recent = get_recent_checkout_intent(
-        user_id=user_id,
-        intent_type=intent_type,
-        plan_key=plan_key,
-        billing_interval=billing_interval,
-        credit_pack_id=credit_pack_id,
-        selected_price_id=selected_price_id,
-    )
+    recent = None
+    try:
+        recent = get_recent_checkout_intent(
+            user_id=user_id,
+            intent_type=intent_type,
+            plan_key=plan_key,
+            billing_interval=billing_interval,
+            credit_pack_id=credit_pack_id,
+            selected_price_id=selected_price_id,
+        )
+    except HTTPException as error:
+        logger.warning(
+            "[CheckoutIntent] recent intent lookup skipped table=%s user=%s intent_type=%s plan=%s billing=%s credit_pack=%s status=%s detail=%s",
+            CHECKOUT_INTENT_TABLE,
+            short_user_id(user_id),
+            intent_type,
+            plan_key or "(none)",
+            billing_interval or "(none)",
+            credit_pack_id or "(none)",
+            error.status_code,
+            str(error.detail)[:200],
+        )
     if recent:
         return recent, True
 
@@ -506,13 +607,14 @@ def create_or_reuse_checkout_intent(
             )
             rows = [dict(row) for row in list(response.data or [])]
             existing = rows[0] if rows else None
-        except Exception:
+        except Exception as lookup_error:
+            _log_checkout_intent_error("reading checkout intent after insert failure", lookup_error, user_id=user_id)
             existing = None
         if existing and str(existing.get("status") or "").lower() in {"pending", "opened"} and _is_recent_intent(existing):
             return existing, True
         if existing and str(existing.get("status") or "").lower() == "paid":
             raise HTTPException(status_code=409, detail="This checkout has already been completed.")
-        _raise_checkout_intent_error("creating checkout intent", error)
+        _raise_checkout_intent_error("creating checkout intent", error, user_id=user_id)
 
 
 def mark_checkout_intent_paid(

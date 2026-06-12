@@ -143,6 +143,22 @@ PADDLE_TEEPUBLIC_PAID_PRICE_ID=
 PADDLE_ALL_PLATFORMS_PAID_PRICE_ID=
 ```
 
+### Checkout Intent Table
+
+Before live checkout, run this repository migration manually in the Supabase
+SQL Editor:
+
+```text
+docs/migration_paddle_checkout_intents.sql
+```
+
+The backend uses `paddle_checkout_intents` to tie a Paddle checkout opened in
+the browser to the later Paddle webhook event. The table is read and written
+only through the backend Supabase service-role client. If production logs show
+`PGRST205`, `PGRST204`, or `42501` for this table, check that this migration
+has been run and that `/etc/podpilot/backend.env` contains the real
+`SUPABASE_SERVICE_ROLE_KEY`.
+
 ## 5. Install Backend Requirements
 
 ```bash
