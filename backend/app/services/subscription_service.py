@@ -337,9 +337,71 @@ def _raise_trial_usage_missing(error: Exception) -> None:
     ) from error
 
 
+def _response_data_rows(response: Any, *, operation: str) -> list[dict[str, Any]]:
+    response_type = type(response).__name__
+    try:
+        data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
+    except Exception as error:
+        logger.warning(
+            "[TrialUsageRead] operation=%s response_type=%s data_length=unknown exception_source=response_shape error_type=%s",
+            operation,
+            response_type,
+            safe_error_type(error),
+        )
+        return []
+
+    if data is None:
+        logger.info(
+            "[TrialUsageRead] operation=%s response_type=%s data_length=0",
+            operation,
+            response_type,
+        )
+        return []
+    if isinstance(data, list):
+        rows = [dict(row) for row in data if isinstance(row, dict)]
+        logger.info(
+            "[TrialUsageRead] operation=%s response_type=%s data_length=%s",
+            operation,
+            response_type,
+            len(rows),
+        )
+        return rows
+    if isinstance(data, dict):
+        logger.info(
+            "[TrialUsageRead] operation=%s response_type=%s data_length=1",
+            operation,
+            response_type,
+        )
+        return [dict(data)]
+
+    logger.warning(
+        "[TrialUsageRead] operation=%s response_type=%s data_length=unknown exception_source=response_shape data_type=%s",
+        operation,
+        response_type,
+        type(data).__name__,
+    )
+    return []
+
+
+def _log_trial_usage_read_exception(operation: str, error: Exception, *, column: str = "") -> None:
+    status = getattr(error, "status_code", None) or getattr(error, "status", None)
+    source = "http_status" if status else "response_shape"
+    logger.warning(
+        "[TrialUsageRead] operation=%s column=%s response_type=exception data_length=unknown exception_source=%s status=%s error_type=%s code=%s message=%s",
+        operation,
+        column or "-",
+        source,
+        status or "-",
+        safe_error_type(error),
+        _supabase_error_code(error),
+        _safe_error_message(error),
+    )
+
+
 def _first_trial_usage_match(column: str, value: Optional[str]) -> Optional[dict[str, Any]]:
     if not value:
         return None
+    operation = f"read_by_{column}"
     try:
         response = (
             supabase_service.admin_client()
@@ -352,15 +414,25 @@ def _first_trial_usage_match(column: str, value: Optional[str]) -> Optional[dict
         )
     except Exception as error:
         if _trial_usage_table_missing(error):
-            _raise_trial_usage_missing(error)
-        _raise_supabase_error("reading trial usage", error)
-    rows = list(response.data or [])
+            logger.warning(
+                "[TrialUsageRead] operation=%s column=%s response_type=exception data_length=unknown exception_source=http_status status=503 error_type=%s code=%s message=%s",
+                operation,
+                column,
+                safe_error_type(error),
+                _supabase_error_code(error),
+                _safe_error_message(error),
+            )
+            return None
+        _log_trial_usage_read_exception(operation, error, column=column)
+        return None
+    rows = _response_data_rows(response, operation=operation)
     return rows[0] if rows else None
 
 
 def _first_ip_trial_usage_match(ip_hash: Optional[str]) -> Optional[dict[str, Any]]:
     if not ip_hash:
         return None
+    operation = "read_by_ip_hash"
     try:
         query = (
             supabase_service.admin_client()
@@ -379,9 +451,17 @@ def _first_ip_trial_usage_match(ip_hash: Optional[str]) -> Optional[dict[str, An
         response = query.execute()
     except Exception as error:
         if _trial_usage_table_missing(error):
-            _raise_trial_usage_missing(error)
-        _raise_supabase_error("reading trial usage by IP", error)
-    rows = list(response.data or [])
+            logger.warning(
+                "[TrialUsageRead] operation=%s column=ip_hash response_type=exception data_length=unknown exception_source=http_status status=503 error_type=%s code=%s message=%s",
+                operation,
+                safe_error_type(error),
+                _supabase_error_code(error),
+                _safe_error_message(error),
+            )
+            return None
+        _log_trial_usage_read_exception(operation, error, column="ip_hash")
+        return None
+    rows = _response_data_rows(response, operation=operation)
     return rows[0] if rows else None
 
 
