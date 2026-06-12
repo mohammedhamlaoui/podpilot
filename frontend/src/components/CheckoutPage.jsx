@@ -18,6 +18,38 @@ const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
 
+const CONFIRMED_NO_TRIAL_REASONS = new Set([
+  "active_subscription",
+  "active_subscription_exists",
+  "already_used_trial",
+  "trial_already_used",
+  "confirmed_trial_used",
+  "completed_transaction",
+  "completed_transaction_exists",
+  "subscription_history_exists",
+  "device_or_network_trial_used",
+]);
+
+const CONFIRMED_NO_TRIAL_SOURCES = new Set([
+  "subscription",
+  "subscription_history",
+  "confirmed_trial_redemption",
+  "completed_transaction",
+  "device_or_network_trial_redemption",
+]);
+
+function isConfirmedNoTrialState(value) {
+  if (!value || value.eligible === true || value.trial_eligible === true) return false;
+  const reason = String(value.reason || value.eligibility_reason || "").toLowerCase();
+  const source = String(value.source || value.eligibility_source || "").toLowerCase();
+  return CONFIRMED_NO_TRIAL_REASONS.has(reason) || CONFIRMED_NO_TRIAL_SOURCES.has(source);
+}
+
+function isTransientNoTrialState(value) {
+  if (!value || value.trial_eligible !== false) return false;
+  return !isConfirmedNoTrialState(value);
+}
+
 const PLANS_INFO = {
   redbubble: {
     name: "Redbubble Plan",
@@ -173,6 +205,7 @@ export default function CheckoutPage({ theme, setTheme }) {
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [loadingPaddle, setLoadingPaddle] = useState(false);
   const [paddleLoadError, setPaddleLoadError] = useState(false);
+  const [paddleErrorMessage, setPaddleErrorMessage] = useState("");
   const [checkoutConfig, setCheckoutConfig] = useState(null);
   const [checkoutConfigError, setCheckoutConfigError] = useState("");
   const [checkoutConfigLoading, setCheckoutConfigLoading] = useState(true);
@@ -232,6 +265,16 @@ export default function CheckoutPage({ theme, setTheme }) {
         setCheckoutConfigError("");
         const data = await getCheckoutConfig(plan, billing);
         if (active) {
+          if (isTransientNoTrialState(data)) {
+            setCheckoutConfig(null);
+            setCheckoutConfigError("Could not verify trial eligibility. Please retry checkout.");
+            setCheckoutNotice({
+              type: "error",
+              message: "Could not verify trial eligibility. Please retry checkout.",
+            });
+            setCheckoutConfigLoading(false);
+            return;
+          }
           setCheckoutConfig(data || null);
           setCheckoutConfigLoading(false);
         }
@@ -269,10 +312,23 @@ export default function CheckoutPage({ theme, setTheme }) {
     if (!isPaddleCheckoutErrorEvent(event)) return;
     const message = getPaddleEventMessage(event);
     const error = new Error(message || "Paddle checkout error");
+    const cleanMessage = checkoutMessageForError(error, "Checkout is temporarily unavailable. Please try again.");
+    if (isCheckoutConfigurationError(error)) {
+      // eslint-disable-next-line no-console
+      console.error("[Paddle] checkout configuration event", {
+        plan,
+        billing,
+        trialEligible: isTrialEligible,
+        selectedPriceId,
+        payloadKeys: ["items", "customer", "customData"],
+        itemKeys: ["priceId", "quantity"],
+      });
+    }
     setPaddleLoadError(true);
+    setPaddleErrorMessage(cleanMessage);
     setCheckoutNotice({
       type: "error",
-      message: checkoutMessageForError(error, "Checkout is temporarily unavailable. Please try again."),
+      message: cleanMessage,
     });
   }
 
@@ -293,6 +349,8 @@ export default function CheckoutPage({ theme, setTheme }) {
 
     if (!target) return;
     initializationAttempted.current = true;
+    setPaddleLoadError(false);
+    setPaddleErrorMessage("");
 
     openPaddleCheckout({
       priceId: selectedPriceId,
@@ -315,10 +373,12 @@ export default function CheckoutPage({ theme, setTheme }) {
     }).catch((err) => {
       console.error("[Paddle] Inline checkout failure", err);
       initializationAttempted.current = false;
+      const cleanMessage = checkoutMessageForError(err, "Could not open checkout. Please try again.");
       setPaddleLoadError(true);
+      setPaddleErrorMessage(cleanMessage);
       setCheckoutNotice({
         type: "error",
-        message: checkoutMessageForError(err, "Could not open checkout. Please try again."),
+        message: cleanMessage,
       });
     });
   }, [billing, checkoutConfig, checkoutIntentId, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
@@ -329,6 +389,8 @@ export default function CheckoutPage({ theme, setTheme }) {
   const handleOverlayFallback = async () => {
     if (loadingPaddle || !selectedPriceId) return;
     setLoadingPaddle(true);
+    setPaddleLoadError(false);
+    setPaddleErrorMessage("");
     try {
       setCheckoutNotice({
         type: "info",
@@ -355,9 +417,12 @@ export default function CheckoutPage({ theme, setTheme }) {
     } catch (err) {
       console.error("[Paddle] Overlay fallback failure", err);
       setLoadingPaddle(false);
+      const cleanMessage = checkoutMessageForError(err, "Could not open overlay checkout. Please try again.");
+      setPaddleLoadError(true);
+      setPaddleErrorMessage(cleanMessage);
       setCheckoutNotice({
         type: "error",
-        message: checkoutMessageForError(err, "Could not open overlay checkout. Please try again."),
+        message: cleanMessage,
       });
     }
   };
@@ -559,7 +624,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     >
                       <HelpCircle size={36} />
                       <h4>Checkout could not load</h4>
-                      <p>Try opening the secure overlay checkout instead if the payment form fails to appear.</p>
+                      <p>{paddleErrorMessage || "Try opening the secure overlay checkout instead if the payment form fails to appear."}</p>
                       <button
                         type="button"
                         onClick={handleOverlayFallback}
