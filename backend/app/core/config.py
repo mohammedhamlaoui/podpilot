@@ -238,6 +238,21 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     return ""
 
 
+def paddle_price_has_trial(price_id: str) -> bool:
+    """Return true when a price ID matches one of the configured trial prices."""
+    pid = (price_id or "").strip()
+    if not pid:
+        return False
+    return pid in {
+        PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
+        PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
+        PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
+        PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
+    }
+
+
 def _missing_paddle_keys() -> list[str]:
     return [
         name

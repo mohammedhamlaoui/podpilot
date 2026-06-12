@@ -214,20 +214,23 @@ def get_trial_eligibility(
                 subscription_service.TRIAL_ALREADY_USED,
                 subscription_service.DEVICE_OR_NETWORK_TRIAL_USED,
                 subscription_service.SUBSCRIPTION_HISTORY_EXISTS,
+                subscription_service.COMPLETED_TRANSACTION_EXISTS,
             ):
                 reason = "already_used_trial"
             else:
                 reason = "unknown"
                 
         logger.info(
-            "[TRIAL ELIGIBILITY] user=%s eligible=%s reason=%s",
+            "[TRIAL ELIGIBILITY] user=%s eligible=%s reason=%s source=%s",
             short_user_id(user.id),
             eligible,
             reason,
+            res.get("source") or "unknown",
         )
         return {
             "eligible": eligible,
-            "reason": reason
+            "reason": reason,
+            "source": res.get("source") or "unknown",
         }
     except HTTPException as ex:
         # Check if it's a configuration issue (like trial_usage table missing or TRIAL_HASH_SALT missing)

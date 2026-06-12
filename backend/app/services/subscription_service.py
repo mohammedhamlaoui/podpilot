@@ -57,6 +57,7 @@ TRIAL_ALREADY_USED = "trial_already_used"
 DEVICE_OR_NETWORK_TRIAL_USED = "device_or_network_trial_used"
 ACTIVE_SUBSCRIPTION_EXISTS = "active_subscription_exists"
 SUBSCRIPTION_HISTORY_EXISTS = "subscription_history_exists"
+COMPLETED_TRANSACTION_EXISTS = "completed_transaction_exists"
 CHECKOUT_INTENT_REUSE_MINUTES = 10
 
 
@@ -418,11 +419,34 @@ def _subscription_allow_trial_again(subscription: Optional[dict[str, Any]]) -> b
 
 
 def _trial_response(eligible: bool, reason: str) -> dict[str, Any]:
+    source = "none"
+    if reason == ACTIVE_SUBSCRIPTION_EXISTS:
+        source = "subscription"
+    elif reason == SUBSCRIPTION_HISTORY_EXISTS:
+        source = "subscription_history"
+    elif reason == COMPLETED_TRANSACTION_EXISTS:
+        source = "completed_transaction"
+    elif reason == TRIAL_ALREADY_USED:
+        source = "confirmed_trial_redemption"
+    elif reason == DEVICE_OR_NETWORK_TRIAL_USED:
+        source = "device_or_network_trial_redemption"
     return {
         "eligible": eligible,
         "reason": reason,
+        "source": source,
         "can_start_trial": eligible,
     }
+
+
+def _log_trial_decision(user_id: Optional[str], result: dict[str, Any]) -> None:
+    logger.info(
+        "[TrialEligibility] user_present=%s user=%s eligible=%s reason=%s source=%s",
+        bool(user_id),
+        short_user_id(user_id),
+        result.get("eligible"),
+        result.get("reason"),
+        result.get("source"),
+    )
 
 
 def _subscription_sort_value(row: dict[str, Any]) -> str:
@@ -432,6 +456,20 @@ def _subscription_sort_value(row: dict[str, Any]) -> str:
 def _is_valid_paddle_subscription_row(row: dict[str, Any]) -> bool:
     status = str(row.get("status") or "").lower()
     return status in ACTIVE_UPLOAD_STATUSES and bool(_as_iso(row.get("paddle_subscription_id")))
+
+
+def _is_subscription_billing_row(row: dict[str, Any]) -> bool:
+    """Return true for real Paddle subscription rows, not AI credit/stat rows."""
+    plan = normalize_plan(row.get("plan"))
+    if plan not in PLAN_LIMITS:
+        return False
+    return bool(
+        _as_iso(row.get("paddle_subscription_id"))
+        or _as_iso(row.get("paddle_customer_id"))
+        or _as_iso(row.get("paddle_price_id"))
+        or _as_iso(row.get("trial_starts_at"))
+        or _as_iso(row.get("trial_ends_at"))
+    )
 
 
 def get_user_subscription_history(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -516,6 +554,26 @@ def get_recent_checkout_intent(
         response = query.execute()
     except Exception as error:
         _raise_checkout_intent_error("reading recent checkout intent", error, user_id=user_id)
+    rows = [dict(row) for row in list(response.data or [])]
+    return rows[0] if rows else None
+
+
+def get_latest_paid_subscription_intent(user_id: str) -> Optional[dict[str, Any]]:
+    """Return a webhook-confirmed subscription checkout intent for this user."""
+    try:
+        response = (
+            supabase_service.admin_client()
+            .table(CHECKOUT_INTENT_TABLE)
+            .select("id,user_id,intent_type,status,plan_key,billing_interval,selected_price_id,paddle_transaction_id,paddle_subscription_id,updated_at")
+            .eq("user_id", user_id)
+            .eq("intent_type", "subscription")
+            .eq("status", "paid")
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        _raise_checkout_intent_error("reading paid subscription checkout intent", error, user_id=user_id)
     rows = [dict(row) for row in list(response.data or [])]
     return rows[0] if rows else None
 
@@ -680,11 +738,10 @@ def check_trial_eligibility(
     hashed signals and never returns or stores raw email/device/IP values.
     """
     subscription_rows = get_user_subscription_history(user_id)
-    subscription = subscription_rows[0] if subscription_rows else None
+    billing_rows = [row for row in subscription_rows if _is_subscription_billing_row(row)]
+    subscription = billing_rows[0] if billing_rows else None
     status = str((subscription or {}).get("status") or "").lower()
     current_period_ends_at = _as_iso((subscription or {}).get("current_period_ends_at"))
-    if subscription and _is_subscription_current(status, current_period_ends_at):
-        return _trial_response(False, ACTIVE_SUBSCRIPTION_EXISTS)
 
     hashes = _trial_hashes(
         email=email,
@@ -694,29 +751,41 @@ def check_trial_eligibility(
     )
     paddle_customer_id = _as_iso((subscription or {}).get("paddle_customer_id"))
 
-    if _first_trial_usage_match("user_id", user_id):
-        return _trial_response(False, TRIAL_ALREADY_USED)
-    if _first_trial_usage_match("email_hash", hashes["email_hash"]):
-        return _trial_response(False, TRIAL_ALREADY_USED)
-    if paddle_customer_id and _first_trial_usage_match("paddle_customer_id", paddle_customer_id):
-        return _trial_response(False, TRIAL_ALREADY_USED)
+    def decide(eligible: bool, reason: str) -> dict[str, Any]:
+        result = _trial_response(eligible, reason)
+        _log_trial_decision(user_id, result)
+        return result
 
-    if subscription_rows:
-        return _trial_response(False, SUBSCRIPTION_HISTORY_EXISTS)
+    if subscription and _is_subscription_current(status, current_period_ends_at):
+        return decide(False, ACTIVE_SUBSCRIPTION_EXISTS)
+
+    if _first_trial_usage_match("user_id", user_id):
+        return decide(False, TRIAL_ALREADY_USED)
+    if _first_trial_usage_match("email_hash", hashes["email_hash"]):
+        return decide(False, TRIAL_ALREADY_USED)
+    if paddle_customer_id and _first_trial_usage_match("paddle_customer_id", paddle_customer_id):
+        return decide(False, TRIAL_ALREADY_USED)
+
+    paid_intent = get_latest_paid_subscription_intent(user_id)
+    if paid_intent:
+        return decide(False, COMPLETED_TRANSACTION_EXISTS)
+
+    if billing_rows:
+        return decide(False, SUBSCRIPTION_HISTORY_EXISTS)
 
     if _subscription_used_trial(subscription):
-        return _trial_response(False, TRIAL_ALREADY_USED)
+        return decide(False, TRIAL_ALREADY_USED)
     if paddle_customer_id and _subscription_used_trial(
         _first_subscription_match("paddle_customer_id", paddle_customer_id)
     ):
-        return _trial_response(False, TRIAL_ALREADY_USED)
+        return decide(False, TRIAL_ALREADY_USED)
 
     if _first_trial_usage_match("device_id_hash", hashes["device_id_hash"]):
-        return _trial_response(False, DEVICE_OR_NETWORK_TRIAL_USED)
+        return decide(False, DEVICE_OR_NETWORK_TRIAL_USED)
     if _first_ip_trial_usage_match(hashes["ip_hash"]):
-        return _trial_response(False, DEVICE_OR_NETWORK_TRIAL_USED)
+        return decide(False, DEVICE_OR_NETWORK_TRIAL_USED)
 
-    return _trial_response(True, TRIAL_ELIGIBLE)
+    return decide(True, TRIAL_ELIGIBLE)
 
 
 def record_trial_usage(
@@ -768,6 +837,12 @@ def reserve_trial_start(
     user_agent: Optional[str] = None,
     plan_key: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Legacy compatibility helper.
+
+    Trial usage is consumed only by confirmed Paddle webhook events. This
+    helper now checks eligibility without writing a trial_usage row, so opening
+    or switching checkout cannot burn a user's free trial.
+    """
     eligibility = check_trial_eligibility(
         user_id=user_id,
         email=email,
@@ -778,17 +853,10 @@ def reserve_trial_start(
     if not eligibility.get("eligible"):
         raise HTTPException(status_code=403, detail=TRIAL_ALREADY_USED_DETAIL)
 
-    row = record_trial_usage(
-        user_id=user_id,
-        email=email,
-        device_id=device_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        plan_key=plan_key,
-    )
     return {
         **eligibility,
-        "trial_usage_id": _as_iso(row.get("id")),
+        "trial_usage_id": None,
+        "trial_reserved": False,
     }
 
 

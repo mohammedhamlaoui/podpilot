@@ -44,6 +44,50 @@ const PADDLE_LISTENERS = new Set();
 const PADDLE_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
+const CHECKOUT_CONFIGURATION_ERROR_MESSAGE = "Checkout configuration error. Please contact support.";
+
+function safeErrorMessage(error) {
+  const detail = error?.response?.data?.detail || error?.message || error?.detail;
+  if (detail) return String(detail);
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error || "");
+  }
+}
+
+function isCheckoutConfigurationError(error) {
+  const message = safeErrorMessage(error).toLowerCase();
+  return (
+    message.includes("price_ids could not be found")
+    || message.includes("price id could not be found")
+    || message.includes("provided price_ids")
+    || message.includes("price_id")
+    || message.includes("price id")
+    || message.includes("bad request")
+    || message.includes("validation")
+  );
+}
+
+function normalizeCheckoutError(error) {
+  if (!isCheckoutConfigurationError(error)) return error;
+  const normalized = new Error(CHECKOUT_CONFIGURATION_ERROR_MESSAGE);
+  normalized.code = "CHECKOUT_CONFIGURATION_ERROR";
+  normalized.cause = error;
+  return normalized;
+}
+
+function logCheckoutFailure(error, diagnostics) {
+  const normalizedMessage = safeErrorMessage(error).slice(0, 240);
+  // eslint-disable-next-line no-console
+  console.error("[Paddle] checkout failed", {
+    ...diagnostics,
+    environment: PADDLE_CONFIG.environment,
+    clientTokenExists: Boolean(PADDLE_CONFIG.clientToken),
+    errorType: error?.name || error?.code || "Error",
+    message: normalizedMessage,
+  });
+}
 
 function dispatchPaddleEvent(event) {
   const name = event?.name || event?.event || event?.type;
@@ -186,9 +230,17 @@ export async function openPaddleCheckout({
         resolvedCheckoutConfig = result || null;
         resolvedPriceId = result.selected_price_id || result.price_id;
       } catch (err) {
-        console.error("[Paddle] Failed to get checkout price ID:", err);
+        logCheckoutFailure(err, {
+          stage: "checkout_config",
+          plan: mappedPlan,
+          billing: normalizedBillingCycle,
+          trialEligible: trialEligible ?? null,
+          selectedPriceId: "",
+          payloadKeys: [],
+          itemKeys: [],
+        });
         const detail = err.response?.data?.detail || "Checkout is temporarily unavailable.";
-        throw new Error(detail);
+        throw normalizeCheckoutError(new Error(detail));
       }
     } else {
       resolvedPriceId = resolvePaddlePriceId(plan);
@@ -199,7 +251,7 @@ export async function openPaddleCheckout({
     const error = new Error(`Checkout price is missing for this plan.`);
     // eslint-disable-next-line no-console
     console.error("[Paddle] checkout error", error.message);
-    throw error;
+    throw normalizeCheckoutError(error);
   }
 
   mode = mode || displayMode;
@@ -306,12 +358,29 @@ export async function openPaddleCheckout({
       });
     }
   } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error("[Paddle] checkout error", error);
-    throw error;
+    const checkoutPayload = {
+      items: [{ priceId: resolvedPriceId, quantity: 1 }],
+      customer: email ? { email } : undefined,
+      customData: Object.keys(customData).length > 0 ? customData : undefined,
+    };
+    logCheckoutFailure(error, {
+      stage: "checkout_open",
+      plan: planKey,
+      billing: normalizedBillingCycle,
+      trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible ?? null,
+      selectedPriceId: resolvedPriceId,
+      payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
+      itemKeys: Object.keys(checkoutPayload.items[0]),
+    });
+    throw normalizeCheckoutError(error);
   }
 }
 
 
 
-export { isPaddleConfigured, isAnnualPaddleConfigured };
+export {
+  CHECKOUT_CONFIGURATION_ERROR_MESSAGE,
+  isCheckoutConfigurationError,
+  isPaddleConfigured,
+  isAnnualPaddleConfigured,
+};

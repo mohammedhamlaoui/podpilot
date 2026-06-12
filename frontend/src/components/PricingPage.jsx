@@ -208,7 +208,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
     if (!isAuthenticated) return;
     let isMounted = true;
     setLoadingSubscription(true);
-    Promise.allSettled([getMySubscription(), getTrialEligibility()])
+    Promise.allSettled([getMySubscription(), getTrialEligibility({ force: true })])
       .then(([subscriptionResult, trialResult]) => {
         if (isMounted) {
           if (subscriptionResult.status === "fulfilled") {

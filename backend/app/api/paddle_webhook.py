@@ -724,6 +724,8 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
 
     tokens_to_add = 0
     credit_price_id: Optional[str] = None
+    subscription_price_id: Optional[str] = None
+    subscription_plan: str = ""
     for pid in price_ids:
         plan_key = config.paddle_plan_for_price_id(pid)
         if not plan_key:
@@ -737,6 +739,9 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
         if pack:
             tokens_to_add += pack[0]
             credit_price_id = pid
+        elif plan_key in subscription_service.PLAN_LIMITS and not subscription_price_id:
+            subscription_price_id = pid
+            subscription_plan = plan_key
 
     if tokens_to_add > 0:
         if not user_id:
@@ -847,6 +852,68 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                 short_id(checkout_intent_id),
                 short_id(transaction_id),
                 safe_error_type(error),
+            )
+        return
+
+    if subscription_price_id:
+        if not user_id:
+            logger.warning(
+                "[Paddle] subscription transaction received without user_id transaction=%s price=%s",
+                short_id(transaction_id),
+                short_id(subscription_price_id),
+            )
+            return
+
+        valid_intent, intent, intent_reason = subscription_service.validate_checkout_intent_for_webhook(
+            checkout_intent_id=checkout_intent_id,
+            user_id=user_id,
+            selected_price_id=subscription_price_id,
+            intent_type="subscription",
+        )
+        if not valid_intent and intent_reason != "already_paid":
+            logger.warning(
+                "[Paddle] subscription transaction skipped: checkout intent reason=%s intent=%s transaction=%s price=%s",
+                intent_reason,
+                short_id(checkout_intent_id),
+                short_id(transaction_id),
+                short_id(subscription_price_id),
+            )
+            return
+
+        if valid_intent:
+            try:
+                subscription_service.mark_checkout_intent_paid(
+                    intent_id=str(intent.get("id")),
+                    paddle_transaction_id=transaction_id,
+                    paddle_subscription_id=paddle_subscription_id,
+                )
+            except Exception as error:
+                logger.warning(
+                    "[Paddle] subscription transaction intent paid marker failed intent=%s transaction=%s error_type=%s",
+                    short_id(checkout_intent_id),
+                    short_id(transaction_id),
+                    safe_error_type(error),
+                )
+
+        trial_confirmed = config.paddle_price_has_trial(subscription_price_id)
+        logger.info(
+            "[Paddle] confirmed subscription transaction user=%s plan=%s transaction=%s trial_confirmed=%s",
+            short_user_id(user_id),
+            subscription_plan or "(unknown)",
+            short_id(transaction_id),
+            trial_confirmed,
+        )
+        if trial_confirmed:
+            subscription_service.mark_trial_usage_from_paddle(
+                user_id=user_id,
+                email=custom_email,
+                paddle_customer_id=paddle_customer_id,
+                plan_key=subscription_plan,
+            )
+            subscription_service.attach_paddle_customer_to_trial_usage(
+                user_id=user_id,
+                email=custom_email,
+                paddle_customer_id=paddle_customer_id,
             )
 
 
