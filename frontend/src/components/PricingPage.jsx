@@ -119,6 +119,36 @@ function hasConfirmedNoTrial(value) {
   return CONFIRMED_NO_TRIAL_REASONS.has(reason) || CONFIRMED_NO_TRIAL_SOURCES.has(source);
 }
 
+function normalizeCountryCode(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/^[A-Za-z]{2}$/);
+  if (direct) return raw.toUpperCase();
+  const localeRegion = raw.match(/[-_]([A-Za-z]{2})$/);
+  return localeRegion ? localeRegion[1].toUpperCase() : "";
+}
+
+function countryCodeFromUser(user) {
+  const metadata = user?.user_metadata || {};
+  const appMetadata = user?.app_metadata || {};
+  const candidates = [
+    metadata.country_code,
+    metadata.countryCode,
+    metadata.country,
+    metadata.billing_country,
+    metadata.address_country,
+    metadata.locale,
+    appMetadata.country_code,
+    appMetadata.countryCode,
+    appMetadata.country,
+  ];
+  for (const candidate of candidates) {
+    const country = normalizeCountryCode(candidate);
+    if (country) return country;
+  }
+  return "";
+}
+
 const aiCreditPacks = [
 
 
@@ -188,6 +218,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
   const auth = useAuth();
   const customerEmail = auth?.user?.email || "";
   const customerUserId = auth?.user?.id || "";
+  const customerCountryCode = countryCodeFromUser(auth?.user);
   const isAuthenticated = Boolean(auth?.user);
   const signOut = auth?.signOut;
   const paddleReady = isPaddleConfigured();
@@ -300,6 +331,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
         creditPackId: data?.credit_pack_id || packId,
         plan: data?.credit_pack_id || packId,
         email: customerEmail || undefined,
+        countryCode: customerCountryCode,
         userId: customerUserId,
         onCheckoutComplete: () => {
           setCheckoutNotice({
