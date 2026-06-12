@@ -123,21 +123,24 @@ PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 
-# New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback.
-# Legacy PADDLE_*_PRICE_ID values are treated as the 3-day trial monthly
-# prices. Set PADDLE_*_MONTHLY_PRICE_ID to separate no-trial Paddle prices.
-PADDLE_REDBUBBLE_PRICE_ID = _optional("PADDLE_REDBUBBLE_PRICE_ID", "pri_01ks8msd36y7rs8yssgwdrtm9w")
-PADDLE_TEEPUBLIC_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PRICE_ID", "pri_01ks8mz28veqdt6sr3p80zcjcb")
-PADDLE_ALL_PLATFORMS_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PRICE_ID", "pri_01ks8n0g4v8f9nq71yzqhkagt3")
+# Paddle price IDs must be supplied through environment variables in
+# production. Do not hardcode real Paddle IDs in the repository.
+#
+# Legacy PADDLE_*_PRICE_ID values are kept as backward-compatible aliases for
+# the monthly 3-day-trial prices. Legacy PADDLE_*_PAID_PRICE_ID values are
+# kept as aliases for monthly no-trial prices.
+PADDLE_REDBUBBLE_PRICE_ID = _optional("PADDLE_REDBUBBLE_PRICE_ID", "")
+PADDLE_TEEPUBLIC_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PRICE_ID", "")
+PADDLE_ALL_PLATFORMS_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PRICE_ID", "")
 PADDLE_REDBUBBLE_PAID_PRICE_ID = _optional("PADDLE_REDBUBBLE_PAID_PRICE_ID", "")
 PADDLE_TEEPUBLIC_PAID_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PAID_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_PAID_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_PAID_PRICE_ID", "")
 PADDLE_AI_TOKENS_250_PRICE_ID = _optional("PADDLE_AI_TOKENS_250_PRICE_ID", "")
 PADDLE_AI_TOKENS_500_PRICE_ID = _optional("PADDLE_AI_TOKENS_500_PRICE_ID", "")
-PADDLE_AI_TOKENS_1000_PRICE_ID = _optional("PADDLE_AI_TOKENS_1000_PRICE_ID", "pri_01ks8n5345bwms59tp4ayz0rqp")
+PADDLE_AI_TOKENS_1000_PRICE_ID = _optional("PADDLE_AI_TOKENS_1000_PRICE_ID", "")
 PADDLE_AI_TOKENS_2500_PRICE_ID = _optional("PADDLE_AI_TOKENS_2500_PRICE_ID", "")
 PADDLE_AI_TOKENS_5000_PRICE_ID = _optional("PADDLE_AI_TOKENS_5000_PRICE_ID", "")
-PADDLE_AI_TOKENS_10000_PRICE_ID = _optional("PADDLE_AI_TOKENS_10000_PRICE_ID", "pri_01ks8n74nkvh85t5trtjk99bcb")
+PADDLE_AI_TOKENS_10000_PRICE_ID = _optional("PADDLE_AI_TOKENS_10000_PRICE_ID", "")
 AI_TOKEN_PACKS = {
     "tokens_250": (250, PADDLE_AI_TOKENS_250_PRICE_ID),
     "tokens_500": (500, PADDLE_AI_TOKENS_500_PRICE_ID),
