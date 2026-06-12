@@ -203,8 +203,8 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
 
 const VALID_ROUTES = ["dashboard", "redbubble", "teepublic", "billing", "profile"];
 const VALID_TABS = ["designs", "import"];
-const SUBSCRIPTION_POLL_INTERVAL_MS = 1500;
-const SUBSCRIPTION_POLL_ATTEMPTS = 20;
+const SUBSCRIPTION_POLL_INTERVAL_MS = 30000;
+const SUBSCRIPTION_POLL_ATTEMPTS = 2;
 const CHECKOUT_QUERY_KEY = "checkout";
 const CHECKOUT_QUERY_VALUE = "success";
 const DESIGN_MARKETPLACES = ["redbubble", "teepublic"];
@@ -599,6 +599,7 @@ export default function App() {
     reason = "manual",
     manageLoading = true,
     deferInactive = false,
+    force = false,
   } = {}) => {
     if (!isAuthenticated || !userId) return null;
     const requestId = subscriptionRequestRef.current + 1;
@@ -611,12 +612,12 @@ export default function App() {
     debugSubscriptionLog(`fetching subscription reason=${reason}`);
     try {
       const [nextSubscription, nextAccessRaw, nextTrialEligibility] = await Promise.all([
-        getMySubscription(),
-        getMyPlatformAccess().catch((error) => {
+        getMySubscription({ force }),
+        getMyPlatformAccess({ force }).catch((error) => {
           console.warn("[PodPilot] platform access refresh failed:", error?.message || error);
           return subscriptionSnapshotRef.current.platformAccess || DEFAULT_PLATFORM_ACCESS;
         }),
-        getTrialEligibility().catch((error) => {
+        getTrialEligibility({ force }).catch((error) => {
           console.warn("[PodPilot] trial eligibility refresh failed:", error?.message || error);
           return null;
         }),
@@ -951,6 +952,7 @@ export default function App() {
         reason: `checkout poll ${attempt + 1}`,
         manageLoading: false,
         deferInactive: true,
+        force: true,
       });
       if (result) {
         sawBackendResponse = true;
