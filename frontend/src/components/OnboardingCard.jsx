@@ -48,9 +48,6 @@ function formatPlanName(plan) {
     redbubble: "Redbubble Plan",
     teepublic: "TeePublic Plan",
     all_platforms: "All Platforms Plan",
-    starter: "PodPilot Starter",
-    growth: "PodPilot Growth",
-    pro: "PodPilot Pro",
   };
   const key = plan.toLowerCase();
   return planMap[key] || (plan[0].toUpperCase() + plan.slice(1));

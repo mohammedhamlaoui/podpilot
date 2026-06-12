@@ -47,9 +47,7 @@ export function isPaddleConfigured() {
  */
 export function getPaddlePriceId(plan) {
   let key = String(plan || "").toLowerCase().trim();
-  if (key === "growth") key = "all_platforms";
-  if (key === "growth_annual") key = "all_platforms_annual";
-  if (key === "growth_paid") key = "all_platforms_paid";
+  if (key === "all-platforms") key = "all_platforms";
   return PADDLE_CONFIG.prices[key] || "";
 }
 

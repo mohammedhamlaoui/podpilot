@@ -562,8 +562,7 @@ async function checkUploadAccess() {
     console.warn("[Billing] upload blocked reason=" + (data.reason || "unknown"));
   } else {
     authDebugLog(
-      "[Billing] access allowed plan=" + (data?.plan || "?") +
-      " remaining=" + (data?.remaining_uploads ?? "?")
+      "[Billing] access allowed plan=" + (data?.plan || "?")
     );
   }
   return data;

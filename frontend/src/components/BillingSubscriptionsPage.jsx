@@ -29,9 +29,6 @@ const PLAN_LABELS = {
   redbubble: "Redbubble",
   teepublic: "TeePublic",
   all_platforms: "All Platforms",
-  growth: "All Platforms",
-  starter: "Starter",
-  pro: "Pro",
 };
 
 function formatDate(value) {
@@ -88,7 +85,7 @@ function subscriptionPrice(summary) {
 
 function platformAccessLabel(access, summary) {
   const plan = String(summary?.plan || access?.plan || "").toLowerCase();
-  if (plan === "all_platforms" || plan === "growth") return "All Platforms";
+  if (plan === "all_platforms") return "All Platforms";
   if (access?.redbubble && access?.teepublic) return "All Platforms";
   if (access?.redbubble) return "Redbubble";
   if (access?.teepublic) return "TeePublic";

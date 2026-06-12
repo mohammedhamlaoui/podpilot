@@ -121,9 +121,6 @@ MARKERAPI_BASE_URL = _optional(
 # error instead of crashing the whole app at import time.
 PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
-PADDLE_STARTER_PRICE_ID = _optional("PADDLE_STARTER_PRICE_ID", "")
-PADDLE_GROWTH_PRICE_ID = _optional("PADDLE_GROWTH_PRICE_ID", "")
-PADDLE_PRO_PRICE_ID = _optional("PADDLE_PRO_PRICE_ID", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 
 # New platform plans and token pack Price IDs with hardcoded defaults for seamless fallback.
@@ -170,16 +167,6 @@ PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANN
 TRIAL_HASH_SALT = _optional("TRIAL_HASH_SALT", "")
 TRIAL_IP_LOOKBACK_DAYS = int(_optional("TRIAL_IP_LOOKBACK_DAYS", "0"))
 
-PADDLE_PLAN_LIMITS = {
-    "starter": 300,
-    "growth": 1500,
-    "pro": 5000,
-    "redbubble": 999999,
-    "teepublic": 999999,
-    "all_platforms": 999999,
-}
-
-
 def paddle_plan_for_price_id(price_id: str) -> str:
     """Map a Paddle price id to its internal plan key (or ""). Empty
     string means "unknown plan" — caller decides how to handle it.
@@ -187,12 +174,6 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     pid = (price_id or "").strip()
     if not pid:
         return ""
-    if pid == PADDLE_STARTER_PRICE_ID:
-        return "starter"
-    if pid == PADDLE_GROWTH_PRICE_ID:
-        return "growth"
-    if pid == PADDLE_PRO_PRICE_ID:
-        return "pro"
     
     # Fallback to existing price variables
     if pid == PADDLE_REDBUBBLE_PRICE_ID:
@@ -243,19 +224,12 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     return ""
 
 
-def paddle_plan_limit(plan: str) -> int:
-    return PADDLE_PLAN_LIMITS.get((plan or "").lower(), 0)
-
-
 def _missing_paddle_keys() -> list[str]:
     return [
         name
         for name, value in [
             ("PADDLE_API_KEY", PADDLE_API_KEY),
             ("PADDLE_WEBHOOK_SECRET", PADDLE_WEBHOOK_SECRET),
-            ("PADDLE_STARTER_PRICE_ID", PADDLE_STARTER_PRICE_ID),
-            ("PADDLE_GROWTH_PRICE_ID", PADDLE_GROWTH_PRICE_ID),
-            ("PADDLE_PRO_PRICE_ID", PADDLE_PRO_PRICE_ID),
         ]
         if not value
     ]

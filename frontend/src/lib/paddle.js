@@ -25,7 +25,6 @@ import {
 function normalizePlanKey(plan) {
   const value = String(plan || "").toLowerCase().trim();
   if (!value) return "";
-  if (value === "growth") return "all_platforms";
   if (value === "all-platforms") return "all_platforms";
   if (value === "all_platforms") return "all_platforms";
   if (value.endsWith("_paid")) return normalizePlanKey(value.replace(/_paid$/, ""));

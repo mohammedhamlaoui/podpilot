@@ -14,7 +14,7 @@ const VALID_PLANS = new Set(["redbubble", "teepublic", "all_platforms"]);
 
 function normalizePlan(plan) {
   const value = String(plan || "").toLowerCase().trim();
-  if (value === "all-platforms" || value === "growth") return "all_platforms";
+  if (value === "all-platforms") return "all_platforms";
   return VALID_PLANS.has(value) ? value : "";
 }
 
