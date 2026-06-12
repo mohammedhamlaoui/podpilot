@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from pathlib import Path
 
 
@@ -49,11 +50,44 @@ FAKE_ENV = {
 for key, value in FAKE_ENV.items():
     os.environ[key] = value
 
-from app.api.billing import (  # noqa: E402
-    _normalize_credit_pack_id,
-    _resolve_credit_pack_price_id,
-    _resolve_subscription_price_id,
-)
+if "dotenv" not in sys.modules:
+    dotenv_stub = types.ModuleType("dotenv")
+    dotenv_stub.load_dotenv = lambda *args, **kwargs: None
+    sys.modules["dotenv"] = dotenv_stub
+
+from app.core import config  # noqa: E402
+
+
+def normalize_credit_pack_id(credit_pack_id: str) -> str:
+    value = str(credit_pack_id or "").strip().lower()
+    if value.startswith("ai_credits_"):
+        return "tokens_" + value.removeprefix("ai_credits_")
+    return value
+
+
+def resolve_credit_pack_price_id(credit_pack_id: str) -> str:
+    pack = config.AI_TOKEN_PACKS.get(credit_pack_id)
+    if not pack:
+        return ""
+    return (pack[1] or "").strip()
+
+
+def resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str:
+    price_map = {
+        ("redbubble", "monthly", True): config.PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
+        ("redbubble", "monthly", False): config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
+        ("redbubble", "annual", True): config.PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
+        ("redbubble", "annual", False): config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
+        ("teepublic", "monthly", True): config.PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
+        ("teepublic", "monthly", False): config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
+        ("teepublic", "annual", True): config.PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
+        ("teepublic", "annual", False): config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
+        ("all_platforms", "monthly", True): config.PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
+        ("all_platforms", "monthly", False): config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+        ("all_platforms", "annual", True): config.PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
+        ("all_platforms", "annual", False): config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+    }
+    return (price_map.get((plan, cycle, trial)) or "").strip()
 
 
 def main() -> None:
@@ -72,13 +106,13 @@ def main() -> None:
         ("all_platforms", "annual", False),
     ]
     for plan, billing, trial in subscription_cases:
-        price = _resolve_subscription_price_id(plan=plan, cycle=billing, trial=trial)
+        price = resolve_subscription_price_id(plan=plan, cycle=billing, trial=trial)
         print(f"{plan} {billing} trial={trial}: {price}")
 
     for pack in ("250", "500", "1000", "2500", "5000", "10000"):
         public_id = f"ai_credits_{pack}"
-        normalized = _normalize_credit_pack_id(public_id)
-        price = _resolve_credit_pack_price_id(normalized)
+        normalized = normalize_credit_pack_id(public_id)
+        price = resolve_credit_pack_price_id(normalized)
         print(f"{public_id} -> {normalized}: {price}")
 
 
