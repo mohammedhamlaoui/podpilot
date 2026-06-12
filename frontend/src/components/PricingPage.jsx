@@ -92,6 +92,33 @@ const faqs = [
   },
 ];
 
+const CONFIRMED_NO_TRIAL_REASONS = new Set([
+  "active_subscription",
+  "active_subscription_exists",
+  "already_used_trial",
+  "trial_already_used",
+  "confirmed_trial_used",
+  "completed_transaction",
+  "completed_transaction_exists",
+  "subscription_history_exists",
+  "device_or_network_trial_used",
+]);
+
+const CONFIRMED_NO_TRIAL_SOURCES = new Set([
+  "subscription",
+  "subscription_history",
+  "confirmed_trial_redemption",
+  "completed_transaction",
+  "device_or_network_trial_redemption",
+]);
+
+function hasConfirmedNoTrial(value) {
+  if (!value || value.eligible === true) return false;
+  const reason = String(value.reason || value.eligibility_reason || "").toLowerCase();
+  const source = String(value.source || value.eligibility_source || "").toLowerCase();
+  return CONFIRMED_NO_TRIAL_REASONS.has(reason) || CONFIRMED_NO_TRIAL_SOURCES.has(source);
+}
+
 const aiCreditPacks = [
 
 
@@ -220,7 +247,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
             setTrialEligibility(trialResult.value || null);
           } else {
             console.warn("[PricingPage] fetch trial eligibility failed:", trialResult.reason);
-            setTrialEligibility({ eligible: false, reason: "unknown" });
+            setTrialEligibility({ eligible: false, reason: "unknown", source: "unknown" });
           }
         }
       })
@@ -294,7 +321,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
     }
   }
 
-  const showTrialOffer = isAuthenticated ? trialEligibility?.eligible === true : true;
+  const showTrialOffer = isAuthenticated ? !hasConfirmedNoTrial(trialEligibility) : true;
 
   return (
     <main className="landing-page pricing-page">

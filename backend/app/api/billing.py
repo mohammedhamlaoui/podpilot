@@ -244,7 +244,8 @@ def get_trial_eligibility(
             # Internal Supabase/config failures should not block checkout UI.
             return {
                 "eligible": False,
-                "reason": "unknown"
+                "reason": "unknown",
+                "source": "unknown",
             }
         raise ex
     except RuntimeError as ex:
@@ -256,7 +257,8 @@ def get_trial_eligibility(
         )
         return {
             "eligible": False,
-            "reason": "unknown"
+            "reason": "unknown",
+            "source": "unknown",
         }
     except Exception as ex:
         logger.error(
@@ -479,6 +481,19 @@ def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str
     return (price_map.get((plan, cycle, trial)) or "").strip()
 
 
+def _subscription_price_env_name(*, plan: str, cycle: str, trial: bool) -> str:
+    plan_prefix = {
+        "redbubble": "REDBUBBLE",
+        "teepublic": "TEEPUBLIC",
+        "all_platforms": "ALL_PLATFORMS",
+    }.get(plan, "")
+    cycle_part = "ANNUAL" if cycle == "annual" else "MONTHLY"
+    trial_part = "_TRIAL" if trial else ""
+    if not plan_prefix:
+        return "UNKNOWN_PADDLE_PRICE_ID"
+    return f"PADDLE_{plan_prefix}_{cycle_part}{trial_part}_PRICE_ID"
+
+
 def _checkout_price_suffix(price_id: str) -> str:
     value = str(price_id or "").strip()
     return value[-8:] if len(value) > 8 else value or "missing"
@@ -489,6 +504,30 @@ def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
     if not pack:
         return ""
     return (pack[1] or "").strip()
+
+
+def _credit_pack_price_env_name(credit_pack_id: str) -> str:
+    suffix = str(credit_pack_id or "").strip().lower().removeprefix("tokens_")
+    return f"PADDLE_AI_TOKENS_{suffix}_PRICE_ID" if suffix else "PADDLE_AI_TOKENS_PRICE_ID"
+
+
+def _validate_checkout_price_id(*, price_id: str, env_name: str, intent_type: str, plan: str = "", cycle: str = "") -> None:
+    value = str(price_id or "").strip()
+    if value.startswith("pri_"):
+        return
+    logger.error(
+        "[Checkout] invalid Paddle price config intent=%s plan=%s billing=%s env_var=%s present=%s price_suffix=%s",
+        intent_type,
+        plan or "-",
+        cycle or "-",
+        env_name,
+        bool(value),
+        _checkout_price_suffix(value),
+    )
+    raise HTTPException(
+        status_code=500,
+        detail=f"Checkout configuration error. {env_name} must be set to a valid Paddle price ID.",
+    )
 
 
 @router.post("/api/billing/checkout")
@@ -511,12 +550,18 @@ def get_checkout_price_id(
     credit_pack_id = _normalize_credit_pack_id(payload.credit_pack_id)
 
     if intent_type == "ai_credits":
-        resolved_id = _resolve_credit_pack_price_id(credit_pack_id)
-        if not resolved_id:
+        if credit_pack_id not in config.AI_TOKEN_PACKS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Price not configured for credit pack '{payload.credit_pack_id}'",
+                detail=f"Unknown credit pack: '{payload.credit_pack_id}'",
             )
+        resolved_id = _resolve_credit_pack_price_id(credit_pack_id)
+        _validate_checkout_price_id(
+            price_id=resolved_id,
+            env_name=_credit_pack_price_env_name(credit_pack_id),
+            intent_type="ai_credits",
+            plan=credit_pack_id,
+        )
         intent, reused = subscription_service.create_or_reuse_checkout_intent(
             user_id=user.id,
             intent_type="ai_credits",
@@ -550,7 +595,7 @@ def get_checkout_price_id(
             detail=f"Invalid billing cycle: '{payload.billing_cycle}'",
         )
 
-    eligibility = {"eligible": False, "reason": "unknown"}
+    eligibility = {"eligible": False, "reason": "unknown", "source": "unknown"}
     try:
         eligibility = subscription_service.check_trial_eligibility(
             user_id=user.id,
@@ -567,12 +612,16 @@ def get_checkout_price_id(
             cycle,
             safe_error_type(error),
         )
+        raise HTTPException(
+            status_code=503,
+            detail="Could not verify trial eligibility. Please retry checkout.",
+        ) from error
 
     trial_eligible = bool(eligibility.get("eligible") is True)
     resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=trial_eligible)
     if trial_eligible and not resolved_id:
         raise HTTPException(
-            status_code=400,
+            status_code=500,
             detail=f"Trial price not configured for plan '{payload.plan_key}' ({cycle})",
         )
 
@@ -580,11 +629,13 @@ def get_checkout_price_id(
         trial_eligible = False
         resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=False)
 
-    if not resolved_id:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Price not configured for plan '{payload.plan_key}' ({cycle})",
-        )
+    _validate_checkout_price_id(
+        price_id=resolved_id,
+        env_name=_subscription_price_env_name(plan=plan, cycle=cycle, trial=trial_eligible),
+        intent_type="subscription",
+        plan=plan,
+        cycle=cycle,
+    )
 
     logger.info(
         "[Checkout] resolved subscription price user=%s plan=%s billing=%s trial_eligible=%s price_suffix=%s",
@@ -611,6 +662,7 @@ def get_checkout_price_id(
         "trial_eligible": trial_eligible,
         "eligible": trial_eligible,
         "eligibility_reason": eligibility.get("reason") or "unknown",
+        "eligibility_source": eligibility.get("source") or "unknown",
         "selected_price_id": resolved_id,
         "price_id": resolved_id,
         "button_label": button_label,
