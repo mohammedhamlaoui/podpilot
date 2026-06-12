@@ -19,14 +19,22 @@ function read(name) {
 
 const environment = read("VITE_PADDLE_ENVIRONMENT") || "sandbox";
 const clientToken = read("VITE_PADDLE_CLIENT_TOKEN");
+const tokens250PriceId = read("VITE_PADDLE_AI_TOKENS_250_PRICE_ID");
+const tokens500PriceId = read("VITE_PADDLE_AI_TOKENS_500_PRICE_ID");
 const tokens1000PriceId = read("VITE_PADDLE_AI_TOKENS_1000_PRICE_ID");
+const tokens2500PriceId = read("VITE_PADDLE_AI_TOKENS_2500_PRICE_ID");
+const tokens5000PriceId = read("VITE_PADDLE_AI_TOKENS_5000_PRICE_ID");
 const tokens10000PriceId = read("VITE_PADDLE_AI_TOKENS_10000_PRICE_ID");
 
 export const PADDLE_CONFIG = Object.freeze({
   environment,            // "sandbox" or "production"
   clientToken,            // Paddle browser client token (public)
   prices: Object.freeze({
+    tokens_250: tokens250PriceId,
+    tokens_500: tokens500PriceId,
     tokens_1000: tokens1000PriceId,
+    tokens_2500: tokens2500PriceId,
+    tokens_5000: tokens5000PriceId,
     tokens_10000: tokens10000PriceId,
   }),
 });
@@ -41,7 +49,7 @@ export function isPaddleConfigured() {
 }
 
 /**
- * Resolve a plan id ("redbubble" | "teepublic" | "all_platforms" | "tokens_1000" | "tokens_10000") to its Paddle price id.
+ * Resolve a plan id ("redbubble" | "teepublic" | "all_platforms" | "tokens_250" | "tokens_500" | "tokens_1000" | "tokens_2500" | "tokens_5000" | "tokens_10000") to its Paddle price id.
  * Returns "" if the plan is unknown or the env var is missing — callers
  * should check the result and skip checkout in that case.
  */

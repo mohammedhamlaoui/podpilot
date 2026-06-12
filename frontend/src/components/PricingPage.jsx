@@ -260,14 +260,6 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
       });
       return;
     }
-    if (!["ai_credits_1000", "ai_credits_10000"].includes(packId)) {
-      setCheckoutNotice({
-        type: "info",
-        message: "This AI Listing Credits pack is coming soon. Stay tuned!",
-      });
-      return;
-    }
-
     setCheckoutPlan(packId);
     try {
       const data = await getCheckoutConfig({
