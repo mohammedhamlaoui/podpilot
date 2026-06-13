@@ -70,7 +70,9 @@ export default function LoginPage() {
     resendConfirmationEmail,
     sendPasswordReset
   } = useAuth();
-  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
+  const [mode, setMode] = useState(() => (
+    window.location.pathname === "/signup" ? "signup" : "signin"
+  )); // "signin" | "signup" | "forgot"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -142,6 +144,11 @@ export default function LoginPage() {
     setConfirmPassword("");
     setAgreeTerms(false);
     setForgotSent(false);
+    if (nextMode === "signup" && window.location.pathname !== "/signup") {
+      window.history.pushState(null, "", "/signup");
+    } else if (nextMode === "signin" && window.location.pathname !== "/login") {
+      window.history.pushState(null, "", "/login");
+    }
   }
 
   async function handleGoogleLogin() {
