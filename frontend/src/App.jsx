@@ -450,6 +450,8 @@ export default function App() {
       "/help",
       "/help-center",
       "/contact",
+      "/founder",
+      "/who-is-behind-this-tool",
       "/privacy",
       "/privacy-policy",
       "/terms",
@@ -887,6 +889,8 @@ export default function App() {
       window.location.pathname === "/checkout" ||
       window.location.pathname.startsWith("/blog") ||
       window.location.pathname === "/contact" ||
+      window.location.pathname === "/founder" ||
+      window.location.pathname === "/who-is-behind-this-tool" ||
       window.location.pathname === "/privacy-policy" ||
       window.location.pathname === "/privacy" ||
       window.location.pathname === "/terms-of-service" ||
@@ -896,6 +900,8 @@ export default function App() {
       window.location.pathname === "/help" ||
       window.location.pathname === "/security" ||
       window.location.pathname === "/email-confirmed" ||
+      window.location.pathname === "/login" ||
+      window.location.pathname === "/signup" ||
       window.location.pathname === "/thank-you" ||
       window.location.pathname === "/extension-installed"
     ) {
