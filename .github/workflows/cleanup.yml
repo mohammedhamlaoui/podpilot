@@ -18,7 +18,7 @@ on:
       cutoff_hours:
         description: 'Cutoff hours for designs'
         required: true
-        default: '24'
+        default: '12'
         type: string
 
 jobs:
@@ -41,13 +41,17 @@ jobs:
       - name: Clean Expired Design Workspaces
         run: |
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          CUTOFF="${{ github.event.inputs.cutoff_hours || '24' }}"
+          CUTOFF="${{ github.event.inputs.cutoff_hours || '12' }}"
+          CONFIRM_PARAM=""
+          if [ "$DRY_RUN" = "false" ]; then
+            CONFIRM_PARAM="&confirm=true"
+          fi
           
           echo "Triggering design cleanup... (dry_run=$DRY_RUN, cutoff_hours=$CUTOFF)"
           
           # Perform POST request and fetch HTTP response code and body
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-old-designs?dry_run=$DRY_RUN&cutoff_hours=$CUTOFF" \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-old-designs?dry_run=$DRY_RUN&cutoff_hours=$CUTOFF$CONFIRM_PARAM" \
             -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
             -H "Content-Type: application/json")
           
@@ -67,11 +71,15 @@ jobs:
       - name: Clean Orphaned R2 Storage Objects
         run: |
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          CONFIRM_PARAM=""
+          if [ "$DRY_RUN" = "false" ]; then
+            CONFIRM_PARAM="&confirm=true"
+          fi
           
           echo "Triggering orphan R2 assets cleanup... (dry_run=$DRY_RUN)"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-orphan-r2-objects?dry_run=$DRY_RUN" \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-orphan-r2-objects?dry_run=$DRY_RUN$CONFIRM_PARAM" \
             -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
             -H "Content-Type: application/json")
           

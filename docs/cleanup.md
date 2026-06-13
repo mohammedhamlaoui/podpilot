@@ -8,7 +8,8 @@ PodPilot features two protected admin endpoints to safely purge old temporary wo
 
 - **Endpoint**: `POST /api/admin/cleanup-old-designs`
 - **Purpose**: Periodically clean up old temporary uploaded designs and workspaces.
-- **Scope**: Deletes older records from `public.designs` (and related `upload_logs` & Cloudflare R2 objects like the original high-resolution design image, thumbnail image, and parsed Excel file). It **never** touches user credentials, user profiles, AI token balances, ai_usage analytics, or subscriptions.
+- **Scope**: Deletes expired records from `public.designs` (and related `upload_logs` & Cloudflare R2 objects like the original high-resolution design image, thumbnail image, parsed Excel file, and AI preview image when present). It **never** touches user credentials, user profiles, AI token balances, ai_usage analytics, or subscriptions.
+- **Retention rule**: Files are eligible for deletion 12 hours after import/upload creation time. Editing a design does not extend retention. Actual deletion may happen shortly after the 12-hour deadline depending on the cleanup timer.
 
 ### Security
 This endpoint is protected against unauthorized access:
@@ -27,7 +28,7 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | `boolean` | `true` | When `true`, reports eligible files without actual deletion. Set to `false` for live deletion. |
-| `cutoff_hours` | `integer` | `24` | Cutoff in hours. Designs created before `now() - cutoff_hours` are selected. Allow `0` for testing. |
+| `cutoff_hours` | `integer` | `12` | Legacy cutoff in hours for designs without `cleanup_at`. Newer rows use `cleanup_at <= now()`. Allow `0` for testing. |
 | `confirm` | `boolean` | `false` | Required as `true` only when `dry_run=false`; otherwise live cleanup returns `400 Bad Request`. |
 
 ### Behavior and Responses
@@ -35,14 +36,14 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 #### Dry Run Mode (`dry_run=true`)
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=24" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=12" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 **Example Response**:
 ```json
 {
   "dry_run": true,
-  "cutoff_hours": 24,
+  "cutoff_hours": 12,
   "eligible_count": 1,
   "designs": [
     {
@@ -51,18 +52,19 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&c
       "user_id": "c1f728fb-4720-410a-81a9-9fb2526fa17c",
       "image_r2_key": "users/c1f728fb-4720-410a-81a9-9fb2526fa17c/redbubble/7ac984e1-2a62-4217-bfd1-21c607ecab29/retro_sun.png",
       "thumbnail_r2_key": "users/c1f728fb-4720-410a-81a9-9fb2526fa17c/redbubble/7ac984e1-2a62-4217-bfd1-21c607ecab29/thumbnails/retro_sun.webp",
-      "excel_r2_key": "users/c1f728fb-4720-410a-81a9-9fb2526fa17c/imports/a98dcba27/sheet.xlsx"
+      "excel_r2_key": "users/c1f728fb-4720-410a-81a9-9fb2526fa17c/imports/a98dcba27/sheet.xlsx",
+      "ai_preview_r2_key": "users/c1f728fb-4720-410a-81a9-9fb2526fa17c/redbubble/7ac984e1-2a62-4217-bfd1-21c607ecab29/ai-preview.webp"
     }
   ]
 }
 ```
 
 #### Live Deletion Mode (`dry_run=false`)
-Deletes R2 images, thumbnails, excel sheets, related `upload_logs`, and finally the design row from `public.designs`. Live deletion requires `confirm=true`.
+Deletes R2 images, thumbnails, excel sheets, AI preview images, related `upload_logs`, and finally the design row from `public.designs`. Live deletion requires `confirm=true`. If an R2 delete fails for a design, the database row is kept and the failure is logged so the next cleanup run can retry safely. Missing R2 objects are treated as already gone.
 
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 
@@ -70,7 +72,7 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&
 ```json
 {
   "dry_run": false,
-  "cutoff_hours": 24,
+  "cutoff_hours": 12,
   "eligible_count": 1,
   "deleted_count": 1,
   "failed_count": 0,
@@ -86,7 +88,7 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&
 
 - **Endpoint**: `POST /api/admin/cleanup-orphan-r2-objects`
 - **Purpose**: Cleans up files and folder leftovers in Cloudflare R2 that are no longer referenced in `public.designs`.
-- **Scope**: Scans and deletes orphan keys under the `users/` prefix that do not match any row's `image_r2_key`, `thumbnail_r2_key`, or `excel_r2_key`. It **never** touches anything outside `users/` and acts with absolute safety.
+- **Scope**: Scans and deletes orphan keys under the `users/` prefix that do not match any row's `image_r2_key`, `thumbnail_r2_key`, `excel_r2_key`, or `ai_preview_r2_key`. It **never** touches anything outside `users/` and acts with absolute safety.
 
 ### Security
 Matches the same configuration, header, and live cleanup confirmation requirements (`X-Cleanup-Secret` plus `confirm=true` when `dry_run=false`).
@@ -176,7 +178,7 @@ For local servers or self-hosted deployments inside private networks:
    ```
 2. Append the following entry to trigger the cleanup every night at midnight local time:
    ```text
-   0 0 * * * curl -s -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" && curl -s -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" >> /var/log/podpilot-cleanup.log 2>&1
+   0 0 * * * curl -s -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" && curl -s -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" >> /var/log/podpilot-cleanup.log 2>&1
    ```
 
 ---
@@ -191,7 +193,7 @@ For Windows local development environments:
        "X-Cleanup-Secret" = "<ADMIN_CLEANUP_SECRET>"
    }
    # 1. Clean old design workspaces
-   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -Method Post -Headers $headers
+   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" -Method Post -Headers $headers
    # 2. Clean orphaned R2 assets
    Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -Method Post -Headers $headers
    ```
