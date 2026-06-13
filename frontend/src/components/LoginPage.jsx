@@ -608,15 +608,13 @@ export default function LoginPage() {
           </>
         )}
 
-        {!isSignUp && (
-          <div className="auth-footer-links">
-            <a href="/terms" className="auth-footer-link">Terms of Service</a>
-            <span className="auth-footer-bullet">•</span>
-            <a href="/privacy" className="auth-footer-link">Privacy Policy</a>
-            <span className="auth-footer-bullet">•</span>
-            <a href="/refund-policy" className="auth-footer-link">Refund Policy</a>
-          </div>
-        )}
+        <div className="auth-footer-links">
+          <span className="auth-footer-copy">Secure login</span>
+          <span className="auth-footer-bullet">•</span>
+          <a href="/privacy" className="auth-footer-link">Privacy Policy</a>
+          <span className="auth-footer-bullet">•</span>
+          <a href="/founder" className="auth-footer-link">Who is behind this tool?</a>
+        </div>
         </section>
       </div>
     </main>
