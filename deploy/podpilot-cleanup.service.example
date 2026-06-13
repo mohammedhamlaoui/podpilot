@@ -1,0 +1,14 @@
+[Unit]
+Description=PodPilot expired design cleanup
+Wants=network-online.target
+After=network-online.target podpilot-backend.service
+
+[Service]
+Type=oneshot
+User=podpilot
+Group=podpilot
+WorkingDirectory=/opt/podpilot/current
+EnvironmentFile=/etc/podpilot/backend.env
+ExecStart=/opt/podpilot/current/backend/.venv/bin/python /opt/podpilot/current/backend/scripts/cleanup_expired_designs.py --execute --retention-hours 12 --batch-size 200
+NoNewPrivileges=true
+PrivateTmp=true

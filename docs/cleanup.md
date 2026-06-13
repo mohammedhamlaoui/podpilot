@@ -27,7 +27,7 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | `boolean` | `true` | When `true`, reports eligible files without actual deletion. Set to `false` for live deletion. |
-| `cutoff_hours` | `integer` | `24` | Cutoff in hours. Designs created before `now() - cutoff_hours` are selected. Allow `0` for testing. |
+| `cutoff_hours` | `integer` | `12` | Legacy cutoff in hours for designs without `cleanup_at`. Newer rows use their `cleanup_at` deadline. Allow `0` for testing. |
 | `confirm` | `boolean` | `false` | Required as `true` only when `dry_run=false`; otherwise live cleanup returns `400 Bad Request`. |
 
 ### Behavior and Responses
@@ -35,14 +35,14 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 #### Dry Run Mode (`dry_run=true`)
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=24" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=12" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 **Example Response**:
 ```json
 {
   "dry_run": true,
-  "cutoff_hours": 24,
+  "cutoff_hours": 12,
   "eligible_count": 1,
   "designs": [
     {
@@ -62,7 +62,7 @@ Deletes R2 images, thumbnails, excel sheets, related `upload_logs`, and finally 
 
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 
@@ -70,7 +70,7 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&
 ```json
 {
   "dry_run": false,
-  "cutoff_hours": 24,
+  "cutoff_hours": 12,
   "eligible_count": 1,
   "deleted_count": 1,
   "failed_count": 0,
@@ -176,7 +176,7 @@ For local servers or self-hosted deployments inside private networks:
    ```
 2. Append the following entry to trigger the cleanup every night at midnight local time:
    ```text
-   0 0 * * * curl -s -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" && curl -s -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" >> /var/log/podpilot-cleanup.log 2>&1
+   0 0 * * * curl -s -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" && curl -s -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" >> /var/log/podpilot-cleanup.log 2>&1
    ```
 
 ---
@@ -191,7 +191,7 @@ For Windows local development environments:
        "X-Cleanup-Secret" = "<ADMIN_CLEANUP_SECRET>"
    }
    # 1. Clean old design workspaces
-   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -Method Post -Headers $headers
+   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=12" -Method Post -Headers $headers
    # 2. Clean orphaned R2 assets
    Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -Method Post -Headers $headers
    ```

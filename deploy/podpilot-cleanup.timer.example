@@ -1,0 +1,12 @@
+[Unit]
+Description=Run PodPilot expired design cleanup every 30 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Persistent=true
+Unit=podpilot-cleanup.service
+
+[Install]
+WantedBy=timers.target
