@@ -346,6 +346,12 @@ def _cleanup_at_for_row(row: dict[str, Any]) -> str:
 
 
 def _ensure_cleanup_at_for_designs(rows: list[dict[str, Any]]) -> None:
+    """Set the fixed 12-hour cleanup deadline once for new/legacy rows.
+
+    The deadline is derived from the row's original created_at/import time.
+    Normal metadata/image/status updates must not recalculate it, because
+    editing a design should never extend retention.
+    """
     if not rows or not _probe_cleanup_at_column():
         return
     for row in rows:
@@ -485,8 +491,9 @@ def _select_cleanup_columns() -> str:
 def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
     """List designs eligible for cleanup.
 
-    New rows use cleanup_at as their retention deadline. Older rows without
-    cleanup_at retain the legacy created_at cutoff behavior.
+    New rows use cleanup_at as their fixed retention deadline. Older rows
+    without cleanup_at use created_at <= cutoff_time. updated_at is never used
+    for retention, so normal edits do not extend the 12-hour window.
     """
     iso_cutoff = cutoff_time.isoformat()
     cols = _select_cleanup_columns()
@@ -502,7 +509,7 @@ def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
             _admin.table(DESIGN_TABLE)
             .select(cols)
             .is_("cleanup_at", "null")
-            .lt("created_at", iso_cutoff)
+            .lte("created_at", iso_cutoff)
             .execute()
         )
         rows_by_id: dict[str, dict[str, Any]] = {}
@@ -515,7 +522,7 @@ def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
     response = (
         _admin.table(DESIGN_TABLE)
         .select(cols)
-        .lt("created_at", iso_cutoff)
+        .lte("created_at", iso_cutoff)
         .execute()
     )
     return list(response.data or [])

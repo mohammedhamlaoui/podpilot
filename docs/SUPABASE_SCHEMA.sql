@@ -43,6 +43,7 @@ create table if not exists public.designs (
   product_settings jsonb default '{}',
   uploaded_at timestamptz,
   created_at timestamptz not null default now(),
+  cleanup_at timestamptz,
   updated_at timestamptz
 );
 
@@ -60,6 +61,8 @@ create index if not exists designs_user_status_created_at_idx
   on public.designs (user_id, status, created_at);
 create index if not exists designs_created_at_idx
   on public.designs (created_at);
+create index if not exists designs_cleanup_at_idx
+  on public.designs (cleanup_at);
 
 -- Upload jobs --------------------------------------------------------------
 create table if not exists public.upload_jobs (
@@ -289,9 +292,12 @@ create index if not exists trial_usage_paddle_customer_idx
 
 -- Cleanup -----------------------------------------------------------------
 -- The current backend does not use a cleanup_records / cleanup_jobs table.
--- Storage cleanup reads old public.designs rows by created_at and deletes
--- referenced R2 keys from image_r2_key, thumbnail_r2_key, excel_r2_key, and
--- ai_preview_r2_key when present.
+-- Storage cleanup reads public.designs rows by cleanup_at when present.
+-- Older rows with cleanup_at null fall back to created_at <= now() - 12 hours.
+-- The backend sets cleanup_at to created_at + interval '12 hours' once after
+-- row creation. Do not update cleanup_at on metadata/editor/status changes.
+-- Cleanup deletes referenced R2 keys from image_r2_key, thumbnail_r2_key,
+-- excel_r2_key, and ai_preview_r2_key when present.
 
 -- Row-level security -------------------------------------------------------
 alter table public.designs enable row level security;

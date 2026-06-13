@@ -105,6 +105,24 @@ def safe_key(value: Any) -> str:
     return safe
 
 
+def parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def hours_between(start: datetime | None, end: datetime) -> float | None:
+    if start is None:
+        return None
+    return round(max(0.0, (end - start).total_seconds() / 3600), 2)
+
+
 def collect_r2_keys(design: dict[str, Any]) -> list[str]:
     keys: list[str] = []
     seen: set[str] = set()
@@ -128,10 +146,21 @@ def print_summary(summary: dict[str, Any], *, as_json: bool) -> None:
     print(f"expired_count={summary['expired_count']}")
     print(f"db_rows_deleted={summary['db_rows_deleted']}")
     print(f"r2_objects_deleted={summary['r2_objects_deleted']}")
+    print(f"r2_objects_missing={summary['r2_objects_missing']}")
     print(f"storage_failures={summary['storage_failures']}")
     print(f"db_failures={summary['db_failures']}")
     if summary.get("message"):
         print(f"message={summary['message']}")
+    for design in summary.get("expired_designs", []):
+        print(
+            "expired_design "
+            f"id={design['id']} "
+            f"created_at={design.get('created_at') or '-'} "
+            f"cleanup_at={design.get('cleanup_at') or '-'} "
+            f"age_hours={design.get('age_hours')} "
+            f"expired={design.get('expired')} "
+            f"r2_key_count={design.get('r2_key_count', 0)}"
+        )
 
 
 def main() -> int:
@@ -152,6 +181,7 @@ def main() -> int:
         "expired_count": 0,
         "db_rows_deleted": 0,
         "r2_objects_deleted": 0,
+        "r2_objects_missing": 0,
         "storage_failures": 0,
         "db_failures": 0,
         "failures": [],
@@ -184,7 +214,8 @@ def main() -> int:
         print_summary(base_summary, as_json=args.json)
         return 0 if not execute else 2
 
-    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+    now = datetime.now(timezone.utc)
+    cutoff_time = now - timedelta(hours=retention_hours)
     expired_designs = supabase_service.list_old_designs(cutoff_time)[:batch_size]
     base_summary["scanned_count"] = len(expired_designs)
     base_summary["expired_count"] = len(expired_designs)
@@ -194,16 +225,34 @@ def main() -> int:
         if not design_id:
             continue
         keys = collect_r2_keys(design)
+        created_at = parse_datetime(design.get("created_at"))
+        cleanup_at = parse_datetime(design.get("cleanup_at"))
+        expires_at = cleanup_at or (created_at + timedelta(hours=retention_hours) if created_at else None)
+        is_expired = bool(expires_at and expires_at <= now)
         base_summary["expired_designs"].append(
             {
                 "id": safe_id(design_id),
                 "user_id": safe_id(design.get("user_id")),
                 "created_at": design.get("created_at"),
                 "cleanup_at": design.get("cleanup_at"),
+                "age_hours": hours_between(created_at, now),
+                "expired": is_expired,
+                "r2_key_count": len(keys),
                 "r2_keys": [safe_key(key) for key in keys],
             }
         )
         if not execute:
+            continue
+
+        if not is_expired:
+            base_summary["db_failures"] += 1
+            base_summary["failures"].append(
+                {
+                    "design_id": safe_id(design_id),
+                    "operation": "retention_guard",
+                    "error_type": "NotExpired",
+                }
+            )
             continue
 
         storage_failed = False
@@ -211,6 +260,8 @@ def main() -> int:
             try:
                 if r2_service.delete_object(key):
                     base_summary["r2_objects_deleted"] += 1
+                else:
+                    base_summary["r2_objects_missing"] += 1
             except Exception as exc:  # noqa: BLE001 - keep cleanup moving
                 storage_failed = True
                 base_summary["storage_failures"] += 1
@@ -222,6 +273,17 @@ def main() -> int:
                         "error_type": type(exc).__name__,
                     }
                 )
+
+        if storage_failed:
+            base_summary["db_failures"] += 1
+            base_summary["failures"].append(
+                {
+                    "design_id": safe_id(design_id),
+                    "operation": "db_delete",
+                    "error_type": "SkippedAfterStorageFailure",
+                }
+            )
+            continue
 
         try:
             admin = supabase_service.admin_client()

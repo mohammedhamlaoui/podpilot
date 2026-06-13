@@ -1104,7 +1104,7 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
     missing_r2_keys: list[str] = []
     storage_warnings: list[str] = []
 
-    for key_name in ("image_r2_key", "thumbnail_r2_key", "excel_r2_key"):
+    for key_name in ("image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key"):
         key = design.get(key_name)
         if not key:
             continue
@@ -2255,6 +2255,7 @@ def cleanup_old_designs(
                     "image_r2_key": d.get("image_r2_key"),
                     "thumbnail_r2_key": d.get("thumbnail_r2_key"),
                     "excel_r2_key": d.get("excel_r2_key"),
+                    "ai_preview_r2_key": d.get("ai_preview_r2_key"),
                 }
                 for d in eligible_designs
             ],
@@ -2274,6 +2275,7 @@ def cleanup_old_designs(
         design_id = design.get("id")
         user_id = design.get("user_id")
         title = design.get("title") or ""
+        storage_failed = False
         if not design_id:
             continue
 
@@ -2292,6 +2294,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 key not found (already gone): %s", _safe_r2_key_for_log(image_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete image R2 key {image_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
                             _safe_r2_key_for_log(image_key),
@@ -2314,6 +2317,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 thumbnail key not found (already gone): %s", _safe_r2_key_for_log(thumbnail_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete thumbnail R2 key {thumbnail_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED (thumbnail): %s error_type=%s",
                             _safe_r2_key_for_log(thumbnail_key),
@@ -2336,6 +2340,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 excel key not found (already gone): %s", _safe_r2_key_for_log(excel_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete excel R2 key {excel_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
                             _safe_r2_key_for_log(excel_key),
@@ -2344,7 +2349,36 @@ def cleanup_old_designs(
                 else:
                     logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(excel_key))
 
-            # 4. Delete related upload logs
+            # 4. Delete AI preview R2 key if present
+            ai_preview_key = design.get("ai_preview_r2_key")
+            if ai_preview_key:
+                if ai_preview_key not in attempted_r2_keys:
+                    attempted_r2_keys.add(ai_preview_key)
+                    try:
+                        existed = r2_service.delete_object(ai_preview_key)
+                        if existed:
+                            deleted_r2_keys.append(ai_preview_key)
+                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(ai_preview_key))
+                        else:
+                            logger.info("[Cleanup] R2 AI preview key not found (already gone): %s", _safe_r2_key_for_log(ai_preview_key))
+                    except Exception as err:
+                        warnings.append(f"Failed to delete AI preview R2 key {ai_preview_key} for design {design_id}: {err}")
+                        storage_failed = True
+                        logger.warning(
+                            "[Cleanup] R2 DELETE FAILED (AI preview): %s error_type=%s",
+                            _safe_r2_key_for_log(ai_preview_key),
+                            _safe_error_type(err),
+                        )
+                else:
+                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(ai_preview_key))
+
+            if storage_failed:
+                failed_count += 1
+                warnings.append(f"Skipped database delete for design {design_id} because one or more R2 deletes failed.")
+                logger.warning("[Cleanup] skipped db delete after R2 failure design_id=%s", short_id(design_id))
+                continue
+
+            # 5. Delete related upload logs
             try:
                 admin_client = supabase_service.admin_client()
                 admin_client.table("upload_logs").delete().eq("design_id", design_id).execute()
@@ -2353,7 +2387,7 @@ def cleanup_old_designs(
                 warnings.append(f"Failed to delete upload_logs for design {design_id}: {err}")
                 logger.warning("[Cleanup] upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
-            # 5. Delete design row from database
+            # 6. Delete design row from database
             rows_deleted = supabase_service.delete_designs_admin([design_id])
             if rows_deleted > 0:
                 deleted_design_ids.append(design_id)
@@ -2468,6 +2502,7 @@ def cleanup_old_designs(
                     "image_r2_key": d.get("image_r2_key"),
                     "thumbnail_r2_key": d.get("thumbnail_r2_key"),
                     "excel_r2_key": d.get("excel_r2_key"),
+                    "ai_preview_r2_key": d.get("ai_preview_r2_key"),
                 }
                 for d in eligible_designs
             ],
@@ -2487,6 +2522,7 @@ def cleanup_old_designs(
         design_id = design.get("id")
         user_id = design.get("user_id")
         title = design.get("title") or ""
+        storage_failed = False
         if not design_id:
             continue
 
@@ -2505,6 +2541,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 key not found (already gone): %s", _safe_r2_key_for_log(image_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete image R2 key {image_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
                             _safe_r2_key_for_log(image_key),
@@ -2527,6 +2564,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 thumbnail key not found (already gone): %s", _safe_r2_key_for_log(thumbnail_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete thumbnail R2 key {thumbnail_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED (thumbnail): %s error_type=%s",
                             _safe_r2_key_for_log(thumbnail_key),
@@ -2549,6 +2587,7 @@ def cleanup_old_designs(
                             logger.info("[Cleanup] R2 excel key not found (already gone): %s", _safe_r2_key_for_log(excel_key))
                     except Exception as err:
                         warnings.append(f"Failed to delete excel R2 key {excel_key} for design {design_id}: {err}")
+                        storage_failed = True
                         logger.warning(
                             "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
                             _safe_r2_key_for_log(excel_key),
@@ -2557,7 +2596,36 @@ def cleanup_old_designs(
                 else:
                     logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(excel_key))
 
-            # 4. Delete related upload logs
+            # 4. Delete AI preview R2 key if present
+            ai_preview_key = design.get("ai_preview_r2_key")
+            if ai_preview_key:
+                if ai_preview_key not in attempted_r2_keys:
+                    attempted_r2_keys.add(ai_preview_key)
+                    try:
+                        existed = r2_service.delete_object(ai_preview_key)
+                        if existed:
+                            deleted_r2_keys.append(ai_preview_key)
+                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(ai_preview_key))
+                        else:
+                            logger.info("[Cleanup] R2 AI preview key not found (already gone): %s", _safe_r2_key_for_log(ai_preview_key))
+                    except Exception as err:
+                        warnings.append(f"Failed to delete AI preview R2 key {ai_preview_key} for design {design_id}: {err}")
+                        storage_failed = True
+                        logger.warning(
+                            "[Cleanup] R2 DELETE FAILED (AI preview): %s error_type=%s",
+                            _safe_r2_key_for_log(ai_preview_key),
+                            _safe_error_type(err),
+                        )
+                else:
+                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(ai_preview_key))
+
+            if storage_failed:
+                failed_count += 1
+                warnings.append(f"Skipped database delete for design {design_id} because one or more R2 deletes failed.")
+                logger.warning("[Cleanup] skipped db delete after R2 failure design_id=%s", short_id(design_id))
+                continue
+
+            # 5. Delete related upload logs
             try:
                 admin_client = supabase_service.admin_client()
                 admin_client.table("upload_logs").delete().eq("design_id", design_id).execute()
@@ -2566,7 +2634,7 @@ def cleanup_old_designs(
                 warnings.append(f"Failed to delete upload_logs for design {design_id}: {err}")
                 logger.warning("[Cleanup] upload_logs cleanup failed design_id=%s error_type=%s", short_id(design_id), safe_error_type(err))
 
-            # 5. Delete design row from database
+            # 6. Delete design row from database
             rows_deleted = supabase_service.delete_designs_admin([design_id])
             if rows_deleted > 0:
                 deleted_design_ids.append(design_id)
@@ -2897,4 +2965,3 @@ async def check_email(payload: CheckEmailIn, request: Request) -> dict:
     # 10. Clean / Valid email
     logger.info("Check-email result: domain=%s, ok=True, reason=None", domain)
     return _public_check_email_ok()
-
