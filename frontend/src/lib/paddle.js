@@ -79,6 +79,16 @@ function buildCheckoutCustomer({ email, countryCode }) {
   return customer;
 }
 
+function checkoutSettings(overrides = {}) {
+  return {
+    theme: "light",
+    variant: "one-page",
+    allowLogout: false,
+    successUrl: `${window.location.origin}/dashboard?checkout=success`,
+    ...overrides,
+  };
+}
+
 // One-shot listener registry. Each call to openPaddleCheckout() pushes its
 // onCheckoutComplete / onCheckoutClosed callbacks here; the global Paddle
 // eventCallback (registered at init) drains them when the matching event
@@ -359,6 +369,7 @@ export async function openPaddleCheckout({
       billing_cycle: customData.billing_cycle,
       hasCustomerEmail: Boolean(checkoutCustomer?.email),
       hasCustomerCountry: Boolean(checkoutCustomer?.address?.countryCode),
+      countryCode: checkoutCustomer?.address?.countryCode || "",
     });
   }
 
@@ -374,6 +385,8 @@ export async function openPaddleCheckout({
         selectedPriceId: resolvedPriceId,
         payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
         itemKeys: Object.keys(checkoutPayload.items[0]),
+        hasCustomerEmail: Boolean(checkoutCustomer?.email),
+        countryCode: checkoutCustomer?.address?.countryCode || "",
       });
     }
     if (mode === "inline" && frameTarget) {
@@ -382,14 +395,12 @@ export async function openPaddleCheckout({
         console.log("[Paddle] opening inline checkout");
       }
       paddle.Checkout.open({
-        settings: {
+        settings: checkoutSettings({
           displayMode: "inline",
           frameTarget: "paddle-checkout-frame",
           frameInitialHeight: 450,
           frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
-          theme: "light",
-          successUrl: `${window.location.origin}/dashboard?checkout=success`
-        },
+        }),
         ...checkoutPayload
       });
     } else {
@@ -399,9 +410,7 @@ export async function openPaddleCheckout({
       }
       paddle.Checkout.open({
         ...checkoutPayload,
-        settings: {
-          successUrl: `${window.location.origin}/dashboard?checkout=success`
-        }
+        settings: checkoutSettings()
       });
     }
   } catch (error) {
