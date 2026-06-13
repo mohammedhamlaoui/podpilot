@@ -39,6 +39,7 @@ const loginPassword = $("loginPassword");
 const loginBtn = $("loginBtn");
 const googleLoginBtn = $("googleLoginBtn");
 const loginError = $("loginError");
+const founderLink = $("founderLink");
 
 const designCountLabel = $("designCountLabel");
 const refreshBtn = $("refreshBtn");
@@ -789,6 +790,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   googleLoginBtn.addEventListener("click", () => {
     chrome.tabs.create({ url: "https://podpilot.space/login?source=extension" });
+  });
+  founderLink?.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("founder.html") });
   });
 
   // Listen for session adopted events broadcasted by background.js
