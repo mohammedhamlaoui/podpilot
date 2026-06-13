@@ -17,6 +17,7 @@ import CheckoutPage from "./components/CheckoutPage";
 import BlogPage from "./components/BlogPage";
 import ContactPage from "./components/ContactPage";
 import PrivacyPolicyPage from "./components/PrivacyPolicyPage";
+import FounderPage from "./components/FounderPage";
 import TermsOfServicePage from "./components/TermsOfServicePage";
 import RefundPolicyPage from "./components/RefundPolicyPage";
 import HelpCenterPage from "./components/HelpCenterPage";
@@ -377,6 +378,8 @@ function isValidRoute(pathname) {
   
   const staticRoutes = [
     "contact",
+    "founder",
+    "who-is-behind-this-tool",
     "privacy-policy",
     "terms-of-service",
     "refund-policy",
@@ -1190,6 +1193,10 @@ export default function App() {
 
   if (window.location.pathname === "/contact") {
     return <ContactPage />;
+  }
+
+  if (window.location.pathname === "/founder" || window.location.pathname === "/who-is-behind-this-tool") {
+    return <FounderPage />;
   }
 
   if (window.location.pathname === "/privacy-policy" || window.location.pathname === "/privacy") {
