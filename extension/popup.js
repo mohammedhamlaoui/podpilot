@@ -434,11 +434,7 @@ function platformLabel(platform = activeTab) {
 }
 
 function getPodPilotSiteUrl(path = "/pricing") {
-  const apiBase = (window.PodPilotAuth && window.PodPilotAuth.API_BASE) || "";
-  const base = apiBase.includes("localhost") || apiBase.includes("127.0.0.1")
-    ? "http://localhost:5173"
-    : "https://podpilot.space";
-  return `${base}${path}`;
+  return `https://podpilot.space${path}`;
 }
 
 function openPodPilotSite(path = "/pricing") {
@@ -506,9 +502,7 @@ function platformLockedMessage(platform = activeTab) {
   if (accessStatus === "loading") return "Checking access...";
   if (accessStatus === "error") return accessMessage || "Could not verify access.";
   if (!platformAccess?.has_active_plan) {
-    return trialEligibility?.eligible === true
-      ? "You do not have an active trial or subscription. Open PodPilot to start your free trial."
-      : "You do not have an active subscription. Open PodPilot to choose a plan.";
+    return "You do not have an active subscription. Open PodPilot to choose a plan.";
   }
   return `${platformLabel(platform)} is locked for your current plan. Upgrade to continue.`;
 }
@@ -648,9 +642,7 @@ function renderAccessBanner() {
   }
 
   if (accessStatus === "inactive") {
-    uploadGateMessage = trialEligibility?.eligible === true
-      ? "You do not have an active trial or subscription. Open PodPilot to start your free trial."
-      : "You do not have an active subscription. Open PodPilot to choose a plan.";
+    uploadGateMessage = "You do not have an active subscription. Open PodPilot to choose a plan.";
     setBillingBannerMessage(uploadGateMessage, { tone: "danger", cta: true });
     isUploadGateBlocking = true;
     return;
@@ -762,20 +754,20 @@ async function loadPlatformAccess({ preferCache = true } = {}) {
     if (typeof render === "function") render();
   }
 
-  const subscriptionPromise = loadSubscription();
   try {
     if (typeof PodPilotAuth?.refreshPlatformAccess !== "function") {
       throw new Error("Could not verify access.");
     }
     platformAccess = normalizePlatformAccess(await PodPilotAuth.refreshPlatformAccess());
-    await subscriptionPromise;
     accessStatus = platformAccess.has_active_plan ? "active" : "inactive";
     accessMessage = "";
   } catch (error) {
-    await subscriptionPromise.catch(() => null);
     console.warn("[Extension Account] platform access load failed", error?.message || error);
     accessStatus = "error";
-    accessMessage = "Could not verify access. Please refresh or open PodPilot.";
+    const requestId = error?.requestId ||
+      String(error?.message || "").match(/Request ID:\s*([A-Za-z0-9._-]+)/)?.[1] ||
+      "";
+    accessMessage = `Could not verify access. Please refresh or open PodPilot.${requestId ? ` Request ID: ${requestId}` : ""}`;
   }
   renderAccessBanner();
   chooseAvailableTab();
@@ -796,12 +788,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   loginForm.addEventListener("submit", handleSignIn);
   
   googleLoginBtn.addEventListener("click", () => {
-    const apiBase = (window.PodPilotAuth && window.PodPilotAuth.API_BASE) || "";
-    const isLocal = apiBase.includes("localhost") || apiBase.includes("127.0.0.1");
-    const targetUrl = isLocal
-      ? "http://localhost:5173/login?source=extension"
-      : "https://podpilot.space/login?source=extension";
-    chrome.tabs.create({ url: targetUrl });
+    chrome.tabs.create({ url: "https://podpilot.space/login?source=extension" });
   });
 
   // Listen for session adopted events broadcasted by background.js
@@ -1012,7 +999,10 @@ async function fetchDesigns() {
   lastDesignFetchFailed = false;
   try {
     const resp = await PodPilotAuth.apiFetch("/designs");
-    if (!resp.ok) throw new Error(`${resp.status}`);
+    if (!resp.ok) {
+      const requestId = PodPilotAuth.getResponseRequestId?.(resp) || "";
+      throw new Error(`Could not load designs (${resp.status})${requestId ? ` Request ID: ${requestId}` : ""}`);
+    }
     const data = await resp.json();
     const freshDesigns = Array.isArray(data?.designs) ? data.designs : [];
     allDesigns = freshDesigns;

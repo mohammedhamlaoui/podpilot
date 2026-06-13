@@ -6,18 +6,15 @@
   "description": "Bulk upload designs to Redbubble and TeePublic. Print on Demand automation uploader with automatic listing metadata generator.",
   "permissions": ["storage", "tabs", "scripting", "activeTab", "notifications", "offscreen", "contextMenus"],
   "host_permissions": [
+    "https://api.podpilot.space/*",
     "https://www.redbubble.com/*",
     "https://*.redbubble.net/*",
     "https://www.teepublic.com/*",
-    "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*",
-    "https://*.supabase.co/*",
+    "https://okmcvbopiwjuusdiqnas.supabase.co/*",
     "https://*.r2.cloudflarestorage.com/*"
   ],
   "externally_connectable": {
     "matches": [
-      "http://localhost/*",
-      "http://127.0.0.1/*",
       "https://podpilot.space/*",
       "https://www.podpilot.space/*"
     ]
@@ -37,7 +34,10 @@
     },
     {
       "matches": [
-        "https://www.teepublic.com/*"
+        "https://www.teepublic.com/design/quick_create*",
+        "https://www.teepublic.com/design/new*",
+        "https://www.teepublic.com/designs/*/edit*",
+        "https://www.teepublic.com/account/uploads/active*"
       ],
       "js": ["content-teepublic.js"],
       "run_at": "document_end"

@@ -37,6 +37,37 @@ const PLAN_VERIFY_SIGNIN_MESSAGE = "You are not signed in. Please sign in again.
 const PLAN_VERIFY_AUTH_MESSAGE = "Could not verify your plan. Please sign in again or check backend connection.";
 const PLAN_VERIFY_BACKEND_MESSAGE = `Could not verify your plan. Backend connection failed at ${API_BASE}.`;
 
+function backendEndpointLabel(path) {
+  try {
+    const parsed = new URL(String(path || ""), API_BASE);
+    return `${parsed.pathname}${parsed.search || ""}`;
+  } catch (_) {
+    return String(path || "");
+  }
+}
+
+function getResponseRequestId(response) {
+  return response?.headers?.get("X-Request-ID") ||
+    response?.headers?.get("x-request-id") ||
+    "";
+}
+
+function appendRequestId(message, requestId) {
+  const cleanMessage = String(message || "").trim();
+  if (!requestId) return cleanMessage;
+  return `${cleanMessage} Request ID: ${requestId}`.trim();
+}
+
+function logBackendResponse(path, response, { attempt = 1 } = {}) {
+  const requestId = getResponseRequestId(response);
+  console.info("[PodPilot API]", {
+    endpoint: backendEndpointLabel(path),
+    status: response?.status || 0,
+    request_id: requestId || null,
+    attempt,
+  });
+}
+
 // ── Storage ─────────────────────────────────────────────────────────────────
 
 async function getStoredSession() {
@@ -257,10 +288,12 @@ async function apiFetch(path, options = {}) {
   };
 
   let response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
+  logBackendResponse(path, response, { attempt: 1 });
   if ((response.status === 401 || response.status === 403) && session.refresh_token) {
     try {
       session = await refreshSession(session.refresh_token);
       response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
+      logBackendResponse(path, response, { attempt: 2 });
     } catch (error) {
       console.warn("[PodPilot] session refresh after backend auth failure failed:", error?.message || error);
       await setStoredSession(null);
@@ -349,7 +382,12 @@ async function getSubscriptionStatus() {
   try {
     const response = await apiFetch("/api/me/subscription", { method: "GET" });
     if (!response.ok) {
-      console.warn("[Extension Account] subscription load failed status=", response.status);
+      console.warn(
+        "[Extension Account] subscription load failed status=",
+        response.status,
+        "request_id=",
+        getResponseRequestId(response) || "none",
+      );
       return null;
     }
     return response.json();
@@ -371,7 +409,12 @@ async function getTrialEligibility() {
       },
     });
     if (!response.ok) {
-      console.warn("[Extension Account] trial eligibility load failed status=", response.status);
+      console.warn(
+        "[Extension Account] trial eligibility load failed status=",
+        response.status,
+        "request_id=",
+        getResponseRequestId(response) || "none",
+      );
       return null;
     }
     return response.json();
@@ -423,11 +466,14 @@ async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
       Authorization: `Bearer ${session.access_token}`,
     },
   });
+  logBackendResponse("/api/me/platform-access", response, { attempt });
+  const requestId = getResponseRequestId(response);
 
   authDebugLog("[PlatformAccess] response", {
     status: response.status,
     ok: response.ok,
     attempt,
+    request_id: requestId || null,
   });
 
   if (!response.ok) {
@@ -437,9 +483,10 @@ async function requestPlatformAccessWithSession(session, { attempt = 1 } = {}) {
       detail,
       attempt,
     });
-    const error = new Error(detail || `platform-access failed (${response.status})`);
+    const error = new Error(appendRequestId(detail || `platform-access failed (${response.status})`, requestId));
     error.status = response.status;
     error.detail = detail;
+    error.requestId = requestId;
     throw error;
   }
 
@@ -553,8 +600,12 @@ async function checkUploadAccess() {
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const error = new Error(`check-upload-access failed (${response.status}) ${text || ""}`.trim());
+    const error = new Error(appendRequestId(
+      `check-upload-access failed (${response.status}) ${text || ""}`.trim(),
+      getResponseRequestId(response),
+    ));
     error.status = response.status;
+    error.requestId = getResponseRequestId(response);
     throw error;
   }
   const data = await response.json();
@@ -583,7 +634,10 @@ async function incrementUploadUsage(amount = 1) {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`increment-upload failed (${response.status}) ${text || ""}`.trim());
+      throw new Error(appendRequestId(
+        `increment-upload failed (${response.status}) ${text || ""}`.trim(),
+        getResponseRequestId(response),
+      ));
     }
     return response.json().catch(() => ({}));
   };
@@ -630,6 +684,7 @@ const PodPilotAuth = {
   getCurrentUser,
   getSubscriptionStatus,
   getTrialEligibility,
+  getResponseRequestId,
 };
 
 // Make available to popup.js (loaded before it via <script>) and to the
