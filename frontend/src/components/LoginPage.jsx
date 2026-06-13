@@ -620,7 +620,7 @@ export default function LoginPage() {
           <span className="auth-footer-bullet">•</span>
           <a href="/privacy" className="auth-footer-link">Privacy Policy</a>
           <span className="auth-footer-bullet">•</span>
-          <a href="/founder" className="auth-footer-link">Who is behind this tool?</a>
+          <a href="/terms" className="auth-footer-link">Terms of Service</a>
         </div>
         </section>
       </div>
