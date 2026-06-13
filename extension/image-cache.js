@@ -25,7 +25,7 @@
     const raw = String(url || "").trim();
     if (raw.startsWith("/api/designs/") || raw.startsWith("/designs/")) return true;
     try {
-      const base = self.PodPilotAuth?.API_BASE || self.location?.origin || "http://localhost";
+      const base = self.PodPilotAuth?.API_BASE || self.location?.origin || "https://api.podpilot.space";
       const parsed = new URL(raw, base);
       return parsed.pathname.startsWith("/api/designs/") || parsed.pathname.startsWith("/designs/");
     } catch (_) {

@@ -37,8 +37,6 @@ const QUEUE_DELAY_MS = 3000;
 const CONTENT_RESPONSE_TIMEOUT_MS = 180000;
 const TAB_LOAD_TIMEOUT_MS = 60000;
 const ALLOWED_EXTERNAL_ORIGINS = new Set([
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
   "https://podpilot.space",
   "https://www.podpilot.space",
 ]);
@@ -100,6 +98,10 @@ function isAllowedExternalSender(sender) {
   } catch (_) {
     return false;
   }
+}
+
+function isTrustedSessionSender(sender) {
+  return sender?.id === chrome.runtime.id && !sender?.tab;
 }
 
 async function ensureOffscreenDocument() {
@@ -413,7 +415,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     return true;
   }
 
-  handleControlMessage(message, sender)
+  handleControlMessage(message, sender, { allowExternalSession: true })
     .then((response) => sendResponse(response))
     .catch((error) => sendResponse({ ok: false, error: error.message }));
   return true;
@@ -427,7 +429,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function handleControlMessage(message, sender = null) {
+async function handleControlMessage(message, sender = null, options = {}) {
   if (!message || typeof message.action !== "string") {
     return { ok: false, error: "Invalid extension message." };
   }
@@ -435,6 +437,12 @@ async function handleControlMessage(message, sender = null) {
   // The dashboard hands us its current Supabase session along with most
   // messages so the extension stays signed in without a separate login.
   if (message.access_token) {
+    const canAdoptSession = isTrustedSessionSender(sender) ||
+      (options.allowExternalSession === true && isAllowedExternalSender(sender));
+    if (!canAdoptSession) {
+      console.warn("[PodPilot] ignored session payload from untrusted extension sender.");
+      return { ok: false, error: "Session payload sender is not trusted." };
+    }
     const authTimer = debugTimerStart("auth/session check duration", {
       action: message.action,
       hasRefreshToken: Boolean(message.refresh_token),
