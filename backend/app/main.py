@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 import logging
+import uuid
 
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
@@ -11,7 +12,7 @@ from app.api.billing import router as billing_router
 from app.api.paddle_webhook import router as paddle_webhook_router
 from app.api.routes import router
 from app.core.config import ALLOWED_ORIGINS, DEBUG
-from app.services import supabase_service
+from app.services import logging_utils, supabase_service
 
 # Configure logging so podpilot.delete and other loggers show in console.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -45,6 +46,20 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "X-Frame-Options": "DENY",
 }
+
+
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    incoming = request.headers.get("x-request-id")
+    req_id = (incoming or uuid.uuid4().hex[:12]).strip()[:64] or uuid.uuid4().hex[:12]
+    request.state.request_id = req_id
+    token = logging_utils.set_request_id(req_id)
+    try:
+        response = await call_next(request)
+    finally:
+        logging_utils.reset_request_id(token)
+    response.headers["X-Request-ID"] = req_id
+    return response
 
 
 @app.middleware("http")

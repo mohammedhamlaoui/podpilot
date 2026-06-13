@@ -17,7 +17,7 @@ from fastapi import HTTPException
 
 from app.core import config
 from app.services import supabase_service
-from app.services.logging_utils import error_type as safe_error_type, short_user_id
+from app.services.logging_utils import error_type as safe_error_type, request_id, short_user_id
 
 
 logger = logging.getLogger("podpilot.billing")
@@ -85,6 +85,19 @@ def _raise_supabase_error(action: str, error: Exception) -> None:
         status_code=500,
         detail=f"Supabase query failed while {action}.",
     ) from error
+
+
+def _log_optional_read_fallback(action: str, error: Exception, *, user_id: Optional[str] = None) -> None:
+    logger.warning(
+        "[BillingFallback] request_id=%s operation=%s user_present=%s user=%s error_type=%s code=%s message=%s",
+        request_id(),
+        action,
+        bool(user_id),
+        short_user_id(user_id),
+        safe_error_type(error),
+        _supabase_error_code(error),
+        _safe_error_message(error),
+    )
 
 
 def _supabase_error_code(error: Exception) -> str:
@@ -520,7 +533,8 @@ def _trial_response(eligible: bool, reason: str) -> dict[str, Any]:
 
 def _log_trial_decision(user_id: Optional[str], result: dict[str, Any]) -> None:
     logger.info(
-        "[TrialEligibility] user_present=%s user=%s eligible=%s reason=%s source=%s",
+        "[TrialEligibility] request_id=%s user_present=%s user=%s eligible=%s reason=%s source=%s",
+        request_id(),
         bool(user_id),
         short_user_id(user_id),
         result.get("eligible"),
@@ -817,7 +831,11 @@ def check_trial_eligibility(
     The frontend only displays this decision. The server matches multiple
     hashed signals and never returns or stores raw email/device/IP values.
     """
-    subscription_rows = get_user_subscription_history(user_id)
+    try:
+        subscription_rows = get_user_subscription_history(user_id)
+    except Exception as error:
+        _log_optional_read_fallback("reading subscription history for trial eligibility", error, user_id=user_id)
+        subscription_rows = []
     billing_rows = [row for row in subscription_rows if _is_subscription_billing_row(row)]
     subscription = billing_rows[0] if billing_rows else None
     status = str((subscription or {}).get("status") or "").lower()
@@ -846,7 +864,11 @@ def check_trial_eligibility(
     if paddle_customer_id and _first_trial_usage_match("paddle_customer_id", paddle_customer_id):
         return decide(False, TRIAL_ALREADY_USED)
 
-    paid_intent = get_latest_paid_subscription_intent(user_id)
+    try:
+        paid_intent = get_latest_paid_subscription_intent(user_id)
+    except Exception as error:
+        _log_optional_read_fallback("reading paid checkout intent for trial eligibility", error, user_id=user_id)
+        paid_intent = None
     if paid_intent:
         return decide(False, COMPLETED_TRANSACTION_EXISTS)
 
@@ -855,10 +877,14 @@ def check_trial_eligibility(
 
     if _subscription_used_trial(subscription):
         return decide(False, TRIAL_ALREADY_USED)
-    if paddle_customer_id and _subscription_used_trial(
-        _first_subscription_match("paddle_customer_id", paddle_customer_id)
-    ):
-        return decide(False, TRIAL_ALREADY_USED)
+    if paddle_customer_id:
+        try:
+            matched_subscription = _first_subscription_match("paddle_customer_id", paddle_customer_id)
+        except Exception as error:
+            _log_optional_read_fallback("reading subscription by Paddle customer for trial eligibility", error, user_id=user_id)
+            matched_subscription = None
+        if _subscription_used_trial(matched_subscription):
+            return decide(False, TRIAL_ALREADY_USED)
 
     if _first_trial_usage_match("device_id_hash", hashes["device_id_hash"]):
         return decide(False, DEVICE_OR_NETWORK_TRIAL_USED)
@@ -1082,15 +1108,49 @@ def _is_subscription_current(status: str, current_period_ends_at: Optional[str])
 
 
 def get_subscription_access(user_id: str) -> dict[str, Any]:
-    subscription = get_user_subscription(user_id)
-    usage = get_user_monthly_usage(user_id)
-    uploaded_count = int(usage.get("uploaded_count") or 0)
+    try:
+        subscription = get_user_subscription(user_id)
+    except Exception as error:
+        _log_optional_read_fallback("reading subscription access", error, user_id=user_id)
+        return {
+            "subscription_loaded": False,
+            "degraded": True,
+            "has_subscription": False,
+            "has_active_subscription": False,
+            "trial_active": False,
+            "plan": None,
+            "status": "unknown",
+            "monthly_upload_limit": None,
+            "uploaded_count": 0,
+            "remaining_uploads": None,
+            "can_upload": False,
+            "reason": "Subscription data is temporarily unavailable.",
+            "trial_ends_at": None,
+            "current_period_ends_at": None,
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+            "paddle_customer_id": None,
+            "paddle_subscription_id": None,
+            "ai_tokens": 0,
+            "daily_ai_tokens": 0,
+            "daily_ai_tokens_limit": 0,
+            "daily_ai_tokens_used": 0,
+            "daily_ai_tokens_remaining": 0,
+        }
+
+    try:
+        usage = get_user_monthly_usage(user_id)
+        uploaded_count = int(usage.get("uploaded_count") or 0)
+    except Exception as error:
+        _log_optional_read_fallback("reading monthly upload usage for subscription access", error, user_id=user_id)
+        uploaded_count = 0
 
     if not subscription:
         reason = "No active subscription found"
-        logger.info("[Billing] upload blocked user=%s reason=%s", short_user_id(user_id), reason)
+        logger.info("[Billing] request_id=%s upload blocked user=%s reason=%s", request_id(), short_user_id(user_id), reason)
         return {
             "subscription_loaded": True,
+            "degraded": False,
             "has_subscription": False,
             "has_active_subscription": False,
             "trial_active": False,
@@ -1137,9 +1197,9 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
 
     can_upload = reason is None
     if can_upload:
-        logger.info("[Billing] subscription access checked user=%s status=%s plan=%s", short_user_id(user_id), status, plan or "(none)")
+        logger.info("[Billing] request_id=%s subscription access checked user=%s status=%s plan=%s", request_id(), short_user_id(user_id), status, plan or "(none)")
     else:
-        logger.info("[Billing] upload blocked user=%s reason=%s", short_user_id(user_id), reason)
+        logger.info("[Billing] request_id=%s upload blocked user=%s reason=%s", request_id(), short_user_id(user_id), reason)
 
     trial_active = status == "trialing" and is_active
 
@@ -1164,6 +1224,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
 
     return {
         "subscription_loaded": True,
+        "degraded": False,
         "has_subscription": True,
         "has_active_subscription": is_active,
         "trial_active": trial_active,
@@ -1195,10 +1256,22 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
     Unknown, inactive, expired, or period-ended subscriptions lock every
     platform by default.
     """
-    subscription = get_user_subscription(user_id)
+    try:
+        subscription = get_user_subscription(user_id)
+    except Exception as error:
+        _log_optional_read_fallback("reading platform access subscription", error, user_id=user_id)
+        return {
+            "has_active_plan": False,
+            "degraded": True,
+            "plan": None,
+            "redbubble": False,
+            "teepublic": False,
+            "reason": "Subscription data is temporarily unavailable.",
+        }
     if not subscription:
         return {
             "has_active_plan": False,
+            "degraded": False,
             "plan": None,
             "redbubble": False,
             "teepublic": False,
@@ -1213,6 +1286,7 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
     if not has_active_plan:
         return {
             "has_active_plan": False,
+            "degraded": False,
             "plan": plan,
             "redbubble": False,
             "teepublic": False,
@@ -1220,6 +1294,7 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
 
     return {
         "has_active_plan": True,
+        "degraded": False,
         "plan": plan,
         "redbubble": bool(plan_access.get("redbubble")),
         "teepublic": bool(plan_access.get("teepublic")),

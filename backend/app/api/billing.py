@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from app.core import config
 from app.core.auth import AuthUser, get_current_user
 from app.services import rate_limiter, subscription_service
-from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
+from app.services.logging_utils import error_type as safe_error_type, request_id, short_id, short_user_id
 
 
 router = APIRouter()
@@ -145,6 +145,13 @@ def fetch_paddle_transactions(paddle_customer_id: str) -> list[dict]:
 def get_my_subscription(user: AuthUser = Depends(get_current_user)) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     access = subscription_service.get_subscription_access(user.id)
+    logger.info(
+        "[BillingEndpoint] request_id=%s endpoint=/api/me/subscription user_present=true user=%s degraded=%s has_active=%s",
+        request_id(),
+        short_user_id(user.id),
+        bool(access.get("degraded")),
+        bool(access.get("has_active_subscription")),
+    )
     paddle_customer_id = access.get("paddle_customer_id")
     if paddle_customer_id:
         access["payment_history"] = fetch_paddle_transactions(paddle_customer_id)
@@ -156,7 +163,16 @@ def get_my_subscription(user: AuthUser = Depends(get_current_user)) -> dict:
 @router.get("/api/me/platform-access")
 def get_my_platform_access(user: AuthUser = Depends(get_current_user)) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
-    return subscription_service.get_user_platform_access(user.id)
+    access = subscription_service.get_user_platform_access(user.id)
+    logger.info(
+        "[BillingEndpoint] request_id=%s endpoint=/api/me/platform-access user_present=true user=%s degraded=%s has_active=%s plan=%s",
+        request_id(),
+        short_user_id(user.id),
+        bool(access.get("degraded")),
+        bool(access.get("has_active_plan")),
+        access.get("plan") or "-",
+    )
+    return access
 
 
 @router.post("/api/billing/check-upload-access")
@@ -221,7 +237,8 @@ def get_trial_eligibility(
                 reason = "unknown"
                 
         logger.info(
-            "[TRIAL ELIGIBILITY] user=%s eligible=%s reason=%s source=%s",
+            "[TRIAL ELIGIBILITY] request_id=%s endpoint=/api/billing/trial-eligibility user=%s eligible=%s reason=%s source=%s",
+            request_id(),
             short_user_id(user.id),
             eligible,
             reason,
@@ -235,7 +252,8 @@ def get_trial_eligibility(
     except HTTPException as ex:
         # Check if it's a configuration issue (like trial_usage table missing or TRIAL_HASH_SALT missing)
         logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=HTTPException status_code=%s detail=%s",
+            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=HTTPException status_code=%s detail=%s",
+            request_id(),
             short_user_id(user.id),
             ex.status_code,
             str(ex.detail)[:200],
@@ -243,34 +261,39 @@ def get_trial_eligibility(
         if ex.status_code >= 500:
             # Internal Supabase/config failures should not block checkout UI.
             return {
-                "eligible": False,
-                "reason": "unknown",
-                "source": "unknown",
+                "eligible": True,
+                "reason": "new_user",
+                "source": "fallback_optional_read_failure",
+                "fallback": True,
             }
         raise ex
     except RuntimeError as ex:
         # Catch RuntimeError from missing TRIAL_HASH_SALT in production
         logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=%s",
+            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=%s",
+            request_id(),
             short_user_id(user.id),
             safe_error_type(ex),
         )
         return {
-            "eligible": False,
-            "reason": "unknown",
-            "source": "unknown",
+            "eligible": True,
+            "reason": "new_user",
+            "source": "fallback_optional_read_failure",
+            "fallback": True,
         }
     except Exception as ex:
-        logger.error(
-            "[TRIAL ELIGIBILITY ERROR] user=%s error_type=%s",
+        logger.warning(
+            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=%s",
+            request_id(),
             short_user_id(user.id),
             safe_error_type(ex),
         )
-        # Check if it is a Postgrest or database outage, raise 503
-        raise HTTPException(
-            status_code=503,
-            detail="Supabase or backend service is temporarily unavailable."
-        ) from ex
+        return {
+            "eligible": True,
+            "reason": "new_user",
+            "source": "fallback_optional_read_failure",
+            "fallback": True,
+        }
 
 
 
@@ -516,7 +539,8 @@ def _validate_checkout_price_id(*, price_id: str, env_name: str, intent_type: st
     if value.startswith("pri_"):
         return
     logger.error(
-        "[Checkout] invalid Paddle price config intent=%s plan=%s billing=%s env_var=%s present=%s price_suffix=%s",
+        "[Checkout] request_id=%s invalid Paddle price config intent=%s plan=%s billing=%s env_var=%s present=%s price_suffix=%s",
+        request_id(),
         intent_type,
         plan or "-",
         cycle or "-",
@@ -606,16 +630,19 @@ def get_checkout_price_id(
         )
     except Exception as error:
         logger.warning(
-            "[Billing] checkout eligibility fallback user=%s plan=%s cycle=%s error_type=%s",
+            "[Billing] request_id=%s endpoint=/api/billing/checkout checkout eligibility fallback user=%s plan=%s billing=%s error_type=%s fallback_reason=optional_trial_read_failure",
+            request_id(),
             short_user_id(user.id),
             plan,
             cycle,
             safe_error_type(error),
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Could not verify trial eligibility. Please retry checkout.",
-        ) from error
+        eligibility = {
+            "eligible": True,
+            "reason": subscription_service.TRIAL_ELIGIBLE,
+            "source": "fallback_optional_read_failure",
+            "fallback": True,
+        }
 
     trial_eligible = bool(eligibility.get("eligible") is True)
     resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=trial_eligible)
@@ -638,11 +665,14 @@ def get_checkout_price_id(
     )
 
     logger.info(
-        "[Checkout] resolved subscription price user=%s plan=%s billing=%s trial_eligible=%s price_suffix=%s",
+        "[Checkout] request_id=%s endpoint=/api/billing/checkout user_present=true user=%s plan=%s billing=%s trial_eligible=%s source=%s fallback=%s price_suffix=%s",
+        request_id(),
         short_user_id(user.id),
         plan,
         cycle,
         trial_eligible,
+        eligibility.get("source") or "unknown",
+        bool(eligibility.get("fallback")),
         _checkout_price_suffix(resolved_id),
     )
 

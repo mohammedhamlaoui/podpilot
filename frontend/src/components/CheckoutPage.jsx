@@ -297,14 +297,7 @@ export default function CheckoutPage({ theme, setTheme }) {
         const data = await getCheckoutConfig(plan, billing);
         if (active) {
           if (isTransientNoTrialState(data)) {
-            setCheckoutConfig(null);
-            setCheckoutConfigError("Could not verify trial eligibility. Please retry checkout.");
-            setCheckoutNotice({
-              type: "error",
-              message: "Could not verify trial eligibility. Please retry checkout.",
-            });
-            setCheckoutConfigLoading(false);
-            return;
+            setCheckoutNotice(null);
           }
           setCheckoutConfig(data || null);
           setCheckoutConfigLoading(false);
