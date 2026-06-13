@@ -21,6 +21,7 @@ import time
 from fastapi import Depends, Header, HTTPException, status, Request
 
 from app.core.config import SUPABASE_ANON_KEY, SUPABASE_URL
+from app.services.logging_utils import request_id
 
 logger = logging.getLogger("podpilot.auth")
 
@@ -37,14 +38,14 @@ _AUTH_USER_ENDPOINT = f"{SUPABASE_URL}/auth/v1/user"
 
 def _extract_bearer(authorization: Optional[str], path: str) -> str:
     if not authorization:
-        logger.warning("[AUTH] missing Authorization header endpoint=%s", path)
+        logger.warning("[AUTH] request_id=%s missing Authorization header endpoint=%s", request_id(), path)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not authorization.lower().startswith("bearer "):
-        logger.warning("[AUTH] malformed Authorization header endpoint=%s", path)
+        logger.warning("[AUTH] request_id=%s malformed Authorization header endpoint=%s", request_id(), path)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in again.",
@@ -52,7 +53,7 @@ def _extract_bearer(authorization: Optional[str], path: str) -> str:
         )
     token = authorization[7:].strip()
     if not token:
-        logger.warning("[AUTH] missing bearer token endpoint=%s", path)
+        logger.warning("[AUTH] request_id=%s missing bearer token endpoint=%s", request_id(), path)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in again.",
@@ -84,12 +85,12 @@ async def get_current_user(
                 },
             )
         auth_ms = int((time.perf_counter() - start_time) * 1000)
-        logger.info(f"[AUTH TIMING] endpoint={path} auth_ms={auth_ms}")
+        logger.info("[AUTH TIMING] request_id=%s endpoint=%s auth_ms=%s", request_id(), path, auth_ms)
     except httpx.HTTPError as error:
         error_type = type(error).__name__
-        logger.error(f"[AUTH ERROR] endpoint={path} error_type={error_type}")
+        logger.error("[AUTH ERROR] request_id=%s endpoint=%s error_type=%s", request_id(), path, error_type)
         if path == "/api/me/platform-access":
-            logger.error(f"[ACCESS ERROR] endpoint=/api/me/platform-access error_type={error_type}")
+            logger.error("[ACCESS ERROR] request_id=%s endpoint=/api/me/platform-access error_type=%s", request_id(), error_type)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is temporarily unavailable. Please try again.",
@@ -97,13 +98,14 @@ async def get_current_user(
 
     if response.status_code != 200:
         logger.warning(
-            "[AUTH] invalid or expired token endpoint=%s supabase_status=%s",
+            "[AUTH] request_id=%s invalid or expired token endpoint=%s supabase_status=%s",
+            request_id(),
             path,
             response.status_code,
         )
-        logger.error(f"[AUTH ERROR] endpoint={path} error_type=Non200Response")
+        logger.error("[AUTH ERROR] request_id=%s endpoint=%s error_type=Non200Response", request_id(), path)
         if path == "/api/me/platform-access":
-            logger.error(f"[ACCESS ERROR] endpoint=/api/me/platform-access error_type=Non200Response")
+            logger.error("[ACCESS ERROR] request_id=%s endpoint=/api/me/platform-access error_type=Non200Response", request_id())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in again.",
@@ -114,9 +116,9 @@ async def get_current_user(
     user_id = payload.get("id")
     email = payload.get("email")
     if not user_id:
-        logger.error(f"[AUTH ERROR] endpoint={path} error_type=MissingUserId")
+        logger.error("[AUTH ERROR] request_id=%s endpoint=%s error_type=MissingUserId", request_id(), path)
         if path == "/api/me/platform-access":
-            logger.error(f"[ACCESS ERROR] endpoint=/api/me/platform-access error_type=MissingUserId")
+            logger.error("[ACCESS ERROR] request_id=%s endpoint=/api/me/platform-access error_type=MissingUserId", request_id())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in again.",

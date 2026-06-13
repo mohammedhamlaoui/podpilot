@@ -2,8 +2,24 @@
 from __future__ import annotations
 
 import hashlib
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+
+
+_request_id_var: ContextVar[str] = ContextVar("podpilot_request_id", default="-")
+
+
+def set_request_id(request_id: str):
+    return _request_id_var.set(str(request_id or "-"))
+
+
+def reset_request_id(token) -> None:
+    _request_id_var.reset(token)
+
+
+def request_id() -> str:
+    return _request_id_var.get()
 
 
 def short_user_id(user_id: Any) -> str:
