@@ -615,13 +615,6 @@ export default function LoginPage() {
           </>
         )}
 
-        <div className="auth-footer-links">
-          <span className="auth-footer-copy">Secure login</span>
-          <span className="auth-footer-bullet">•</span>
-          <a href="/privacy" className="auth-footer-link">Privacy Policy</a>
-          <span className="auth-footer-bullet">•</span>
-          <a href="/terms" className="auth-footer-link">Terms of Service</a>
-        </div>
         </section>
       </div>
     </main>
