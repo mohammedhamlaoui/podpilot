@@ -29,6 +29,7 @@ const pricingPlans = [
     price: "$4.99/month",
     details: [
       "Unlimited Redbubble upload automation",
+      "Fast Redbubble upload workflow",
       "AI listing drafts for titles, tags, and descriptions",
       "AI copyright review",
       "Trademark Check",
@@ -42,8 +43,10 @@ const pricingPlans = [
     planId: "all_platforms",
     price: "$6.99/month",
     badge: "Best for bulk sellers",
+    workflowBadge: "Faster bulk workflow",
     details: [
       "Unlimited Redbubble and TeePublic upload automation",
+      "Priority fast upload workflow for bulk sellers",
       "AI listing drafts for both platforms",
       "AI copyright review",
       "Trademark Check",
@@ -59,6 +62,7 @@ const pricingPlans = [
     price: "$4.99/month",
     details: [
       "Unlimited TeePublic upload automation",
+      "Fast TeePublic upload workflow",
       "AI listing drafts for titles, tags, and descriptions",
       "AI copyright review",
       "Trademark Check",
@@ -457,18 +461,34 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                         <span className="landing-plan-badge">{plan.badge}</span>
                         {plan.planId === "all_platforms" && (
-                          <span style={{ 
-                            fontSize: "10px", 
-                            fontWeight: "700", 
-                            color: "#0d9488", 
-                            backgroundColor: "rgba(13, 148, 136, 0.1)", 
-                            border: "1px solid rgba(13, 148, 136, 0.25)",
-                            padding: "2px 8px", 
-                            borderRadius: "9999px",
-                            whiteSpace: "nowrap",
-                          }}>
-                            Save vs separate plans
-                          </span>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", flexWrap: "wrap", maxWidth: "190px" }}>
+                            {plan.workflowBadge && (
+                              <span style={{
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                color: "#6d28d9",
+                                backgroundColor: "rgba(124, 58, 237, 0.12)",
+                                border: "1px solid rgba(124, 58, 237, 0.25)",
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                whiteSpace: "nowrap",
+                              }}>
+                                {plan.workflowBadge}
+                              </span>
+                            )}
+                            <span style={{
+                              fontSize: "10px",
+                              fontWeight: "700",
+                              color: "#0d9488",
+                              backgroundColor: "rgba(13, 148, 136, 0.1)",
+                              border: "1px solid rgba(13, 148, 136, 0.25)",
+                              padding: "2px 8px",
+                              borderRadius: "9999px",
+                              whiteSpace: "nowrap",
+                            }}>
+                              Save vs separate plans
+                            </span>
+                          </div>
                         )}
                       </div>
                     )}
