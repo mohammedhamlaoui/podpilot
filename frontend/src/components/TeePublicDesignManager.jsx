@@ -430,6 +430,65 @@ export default function DesignManager({
     }));
   }
 
+  function isEmptyLocalCreateDesign(imageId) {
+    const image = getCreateImageById(imageId);
+    const draft = createDrafts[imageId] || {};
+    const hasImage = Boolean(
+      image?.file ||
+      image?.previewUrl ||
+      image?.imagePath ||
+      image?.imageUrl ||
+      image?.image_r2_key ||
+      createImageReplacements[imageId]?.file
+    ) && !clearedCreateImageIds.has(imageId);
+    const hasText = ["title", "description", "tags", "primary_tag", "supporting_tags", "adult_content"].some((field) =>
+      String(draft[field] || "").trim().length > 0
+    );
+    return !hasImage && !hasText;
+  }
+
+  function confirmLocalRemove({ empty = false, online = false } = {}) {
+    if (online) {
+      return window.confirm("This design already exists online. This local remove will only hide it from this local editing session.");
+    }
+    if (empty) {
+      return window.confirm("Remove this empty design?");
+    }
+    return window.confirm("Remove this design from this local editing session?");
+  }
+
+  function removeCreateDesignLocally(imageId) {
+    if (!imageId) return;
+    const image = getCreateImageById(imageId);
+    const online = Boolean(image?.image_r2_key || image?.imagePath || image?.imageUrl);
+    const empty = isEmptyLocalCreateDesign(imageId);
+    if (!confirmLocalRemove({ empty, online })) return;
+
+    setCreateImageReplacements((current) => {
+      const next = { ...current };
+      if (next[imageId]?.previewUrl) URL.revokeObjectURL(next[imageId].previewUrl);
+      delete next[imageId];
+      return next;
+    });
+    setClearedCreateImageIds((current) => {
+      const next = new Set(current);
+      next.delete(imageId);
+      return next;
+    });
+    setCreateDrafts((current) => {
+      const next = { ...current };
+      delete next[imageId];
+      return next;
+    });
+    setSessionImages((current) => current.filter((item) => item.id !== imageId));
+    setCreateImageIds((current) => {
+      const next = current.filter((id) => id !== imageId);
+      setActiveCreateIndex((index) => Math.max(0, Math.min(index, next.length - 1)));
+      return next;
+    });
+    showToast("Design removed from this local editing session.", "success");
+  }
+
   async function uploadCreateImages(acceptedFiles, fileRejections) {
     if (!requireUnlocked()) return;
     setCreateUploadError("");
@@ -2051,6 +2110,15 @@ export default function DesignManager({
                         {activeCreateIndex + 1} / {selectedCreateImages.length}
                       </span>
                     </div>
+                      <button
+                        type="button"
+                        className="local-design-remove-button local-design-remove-button-inline"
+                        onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                        aria-label="Remove this design from this local session"
+                        title="Remove from this local session"
+                      >
+                        <Icon name="x" />
+                      </button>
                       <button type="button" className="secondary-button icon-only-button" onClick={() => moveCreateIndex(1)} aria-label="Next design">
                         <Icon name="chevronRight" />
                       </button>
