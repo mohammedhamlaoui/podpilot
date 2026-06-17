@@ -1997,6 +1997,145 @@ body { background: var(--pp-bg); }
 .ai-risk-actions {
   margin-top: 20px;
 }
+
+.ai-risk-card {
+  position: fixed;
+  top: 92px;
+  right: 24px;
+  z-index: 1200;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px 42px 16px 16px;
+  border: 1px solid rgba(124, 58, 237, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+.ai-risk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.ai-risk-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.1);
+}
+.ai-risk-card-icon .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+.ai-risk-card-head strong {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+}
+.ai-risk-card-head span {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.86rem;
+  color: #64748b;
+}
+.ai-risk-card-reason {
+  display: -webkit-box;
+  margin: 12px 0 0;
+  overflow: hidden;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ai-risk-card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+.ai-risk-card-close:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+.ai-risk-card-close .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.ai-risk-card-terms {
+  margin-top: 12px;
+  font-size: 0.84rem;
+}
+.ai-risk-card-terms summary {
+  width: fit-content;
+  color: #64748b;
+  cursor: pointer;
+}
+.ai-risk-card-terms div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ai-risk-card-terms b {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.1);
+  color: #5b21b6;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.ai-risk-card-tokens {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+.ai-risk-card-safe {
+  border-color: rgba(16, 185, 129, 0.22);
+}
+.ai-risk-card-safe .ai-risk-card-icon {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+.ai-risk-card-safe .ai-risk-card-head strong {
+  color: #047857;
+}
+.ai-risk-card-review {
+  border-color: rgba(245, 158, 11, 0.24);
+}
+.ai-risk-card-review .ai-risk-card-icon {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.13);
+}
+.ai-risk-card-review .ai-risk-card-head strong {
+  color: #b45309;
+}
+.ai-risk-card-not-safe {
+  border-color: rgba(239, 68, 68, 0.24);
+}
+.ai-risk-card-not-safe .ai-risk-card-icon {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+}
+.ai-risk-card-not-safe .ai-risk-card-head strong {
+  color: #dc2626;
+}
 @media (max-width: 680px) {
   .ai-listing-overlay {
     padding: 14px;
@@ -2028,6 +2167,13 @@ body { background: var(--pp-bg); }
   .ai-risk-actions .primary-button {
     width: 100%;
     justify-content: center;
+  }
+  .ai-risk-card {
+    top: auto;
+    right: 16px;
+    bottom: 18px;
+    left: 16px;
+    width: auto;
   }
 }
 .manager-table td {
@@ -10479,6 +10625,38 @@ button.copy-link-open .pp-spinner-on-button {
 [data-theme="dark"] .ai-risk-result-review {
   background: rgba(245, 158, 11, 0.16) !important;
   color: #fbbf24 !important;
+}
+[data-theme="dark"] .ai-risk-card {
+  background: rgba(15, 15, 16, 0.98) !important;
+  border-color: #242428 !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55) !important;
+  color: #f5f5f7 !important;
+}
+[data-theme="dark"] .ai-risk-card-head span,
+[data-theme="dark"] .ai-risk-card-reason,
+[data-theme="dark"] .ai-risk-card-terms summary,
+[data-theme="dark"] .ai-risk-card-tokens {
+  color: #a1a1aa !important;
+}
+[data-theme="dark"] .ai-risk-card-close {
+  color: #a1a1aa !important;
+}
+[data-theme="dark"] .ai-risk-card-close:hover {
+  background: rgba(124, 58, 237, 0.12) !important;
+  color: #c4b5fd !important;
+}
+[data-theme="dark"] .ai-risk-card-terms b {
+  background: rgba(124, 58, 237, 0.16) !important;
+  color: #c4b5fd !important;
+}
+[data-theme="dark"] .ai-risk-card-safe .ai-risk-card-icon {
+  color: #34d399 !important;
+}
+[data-theme="dark"] .ai-risk-card-review .ai-risk-card-icon {
+  color: #fbbf24 !important;
+}
+[data-theme="dark"] .ai-risk-card-not-safe .ai-risk-card-icon {
+  color: #fca5a5 !important;
 }
 [data-theme="dark"] .ai-risk-icon-safe {
   background: rgba(16, 185, 129, 0.16) !important;
