@@ -726,6 +726,101 @@ export default function DesignManager({
     startEdit(newDesign);
   }
 
+  function hasOnlineDesignMarker(design = {}) {
+    return Boolean(
+      design.id && !isLocalId(design.id) ||
+      design.image_r2_key ||
+      design.thumbnail_r2_key ||
+      design.excel_r2_key ||
+      design.ai_preview_r2_key ||
+      design.image_url ||
+      design.thumbnail_url ||
+      design.status === "uploaded"
+    );
+  }
+
+  function isEmptyLocalCreateDesign(imageId) {
+    const image = getCreateImageById(imageId);
+    const draft = createDrafts[imageId] || {};
+    const hasImage = Boolean(
+      image?.file ||
+      image?.previewUrl ||
+      image?.imagePath ||
+      image?.imageUrl ||
+      image?.image_r2_key ||
+      createImageReplacements[imageId]?.file
+    ) && !clearedCreateImageIds.has(imageId);
+    const hasText = ["title", "description", "tags", "copy_link", "main_tag", "supporting_tags"].some((field) =>
+      String(draft[field] || "").trim().length > 0
+    );
+    return !hasImage && !hasText;
+  }
+
+  function confirmLocalRemove({ empty = false, online = false } = {}) {
+    if (online) {
+      return window.confirm("This design already exists online. This local remove will only hide it from this local editing session.");
+    }
+    if (empty) {
+      return window.confirm("Remove this empty design?");
+    }
+    return window.confirm("Remove this design from this local editing session?");
+  }
+
+  function removeCreateDesignLocally(imageId) {
+    if (!imageId) return;
+    const image = getCreateImageById(imageId);
+    const online = Boolean(image?.image_r2_key || image?.imagePath || image?.imageUrl);
+    const empty = isEmptyLocalCreateDesign(imageId);
+    if (!confirmLocalRemove({ empty, online })) return;
+
+    setCreateImageReplacements((current) => {
+      const next = { ...current };
+      if (next[imageId]?.previewUrl) URL.revokeObjectURL(next[imageId].previewUrl);
+      delete next[imageId];
+      return next;
+    });
+    setClearedCreateImageIds((current) => {
+      const next = new Set(current);
+      next.delete(imageId);
+      return next;
+    });
+    setCreateDrafts((current) => {
+      const next = { ...current };
+      delete next[imageId];
+      return next;
+    });
+    setSessionImages((current) => current.filter((item) => item.id !== imageId));
+    setCreateImageIds((current) => {
+      const next = current.filter((id) => id !== imageId);
+      setActiveCreateIndex((index) => Math.max(0, Math.min(index, next.length - 1)));
+      return next;
+    });
+    showToast("Design removed from this local editing session.", "success");
+  }
+
+  function removeEditingDesignLocally() {
+    if (!editingDesign) return;
+    const empty = isLocalId(editingDesign.id) && !editingImage && !["title", "description", "main_tag", "supporting_tags", "copy_link"].some((field) =>
+      String(form[field] || editingDesign[field] || "").trim().length > 0
+    );
+    const online = hasOnlineDesignMarker(editingDesign);
+    if (!confirmLocalRemove({ empty, online })) return;
+
+    revokeLocalDraftPreview(editingDesign);
+    const currentIndex = editVisibleDesigns.findIndex((design) => design.id === editingDesign.id);
+    const nextDesign = editVisibleDesigns[currentIndex + 1] || editVisibleDesigns[currentIndex - 1] || null;
+    onDesignsChange((current) => current.filter((design) => design.id !== editingDesign.id));
+    setSelectedIds((current) => current.filter((id) => id !== editingDesign.id));
+    resetImageReplacementState();
+    if (nextDesign && nextDesign.id !== editingDesign.id) {
+      startEdit(nextDesign);
+    } else {
+      setEditingId(null);
+      setForm(EMPTY_FORM);
+    }
+    showToast(online ? "Online design hidden from this local editing session." : "Design removed from this local editing session.", "success");
+  }
+
   async function uploadCreateImages(acceptedFiles, fileRejections) {
     if (!requireUnlocked()) return;
     setCreateUploadError("");
@@ -2378,6 +2473,15 @@ export default function DesignManager({
                 </span>
               </span>
             </h3>
+            <button
+              type="button"
+              className="local-design-remove-button local-design-remove-button-header"
+              onClick={removeEditingDesignLocally}
+              aria-label="Remove this design from this local session"
+              title="Remove design from this local session"
+            >
+              <Icon name="x" />
+            </button>
           </div>
           <div className="edit-panel-layout">
             <aside className="edit-preview-column">
@@ -2742,6 +2846,15 @@ export default function DesignManager({
                         {activeCreateIndex + 1} / {selectedCreateImages.length}
                       </span>
                     </div>
+                    <button
+                      type="button"
+                      className="local-design-remove-button local-design-remove-button-inline"
+                      onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                      aria-label="Remove this design from this local session"
+                      title="Remove from this local session"
+                    >
+                      <Icon name="x" />
+                    </button>
                       <button type="button" className="secondary-button icon-only-button" onClick={() => moveCreateIndex(1)} aria-label="Next design">
                         <Icon name="chevronRight" />
                       </button>

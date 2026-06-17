@@ -1292,6 +1292,49 @@ export default function TeePublicEditor({
     onActiveIndexChange(0);
   }
 
+  function hasOnlineDesignMarker(item = {}) {
+    return Boolean(
+      item.id && !isLocalId(item.id) ||
+      item.image_r2_key ||
+      item.thumbnail_r2_key ||
+      item.excel_r2_key ||
+      item.ai_preview_r2_key ||
+      item.image_url ||
+      item.thumbnail_url ||
+      item.status === "uploaded"
+    );
+  }
+
+  function removeActiveDesignLocally() {
+    if (!design) return;
+    const empty = isLocalId(design.id) && !currentImage && !["title", "description", "primary_tag", "supporting_tags"].some((field) =>
+      String(form[field] || design[field] || "").trim().length > 0
+    );
+    const online = hasOnlineDesignMarker(design);
+    const ok = window.confirm(
+      online
+        ? "This design already exists online. This local remove will only hide it from this local editing session."
+        : empty
+          ? "Remove this empty design?"
+          : "Remove this design from this local editing session?"
+    );
+    if (!ok) return;
+
+    revokeLocalDraftPreview(design);
+    const nextDesign = visibleDesigns[activeIndex + 1] || visibleDesigns[activeIndex - 1] || null;
+    onDesignsChange((current) => current.filter((item) => item.id !== design.id));
+    resetImageReplacementState();
+    if (nextDesign && nextDesign.id !== design.id) {
+      setActiveDesignId(nextDesign.id);
+      onActiveIndexChange(Math.max(0, visibleDesigns.findIndex((item) => item.id === nextDesign.id)));
+    } else {
+      setActiveDesignId("");
+      onActiveIndexChange(-1);
+      onBack();
+    }
+    showToast(online ? "Online design hidden from this local editing session." : "Design removed from this local editing session.", "success");
+  }
+
   function switchToIndex(nextIndex) {
     if (nextIndex < 0 || nextIndex >= visibleDesigns.length || nextIndex === activeIndex) return;
     const target = visibleDesigns[nextIndex];
@@ -1553,17 +1596,28 @@ export default function TeePublicEditor({
 
       {/* Main content */}
       <div className="tp-editor-body">
+        <button
+          type="button"
+          className="local-design-remove-button local-design-remove-button-header tp-editor-remove-button"
+          onClick={removeActiveDesignLocally}
+          aria-label="Remove this design from this local session"
+          title="Remove design from this local session"
+        >
+          <Icon name="x" />
+        </button>
         {/* Left: image preview */}
         <div className="tp-preview">
-          <h2 style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-            Design Configuration
-            <span className="image-quality-info-tooltip-container">
-              <Info className="image-quality-info-icon" size={16} />
-              <span className="image-quality-info-tooltip-text">
-                Fast preview only. Upload uses your original image quality.
+          <div className="tp-preview-heading">
+            <h2 style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              Design Configuration
+              <span className="image-quality-info-tooltip-container">
+                <Info className="image-quality-info-icon" size={16} />
+                <span className="image-quality-info-tooltip-text">
+                  Fast preview only. Upload uses your original image quality.
+                </span>
               </span>
-            </span>
-          </h2>
+            </h2>
+          </div>
           <input
             ref={replacementInputRef}
             type="file"
@@ -1728,4 +1782,3 @@ export default function TeePublicEditor({
 
 // Trademark check UI was removed for now — backend service in
 // app/services/trademark_service.py is preserved for later restoration.
-
