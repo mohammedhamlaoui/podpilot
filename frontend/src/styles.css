@@ -9147,7 +9147,7 @@ button.copy-link-open .pp-spinner-on-button {
 .redbubble-edit-page {
   width: min(100%, 1650px);
   max-width: none;
-  padding: 36px;
+  padding: 34px 36px 28px;
   border-color: #e8edf3;
   border-radius: var(--pp-radius-lg, 18px);
   background: var(--pp-card, #fff);
@@ -9156,19 +9156,18 @@ button.copy-link-open .pp-spinner-on-button {
 .redbubble-edit-page .edit-toolbar {
   display: flex;
   width: 100%;
-  align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  margin: 0;
-  padding: 0 0 24px;
+  gap: 12px;
+  margin: 0 0 46px;
+  padding: 4px 0 24px;
   border: 0;
   border-bottom: 1px solid #edf1f7;
   border-radius: 0;
   background: transparent;
 }
 .redbubble-edit-page .edit-toolbar .secondary-button {
-  min-height: 54px;
-  padding: 0 22px;
+  min-height: 56px;
+  padding: 0 24px;
   border-color: #dfe6f0;
   border-radius: 12px;
   background: var(--pp-card, #fff);
@@ -9182,12 +9181,12 @@ button.copy-link-open .pp-spinner-on-button {
   background: rgba(124, 58, 237, 0.04);
 }
 .redbubble-edit-page .edit-toolbar .icon-only-button {
-  width: 54px;
-  min-width: 54px;
+  width: 56px;
+  min-width: 56px;
   padding: 0;
 }
 .redbubble-edit-page .edit-toolbar .redbubble-toolbar-back {
-  margin-right: 28px;
+  margin-right: 20px;
 }
 .redbubble-edit-page .edit-toolbar .create-nav-buttons {
   align-items: center;
@@ -9199,34 +9198,31 @@ button.copy-link-open .pp-spinner-on-button {
   justify-content: center;
 }
 .redbubble-edit-page .edit-panel {
-  margin-top: 28px;
-  padding: 28px;
-  border: 1px solid #e8edf3;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.035);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .redbubble-edit-page .edit-panel-heading {
-  padding-bottom: 24px;
-  border-bottom: 1px solid #edf1f7;
+  padding-bottom: 16px;
+  border-bottom: 0;
 }
 .redbubble-edit-page .edit-panel-heading h3 {
-  color: #0f172a;
+  color: #64748b;
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  text-transform: none;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .redbubble-edit-page .edit-panel-layout {
-  grid-template-columns: minmax(280px, 405px) minmax(0, 1fr);
-  gap: 32px;
-  padding-top: 26px;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 42px;
 }
 .redbubble-edit-page .edit-preview-card {
-  padding: 24px;
+  padding: 0;
   border-color: #e8edf3;
-  border-radius: 16px;
-  background: var(--pp-card, #fff);
+  border-radius: 10px;
+  background: transparent;
   box-shadow: none;
 }
 .redbubble-edit-page .edit-preview-card img,
@@ -9234,7 +9230,7 @@ button.copy-link-open .pp-spinner-on-button {
 .redbubble-edit-page .edit-preview-empty {
   max-width: 100%;
   border-color: #e8edf3;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fafbfc;
 }
 .redbubble-edit-page .edit-preview-card .design-preview-frame > img {
@@ -9254,25 +9250,24 @@ button.copy-link-open .pp-spinner-on-button {
   background: var(--pp-card, #fff);
 }
 .redbubble-edit-page .edit-grid {
-  gap: 20px 24px;
+  gap: 16px;
 }
 .redbubble-edit-page .edit-grid label {
-  gap: 8px;
+  gap: 7px;
   color: var(--pp-text, #0f172a);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 .redbubble-edit-page .edit-grid input,
 .redbubble-edit-page .edit-grid textarea,
 .redbubble-edit-page .edit-grid select {
-  min-height: 64px;
+  min-height: 42px;
   border-color: #dbe3ef;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--pp-card, #fff);
-  font-size: 17px;
 }
 .redbubble-edit-page .edit-grid textarea {
-  min-height: 116px;
+  min-height: 78px;
 }
 .redbubble-edit-page .copy-link-row {
   gap: 8px;
@@ -9292,12 +9287,12 @@ button.copy-link-open .pp-spinner-on-button {
     grid-template-columns: 1fr;
   }
   .redbubble-edit-page .edit-preview-column {
-    max-width: 420px;
+    max-width: 360px;
   }
 }
 @media (max-width: 680px) {
   .redbubble-edit-page {
-    padding: 18px;
+    padding: 16px;
   }
   .redbubble-edit-page .create-page-header,
   .redbubble-edit-page .edit-toolbar,
@@ -9311,12 +9306,6 @@ button.copy-link-open .pp-spinner-on-button {
   .redbubble-edit-page .edit-actions button {
     width: 100%;
     justify-content: center;
-  }
-  .redbubble-edit-page .edit-toolbar .redbubble-toolbar-back {
-    margin-right: 0;
-  }
-  .redbubble-edit-page .edit-panel {
-    padding: 18px;
   }
   .redbubble-edit-page .edit-grid {
     grid-template-columns: 1fr;
