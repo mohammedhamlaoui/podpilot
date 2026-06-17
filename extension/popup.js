@@ -87,9 +87,13 @@ function showUploadToast(summary) {
   const success = Number.isFinite(summary?.success) ? summary.success : 0;
   const failed = Number.isFinite(summary?.failed) ? summary.failed : Math.max(0, total - success);
   const platform = summary?.marketplace === "teepublic" ? "TeePublic" : "Redbubble";
+  const failureReason = String(summary?.failureReason || "").trim();
+  const shortFailureReason = failureReason.length > 140 ? `${failureReason.slice(0, 137)}...` : failureReason;
   if (ppToastTitle) ppToastTitle.textContent = "Upload Complete";
   if (ppToastMessage) {
-    ppToastMessage.textContent = `${platform}: ${success} uploaded, ${failed} failed.`;
+    ppToastMessage.textContent = shortFailureReason && failed > 0
+      ? `${platform}: ${success} uploaded, ${failed} failed. ${shortFailureReason}`
+      : `${platform}: ${success} uploaded, ${failed} failed.`;
   }
   ppToast.hidden = false;
   // Force reflow so the show animation runs.
@@ -104,6 +108,20 @@ function hideUploadToast() {
   ppToast.classList.remove("is-visible");
   setTimeout(() => { ppToast.hidden = true; }, 200);
   if (ppToastTimer) { clearTimeout(ppToastTimer); ppToastTimer = null; }
+}
+
+function uploadPipelineLog(message, details) {
+  if (details && typeof details === "object") {
+    console.info(`[PodPilot Upload Pipeline] ${message}`, details);
+  } else {
+    console.info(`[PodPilot Upload Pipeline] ${message}`);
+  }
+}
+
+function createUploadSessionId(platform) {
+  const randomPart = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    .replace(/[^a-zA-Z0-9-]/g, "");
+  return `pp-${platform}-${randomPart}`;
 }
 
 // ── Hover preview ──────────────────────────────────────────────────────────
@@ -168,9 +186,13 @@ function showUploadToast(summary) {
   const success = Number.isFinite(summary?.success) ? summary.success : 0;
   const failed = Number.isFinite(summary?.failed) ? summary.failed : Math.max(0, total - success);
   const platform = summary?.marketplace === "teepublic" ? "TeePublic" : "Redbubble";
+  const failureReason = String(summary?.failureReason || "").trim();
+  const shortFailureReason = failureReason.length > 140 ? `${failureReason.slice(0, 137)}...` : failureReason;
   if (ppToastTitle) ppToastTitle.textContent = "Upload Complete";
   if (ppToastMessage) {
-    ppToastMessage.textContent = `${platform}: ${success} uploaded, ${failed} failed.`;
+    ppToastMessage.textContent = shortFailureReason && failed > 0
+      ? `${platform}: ${success} uploaded, ${failed} failed. ${shortFailureReason}`
+      : `${platform}: ${success} uploaded, ${failed} failed.`;
   }
   ppToast.hidden = false;
   // Force reflow so the show animation runs.
@@ -317,6 +339,7 @@ function mapDesignToCache(d) {
     description: d.description || "",
     main_tag: d.main_tag || "",
     primary_tag: d.primary_tag || "",
+    supporting_tags: d.supporting_tags || "",
     status: d.status || "",
     marketplace: d.marketplace || "redbubble",
     thumbnail_url: d.thumbnail_url || "",
@@ -325,6 +348,14 @@ function mapDesignToCache(d) {
     preview_url: d.preview_url || "",
     thumbnail_r2_key: d.thumbnail_r2_key || "",
     image_r2_key: d.image_r2_key || "",
+    image_key: d.image_key || d.image_r2_key || "",
+    mime_type: d.mime_type || d.imageMimeType || "",
+    copy_link: d.copy_link || "",
+    adult_content: d.adult_content || false,
+    product_settings: d.product_settings || {},
+    color_settings: d.color_settings || {},
+    upload_ready: d.upload_ready === true,
+    prepared_queue: d.prepared_queue === true,
     updated_at: d.updated_at || "",
     created_at: d.created_at || "",
   };
@@ -338,6 +369,11 @@ function getCachedDesigns(userId, platform) {
   return new Promise((resolve) => {
     const key = getDesignCacheKey(userId, platform);
     chrome.storage.local.get([key], (result) => {
+      uploadPipelineLog("cache read", {
+        platform,
+        key,
+        count: Array.isArray(result[key]?.designs) ? result[key].designs.length : 0,
+      });
       resolve(result[key] || null);
     });
   });
@@ -347,6 +383,12 @@ function setCachedDesigns(userId, platform, designs) {
   return new Promise((resolve, reject) => {
     const key = getDesignCacheKey(userId, platform);
     const lightweightDesigns = Array.isArray(designs) ? designs.map(mapDesignToCache) : [];
+    uploadPipelineLog("cache write", {
+      platform,
+      key,
+      count: lightweightDesigns.length,
+      fields: Object.keys(lightweightDesigns[0] || {}),
+    });
     const cacheObj = {
       userId,
       platform,
@@ -425,6 +467,11 @@ function normalizePlatformAccess(raw) {
   return {
     has_active_plan: Boolean(raw?.has_active_plan),
     plan: raw?.plan || null,
+    status: raw?.status || null,
+    current_period_ends_at: raw?.current_period_ends_at || raw?.current_period_end || null,
+    current_period_end: raw?.current_period_end || raw?.current_period_ends_at || null,
+    cancel_at_period_end: Boolean(raw?.cancel_at_period_end),
+    reason: raw?.reason || null,
     redbubble: raw?.redbubble === true,
     teepublic: raw?.teepublic === true,
   };
@@ -1085,6 +1132,21 @@ function getFiltered() {
   });
 }
 
+function uploadPayloadNeedsRefresh(platform, designs) {
+  if (!Array.isArray(designs) || designs.length === 0) return false;
+  return designs.some((design) => {
+    const hasImage = Boolean(design.image_url || design.upload_url || design.image_r2_key);
+    const hasCoreMetadata = Boolean(design.title && design.description && (design.main_tag || design.primary_tag));
+    if (platform === "redbubble") {
+      return !hasImage || !design.copy_link || !hasCoreMetadata;
+    }
+    if (platform === "teepublic") {
+      return !hasImage || !hasCoreMetadata;
+    }
+    return !hasImage || !hasCoreMetadata;
+  });
+}
+
 function totalPages() {
   return Math.max(1, Math.ceil(getFiltered().length / perPage));
 }
@@ -1410,8 +1472,40 @@ async function handleUpload() {
     selectedCount: selectedCountAtClick,
     libraryCount: allDesigns.length,
   });
-  const toQueue = allDesigns.filter((d) => selectedIds.has(d.id) && d.marketplace === activeTab);
+  let toQueue = allDesigns.filter((d) => selectedIds.has(d.id) && d.marketplace === activeTab);
+  if (uploadPayloadNeedsRefresh(activeTab, toQueue)) {
+    uploadPipelineLog("selected payload incomplete, refreshing designs before upload", {
+      platform: activeTab,
+      designIds: toQueue.map((d) => d.id || d.design_id).filter(Boolean),
+    });
+    updateUploadLaunchPanel({ meta: "Refreshing upload data..." });
+    await fetchDesigns();
+    toQueue = allDesigns.filter((d) => selectedIds.has(d.id) && d.marketplace === activeTab);
+    if (uploadPayloadNeedsRefresh(activeTab, toQueue)) {
+      resetUploadLaunchState();
+      showConnectionWarning("Could not load complete upload data. Please refresh PodPilot and try again.");
+      render();
+      return;
+    }
+  }
   debugTimerEnd(queueTimer, { queuedCount: toQueue.length });
+  const uploadSessionId = createUploadSessionId(activeTab);
+  uploadPipelineLog("upload click", {
+    platform: activeTab,
+    selectedCount: selectedCountAtClick,
+    queuedCount: toQueue.length,
+    sessionId: uploadSessionId,
+    designIds: toQueue.map((d) => d.id || d.design_id).filter(Boolean),
+    payloadHealth: toQueue.map((d) => ({
+      id: d.id || d.design_id || "",
+      hasImageUrl: Boolean(d.image_url || d.upload_url || d.image_r2_key),
+      hasCopyLink: Boolean(d.copy_link),
+      hasTitle: Boolean(d.title),
+      hasDescription: Boolean(d.description),
+      hasMainTag: Boolean(d.main_tag || d.primary_tag),
+      hasSupportingTags: Boolean(d.supporting_tags),
+    })),
+  });
   if (!toQueue.length) {
     resetUploadLaunchState();
     render();
@@ -1421,6 +1515,8 @@ async function handleUpload() {
   const payload = {
     action: "start_queue_instant",
     marketplace: activeTab,
+    uploadSessionId,
+    forceNewSession: true,
     designIds: toQueue.map((d) => d.id),
     designsLibrary: allDesigns,
     access_token: session.access_token,

@@ -16,15 +16,11 @@ export function hasActiveSubscription(summary) {
   if (!summary) return false;
   if (summary.has_active_subscription === true) return true;
   const status = String(summary.status || "").toLowerCase();
-  if (summary.has_subscription === true && status === "active") {
-    return true;
-  }
   const periodEnd = summary.current_period_end || summary.current_period_ends_at;
-  if (status === "canceled" && periodEnd) {
-    const end = Date.parse(periodEnd);
-    return Number.isFinite(end) && end > Date.now();
-  }
-  return false;
+  if (summary.has_subscription !== true || !["active", "trialing"].includes(status)) return false;
+  if (!periodEnd) return false;
+  const end = Date.parse(periodEnd);
+  return Number.isFinite(end) && end > Date.now();
 }
 
 export function isTrialActive(summary) {

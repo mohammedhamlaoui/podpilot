@@ -6,7 +6,7 @@
 // app in preview mode; premium actions are locked in-page.
 //
 // "Allowed" means the backend says the user is on a current trial / active
-// subscription, OR they're canceled but still inside the paid period.
+// subscription with a future period end.
 // Hitting the upload limit does NOT lock the dashboard — it's surfaced
 // elsewhere (Billing card, Upload button) so users can still see their
 // data.
@@ -90,20 +90,12 @@ function clearCheckoutFlagFromUrl() {
 
 function isAllowed(summary) {
   if (!summary) return false;
-  // Per spec: any of the following four conditions are sufficient.
-  // 1) can_upload === true
   if (summary.can_upload === true) return true;
-  // 2 & 3) has_subscription AND status is trialing or active
   const status = String(summary.status || "").toLowerCase();
-  if (summary.has_subscription === true && (status === "trialing" || status === "active")) {
-    return true;
-  }
-  // 4) canceled but current period still in the future
-  if (status === "canceled" && summary.current_period_ends_at) {
-    const end = Date.parse(summary.current_period_ends_at);
-    if (Number.isFinite(end) && end > Date.now()) return true;
-  }
-  return false;
+  const periodEnd = summary.current_period_ends_at || summary.current_period_end;
+  if (summary.has_subscription !== true || !["trialing", "active"].includes(status) || !periodEnd) return false;
+  const end = Date.parse(periodEnd);
+  return Number.isFinite(end) && end > Date.now();
 }
 
 function isBillingIssue(summary) {
