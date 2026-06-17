@@ -2207,146 +2207,151 @@ export default function DesignManager({
   if (editingId && editingId !== "new") {
     return (
       <section className="workflow-panel manager-panel edit-page redbubble-edit-page">
-        <div className="edit-toolbar redbubble-editor-toolbar">
-          <button type="button" className="secondary-button redbubble-toolbar-back" onClick={cancelEdit}>
-            <Icon name="chevronLeft" />
-            <span>Back to Designs</span>
-          </button>
-          <button type="button" className="secondary-button icon-only-button" onClick={handleAddLocalDesignDraftInEdit} aria-label="Add design" title="Add design">
-            <Icon name="upload" />
-          </button>
-          <div className="create-nav-buttons">
-            <button
-              type="button"
-              className="secondary-button icon-only-button"
-              onClick={() => moveEditingIndex(-1)}
-              disabled={activeEditIndex <= 0}
-              aria-label="Previous design"
-              title="Previous design"
-            >
+        <div className="create-page-header">
+          <div>
+            <h2>Edit Redbubble Design</h2>
+            <button type="button" className="secondary-button" onClick={cancelEdit}>
               <Icon name="chevronLeft" />
+              <span>Back to Designs</span>
             </button>
-            <div className="tp-dots">
-              {editVisibleDesigns.map((design) => (
-                <span
-                  key={design.id}
-                  className={`tp-dot${design.id === editingId ? " active" : ""}`}
-                  onClick={() => {
-                    if (design.id === editingId) return;
-                    persistEditingForm();
-                    startEdit(design);
-                    setOpenEditMenu(null);
-                  }}
-                />
-              ))}
+          </div>
+          <div className="edit-toolbar">
+            <div className="create-nav-buttons">
+              <button
+                type="button"
+                className="secondary-button icon-only-button"
+                onClick={() => moveEditingIndex(-1)}
+                disabled={activeEditIndex <= 0}
+                aria-label="Previous design"
+                title="Previous design"
+              >
+                <Icon name="chevronLeft" />
+              </button>
+              <div className="tp-dots">
+                {editVisibleDesigns.map((design) => (
+                  <span
+                    key={design.id}
+                    className={`tp-dot${design.id === editingId ? " active" : ""}`}
+                    onClick={() => {
+                      if (design.id === editingId) return;
+                      persistEditingForm();
+                      startEdit(design);
+                      setOpenEditMenu(null);
+                    }}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                className="secondary-button icon-only-button"
+                onClick={() => moveEditingIndex(1)}
+                disabled={activeEditIndex < 0 || activeEditIndex >= editVisibleDesigns.length - 1}
+                aria-label="Next design"
+                title="Next design"
+              >
+                <Icon name="chevronRight" />
+              </button>
+              <button type="button" className="secondary-button icon-only-button" onClick={handleAddLocalDesignDraftInEdit} aria-label="Add design" title="Add design">
+                <Icon name="upload" />
+              </button>
             </div>
             <button
               type="button"
-              className="secondary-button icon-only-button"
-              onClick={() => moveEditingIndex(1)}
-              disabled={activeEditIndex < 0 || activeEditIndex >= editVisibleDesigns.length - 1}
-              aria-label="Next design"
-              title="Next design"
+              className="secondary-button ai-generate-button pp-stabilized-btn pp-ai-listing-btn"
+              onClick={handleEditAiGenerate}
+              disabled={isAiGenerating || !editingDesign?.id}
             >
-              <Icon name="chevronRight" />
-            </button>
-          </div>
-          <button
-            type="button"
-            className="secondary-button ai-generate-button pp-stabilized-btn pp-ai-listing-btn"
-            onClick={handleEditAiGenerate}
-            disabled={isAiGenerating || !editingDesign?.id}
-          >
-            {isAiGenerating && aiTarget === "edit" ? (
-              <span className="pp-spinner pp-spinner-sm pp-spinner-on-button" />
-            ) : (
-              <Icon name="sparkles" />
-            )}
-            <span>{isAiGenerating && aiTarget === "edit" ? "Generating..." : "AI Listing"}</span>
-          </button>
-          <button
-            type="button"
-            className="secondary-button ai-generate-button pp-stabilized-btn pp-ai-check-btn"
-            onClick={handleEditRiskCheck}
-            disabled={riskLoading || !editingDesign?.id}
-          >
-            {riskLoading ? (
-              <span className="pp-spinner pp-spinner-sm pp-spinner-on-button" />
-            ) : (
-              <BotMessageSquare size={20} />
-            )}
-            <span>{riskLoading ? "Checking..." : "AI Check"}</span>
-          </button>
-          <div className="toolbar-menu-wrap">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setOpenEditMenu((current) => (current === "copy" ? null : "copy"))}
-            >
-              <Icon name="copy" />
-              <span>Copy</span>
-              <Icon name="chevronDown" />
-            </button>
-            {openEditMenu === "copy" && (
-              <div className="toolbar-dropdown" role="menu">
-                <button type="button" onClick={copyEditStickerConfig} role="menuitem">
-                  <Icon name="copy" />
-                  <span>Copy Sticker Config</span>
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="toolbar-menu-wrap">
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!copiedStickerConfig}
-              onClick={() => setOpenEditMenu((current) => (current === "paste" ? null : "paste"))}
-            >
-              <Icon name="file" />
-              <span>Paste</span>
-              <Icon name="chevronDown" />
-            </button>
-            {openEditMenu === "paste" && (
-              <div className="toolbar-dropdown" role="menu">
-                <button type="button" onClick={pasteEditStickerConfigToCurrent} role="menuitem">
-                  <Icon name="file" />
-                  <span>Paste to Current Design</span>
-                </button>
-                <button type="button" onClick={pasteEditStickerConfigToAll} role="menuitem">
-                  <Icon name="file" />
-                  <span>Paste to All Designs</span>
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="toolbar-menu-wrap">
-            <button
-              type="button"
-              className={`secondary-button pp-stabilized-btn pp-trademark-btn${trademarkResults.some((r) => (r.matches || []).length > 0) ? " tp-toolbar-btn-danger" : ""}`}
-              onClick={() => setOpenEditMenu((current) => (current === "trademark" ? null : "trademark"))}
-              disabled={trademarkLoading}
-              aria-haspopup="menu"
-              aria-expanded={openEditMenu === "trademark"}
-            >
-              {trademarkLoading ? (
+              {isAiGenerating && aiTarget === "edit" ? (
                 <span className="pp-spinner pp-spinner-sm pp-spinner-on-button" />
               ) : (
-                <IconShieldSearch size={20} stroke={2} />
+                <Icon name="sparkles" />
               )}
-              <span>{trademarkLoading ? "Checking..." : "Check Trademark"}</span>
-              <Icon name="chevronDown" />
+              <span>{isAiGenerating && aiTarget === "edit" ? "Generating..." : "AI Listing"}</span>
             </button>
-            {openEditMenu === "trademark" && (
-              <div className="toolbar-dropdown" role="menu">
-                <button type="button" onClick={handleTrademarkCurrent} role="menuitem">
-                  <span>Check this design (TM)</span>
-                </button>
-                <button type="button" onClick={handleTrademarkAll} role="menuitem">
-                  <span>Check all designs (TM)</span>
-                </button>
-              </div>
-            )}
+            <button
+              type="button"
+              className="secondary-button ai-generate-button pp-stabilized-btn pp-ai-check-btn"
+              onClick={handleEditRiskCheck}
+              disabled={riskLoading || !editingDesign?.id}
+            >
+              {riskLoading ? (
+                <span className="pp-spinner pp-spinner-sm pp-spinner-on-button" />
+              ) : (
+                <BotMessageSquare size={20} />
+              )}
+              <span>{riskLoading ? "Checking..." : "AI Check"}</span>
+            </button>
+            <div className="toolbar-menu-wrap">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setOpenEditMenu((current) => (current === "copy" ? null : "copy"))}
+              >
+                <Icon name="copy" />
+                <span>Copy</span>
+                <Icon name="chevronDown" />
+              </button>
+              {openEditMenu === "copy" && (
+                <div className="toolbar-dropdown" role="menu">
+                  <button type="button" onClick={copyEditStickerConfig} role="menuitem">
+                    <Icon name="copy" />
+                    <span>Copy Sticker Config</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="toolbar-menu-wrap">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!copiedStickerConfig}
+                onClick={() => setOpenEditMenu((current) => (current === "paste" ? null : "paste"))}
+              >
+                <Icon name="file" />
+                <span>Paste</span>
+                <Icon name="chevronDown" />
+              </button>
+              {openEditMenu === "paste" && (
+                <div className="toolbar-dropdown" role="menu">
+                  <button type="button" onClick={pasteEditStickerConfigToCurrent} role="menuitem">
+                    <Icon name="file" />
+                    <span>Paste to Current Design</span>
+                  </button>
+                  <button type="button" onClick={pasteEditStickerConfigToAll} role="menuitem">
+                    <Icon name="file" />
+                    <span>Paste to All Designs</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="toolbar-menu-wrap">
+              <button
+                type="button"
+                className={`secondary-button pp-stabilized-btn pp-trademark-btn${trademarkResults.some((r) => (r.matches || []).length > 0) ? " tp-toolbar-btn-danger" : ""}`}
+                onClick={() => setOpenEditMenu((current) => (current === "trademark" ? null : "trademark"))}
+                disabled={trademarkLoading}
+                aria-haspopup="menu"
+                aria-expanded={openEditMenu === "trademark"}
+              >
+                {trademarkLoading ? (
+                  <span className="pp-spinner pp-spinner-sm pp-spinner-on-button" />
+                ) : (
+                  <IconShieldSearch size={20} stroke={2} />
+                )}
+                <span>{trademarkLoading ? "Checking..." : "Check Trademark"}</span>
+                <Icon name="chevronDown" />
+              </button>
+              {openEditMenu === "trademark" && (
+                <div className="toolbar-dropdown" role="menu">
+                  <button type="button" onClick={handleTrademarkCurrent} role="menuitem">
+                    <span>Check this design (TM)</span>
+                  </button>
+                  <button type="button" onClick={handleTrademarkAll} role="menuitem">
+                    <span>Check all designs (TM)</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2378,6 +2383,9 @@ export default function DesignManager({
                 </span>
               </span>
             </h3>
+            <button type="button" className="icon-button" onClick={cancelEdit} aria-label="Close editor">
+              <Icon name="x" />
+            </button>
           </div>
           <div className="edit-panel-layout">
             <aside className="edit-preview-column">
