@@ -29,6 +29,7 @@ CHECKOUT_INTENT_TABLE = "paddle_checkout_intents"
 
 ACTIVE_UPLOAD_STATUSES = {"trialing", "active"}
 CANCELED_STATUS = "canceled"
+LOCKED_SUBSCRIPTION_STATUSES = {"canceled", "cancelled", "paused", "past_due", "deleted", "inactive"}
 
 PLAN_LIMITS = {
     "redbubble": None,
@@ -590,9 +591,9 @@ def get_user_subscription(user_id: str) -> Optional[dict[str, Any]]:
     if not rows:
         return None
 
-    valid_paddle_rows = [row for row in rows if _is_valid_paddle_subscription_row(row)]
-    if valid_paddle_rows:
-        return sorted(valid_paddle_rows, key=_subscription_sort_value, reverse=True)[0]
+    billing_rows = [row for row in rows if _is_subscription_billing_row(row)]
+    if billing_rows:
+        return sorted(billing_rows, key=_subscription_sort_value, reverse=True)[0]
 
     return rows[0]
 
@@ -1095,10 +1096,15 @@ def get_user_monthly_usage(user_id: str) -> dict[str, Any]:
 
 
 def _is_subscription_current(status: str, current_period_ends_at: Optional[str]) -> bool:
+    """Return true only for live Paddle access.
+
+    A scheduled cancellation remains `active`/`trialing` until Paddle moves it
+    to `canceled`, so `cancel_at_period_end=true` does not lock by itself. Once
+    status is canceled/paused/expired, or the stored period end has passed, the
+    backend locks access even if a webhook is delayed.
+    """
     normalized_status = (status or "inactive").lower()
-    if normalized_status in ACTIVE_UPLOAD_STATUSES:
-        return True
-    if normalized_status != CANCELED_STATUS:
+    if normalized_status not in ACTIVE_UPLOAD_STATUSES:
         return False
 
     period_end = _parse_datetime(current_period_ends_at)
@@ -1185,6 +1191,10 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         reason = "Unknown subscription plan"
     elif not is_active:
         if status == CANCELED_STATUS:
+            reason = "Subscription canceled"
+        elif status == "paused":
+            reason = "Subscription paused"
+        elif current_period_ends_at and _parse_datetime(current_period_ends_at) is not None:
             reason = "Subscription period has ended"
         else:
             reason = "No active subscription found"
@@ -1197,9 +1207,26 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
 
     can_upload = reason is None
     if can_upload:
-        logger.info("[Billing] request_id=%s subscription access checked user=%s status=%s plan=%s", request_id(), short_user_id(user_id), status, plan or "(none)")
+        logger.info(
+            "[Billing] request_id=%s subscription access checked user=%s status=%s plan=%s current_period_ends_at=%s cancel_at_period_end=%s can_upload=true",
+            request_id(),
+            short_user_id(user_id),
+            status,
+            plan or "(none)",
+            current_period_ends_at or "-",
+            bool(subscription.get("cancel_at_period_end") or False),
+        )
     else:
-        logger.info("[Billing] request_id=%s upload blocked user=%s reason=%s", request_id(), short_user_id(user_id), reason)
+        logger.info(
+            "[Billing] request_id=%s upload blocked user=%s status=%s plan=%s current_period_ends_at=%s cancel_at_period_end=%s reason=%s",
+            request_id(),
+            short_user_id(user_id),
+            status,
+            plan or "(none)",
+            current_period_ends_at or "-",
+            bool(subscription.get("cancel_at_period_end") or False),
+            reason,
+        )
 
     trial_active = status == "trialing" and is_active
 
@@ -1269,12 +1296,22 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
             "reason": "Subscription data is temporarily unavailable.",
         }
     if not subscription:
+        logger.info(
+            "[Billing] request_id=%s platform access checked user=%s status=none plan=none current_period_ends_at=- cancel_at_period_end=false decision=locked reason=no_subscription",
+            request_id(),
+            short_user_id(user_id),
+        )
         return {
             "has_active_plan": False,
             "degraded": False,
             "plan": None,
+            "status": "inactive",
+            "current_period_ends_at": None,
+            "current_period_end": None,
+            "cancel_at_period_end": False,
             "redbubble": False,
             "teepublic": False,
+            "reason": "No active subscription found",
         }
 
     plan = normalize_plan(subscription.get("plan")) or None
@@ -1284,18 +1321,58 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
     has_active_plan = bool(plan_access) and _is_subscription_current(status, current_period_ends_at)
 
     if not has_active_plan:
+        if plan and not plan_access:
+            reason = "Unknown subscription plan"
+        elif status == CANCELED_STATUS:
+            reason = "Subscription canceled"
+        elif status == "paused":
+            reason = "Subscription paused"
+        elif current_period_ends_at and _parse_datetime(current_period_ends_at) is not None:
+            reason = "Subscription period has ended"
+        else:
+            reason = "No active subscription found"
+        logger.info(
+            "[Billing] request_id=%s platform access checked user=%s status=%s plan=%s current_period_ends_at=%s cancel_at_period_end=%s decision=locked reason=%s",
+            request_id(),
+            short_user_id(user_id),
+            status,
+            plan or "(none)",
+            current_period_ends_at or "-",
+            bool(subscription.get("cancel_at_period_end") or False),
+            reason,
+        )
         return {
             "has_active_plan": False,
             "degraded": False,
             "plan": plan,
+            "status": status,
+            "current_period_ends_at": current_period_ends_at,
+            "current_period_end": current_period_ends_at,
+            "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
             "redbubble": False,
             "teepublic": False,
+            "reason": reason,
         }
 
+    logger.info(
+        "[Billing] request_id=%s platform access checked user=%s status=%s plan=%s current_period_ends_at=%s cancel_at_period_end=%s decision=unlocked redbubble=%s teepublic=%s",
+        request_id(),
+        short_user_id(user_id),
+        status,
+        plan or "(none)",
+        current_period_ends_at or "-",
+        bool(subscription.get("cancel_at_period_end") or False),
+        bool(plan_access.get("redbubble")),
+        bool(plan_access.get("teepublic")),
+    )
     return {
         "has_active_plan": True,
         "degraded": False,
         "plan": plan,
+        "status": status,
+        "current_period_ends_at": current_period_ends_at,
+        "current_period_end": current_period_ends_at,
+        "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
         "redbubble": bool(plan_access.get("redbubble")),
         "teepublic": bool(plan_access.get("teepublic")),
     }

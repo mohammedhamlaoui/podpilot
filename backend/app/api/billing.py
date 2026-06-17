@@ -165,12 +165,16 @@ def get_my_platform_access(user: AuthUser = Depends(get_current_user)) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
     access = subscription_service.get_user_platform_access(user.id)
     logger.info(
-        "[BillingEndpoint] request_id=%s endpoint=/api/me/platform-access user_present=true user=%s degraded=%s has_active=%s plan=%s",
+        "[BillingEndpoint] request_id=%s endpoint=/api/me/platform-access user_present=true user=%s degraded=%s has_active=%s plan=%s status=%s current_period_ends_at=%s cancel_at_period_end=%s decision=%s",
         request_id(),
         short_user_id(user.id),
         bool(access.get("degraded")),
         bool(access.get("has_active_plan")),
         access.get("plan") or "-",
+        access.get("status") or "-",
+        access.get("current_period_ends_at") or "-",
+        bool(access.get("cancel_at_period_end")),
+        "unlocked" if access.get("has_active_plan") else "locked",
     )
     return access
 
@@ -178,7 +182,19 @@ def get_my_platform_access(user: AuthUser = Depends(get_current_user)) -> dict:
 @router.post("/api/billing/check-upload-access")
 def check_upload_access(user: AuthUser = Depends(get_current_user)) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.BILLING_READ)
-    return subscription_service.get_subscription_access(user.id)
+    access = subscription_service.get_subscription_access(user.id)
+    logger.info(
+        "[BillingEndpoint] request_id=%s endpoint=/api/billing/check-upload-access user_present=true user=%s status=%s plan=%s current_period_ends_at=%s cancel_at_period_end=%s can_upload=%s reason=%s",
+        request_id(),
+        short_user_id(user.id),
+        access.get("status") or "-",
+        access.get("plan") or "-",
+        access.get("current_period_ends_at") or "-",
+        bool(access.get("cancel_at_period_end")),
+        bool(access.get("can_upload")),
+        access.get("reason") or "-",
+    )
+    return access
 
 
 @router.post("/api/usage/increment-upload")
@@ -187,8 +203,7 @@ def increment_upload_usage(
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
     access = subscription_service.get_subscription_access(user.id)
-    status = str(access.get("status") or "").lower()
-    if not access.get("has_subscription") or status not in {"trialing", "active"}:
+    if not access.get("can_upload"):
         raise HTTPException(
             status_code=403,
             detail=subscription_service.SUBSCRIPTION_REQUIRED_DETAIL,

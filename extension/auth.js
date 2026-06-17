@@ -92,9 +92,24 @@ function normalizePlatformAccess(raw) {
   return {
     has_active_plan: Boolean(raw?.has_active_plan),
     plan: raw?.plan || null,
+    status: raw?.status || null,
+    current_period_ends_at: raw?.current_period_ends_at || raw?.current_period_end || null,
+    current_period_end: raw?.current_period_end || raw?.current_period_ends_at || null,
+    cancel_at_period_end: Boolean(raw?.cancel_at_period_end),
+    reason: raw?.reason || null,
     redbubble: Boolean(raw?.redbubble),
     teepublic: Boolean(raw?.teepublic),
   };
+}
+
+function isPlatformAccessStillLive(access) {
+  if (!access?.has_active_plan) return false;
+  const status = String(access.status || "").toLowerCase();
+  if (status && !["active", "trialing"].includes(status)) return false;
+  const periodEnd = access.current_period_ends_at || access.current_period_end;
+  if (!periodEnd) return false;
+  const end = Date.parse(periodEnd);
+  return Number.isFinite(end) && end > Date.now();
 }
 
 async function setStoredPlatformAccess(access) {
@@ -139,7 +154,7 @@ async function getCachedActivePlatformAccess(maxAgeMs = 10 * 60 * 1000) {
   const entry = await getStoredPlatformAccessEntry();
   const ageMs = Date.now() - entry.cached_at;
   if (
-    entry.access?.has_active_plan === true &&
+    isPlatformAccessStillLive(entry.access) &&
     Number.isFinite(ageMs) &&
     ageMs >= 0 &&
     ageMs <= maxAgeMs

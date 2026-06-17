@@ -137,8 +137,7 @@ def _require_marketplace_access(user_id: str, marketplace: str) -> None:
 
 def _require_active_subscription(user_id: str) -> None:
     access = subscription_service.get_subscription_access(user_id)
-    status = str(access.get("status") or "").lower()
-    if not access.get("has_subscription") or status not in {"trialing", "active"}:
+    if not access.get("can_upload"):
         raise HTTPException(
             status_code=403,
             detail=subscription_service.SUBSCRIPTION_REQUIRED_DETAIL,
