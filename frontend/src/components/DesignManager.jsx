@@ -2209,7 +2209,6 @@ export default function DesignManager({
       <section className="workflow-panel manager-panel edit-page redbubble-edit-page">
         <div className="create-page-header">
           <div>
-            <h2>Edit Redbubble Design</h2>
             <button type="button" className="secondary-button" onClick={cancelEdit}>
               <Icon name="chevronLeft" />
               <span>Back to Designs</span>
