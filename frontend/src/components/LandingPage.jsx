@@ -123,7 +123,7 @@ export function LogoMark() {
   );
 }
 
-export function LandingButton({ href = authHref, children, variant = "primary", ...props }) {
+export function LandingButton({ href = authHref, children, variant = "primary", extensionIcon = false, ...props }) {
   const isPrimary = variant === "primary";
   return (
     <a className={`landing-btn landing-btn-${variant}`} href={href} {...props}>
@@ -136,6 +136,8 @@ export function LandingButton({ href = authHref, children, variant = "primary", 
       <span>{children}</span>
       {isPrimary ? (
         <span className="landing-btn-svg landing-btn-arrow" aria-hidden="true" />
+      ) : extensionIcon ? (
+        <span className="landing-btn-svg landing-btn-extension-icon" aria-hidden="true" />
       ) : (
         <Icon name="download" />
       )}
@@ -364,7 +366,7 @@ export default function LandingPage({ theme, setTheme }) {
             </p>
             <div className="landing-hero-actions">
               <LandingButton>Start Free Trial</LandingButton>
-              <LandingButton variant="secondary">Install Extension</LandingButton>
+              <LandingButton href="/extension-download" variant="secondary" extensionIcon>Download Extension</LandingButton>
             </div>
             <small>Built for POD sellers who prepare and upload designs in batches.</small>
           </div>
@@ -437,7 +439,7 @@ export default function LandingPage({ theme, setTheme }) {
           <h2>Ready to bulk upload POD designs with less copy-paste?</h2>
           <div className="landing-hero-actions">
             <LandingButton>Start Free Trial</LandingButton>
-            <LandingButton variant="secondary">Install Extension</LandingButton>
+            <LandingButton href="/extension-download" variant="secondary" extensionIcon>Download Extension</LandingButton>
           </div>
         </div>
       </section>
