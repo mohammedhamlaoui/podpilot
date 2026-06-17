@@ -503,7 +503,7 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .create-config-card h3 { margin: 0 0 14px; font-size: 16px; font-weight: 700; }
 .create-editor { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
 .create-editor-polished { grid-template-columns: 220px 1fr; }
-.create-left-column { display: flex; flex-direction: column; gap: 12px; }
+.create-left-column { position: relative; display: flex; flex-direction: column; gap: 12px; }
 .create-preview {
   position: relative;
   padding: 12px;
@@ -626,6 +626,66 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .design-preview-remove:focus-visible {
   outline: 3px solid rgba(124, 58, 237, 0.2);
   outline-offset: 2px;
+}
+.local-design-remove-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--pp-text-muted);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.local-design-remove-button svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.5;
+}
+.local-design-remove-button:hover {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.28);
+  background: #fff5f5;
+  transform: translateY(-1px);
+}
+.local-design-remove-button:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, 0.18);
+  outline-offset: 2px;
+}
+.local-design-remove-button-inline {
+  position: static;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  box-shadow: none;
+}
+.local-design-remove-button-header {
+  position: static;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  box-shadow: none;
+}
+.tp-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+}
+.tp-preview-heading h2 { margin: 0; }
+.tp-editor-body { position: relative; }
+.tp-editor-remove-button {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 .design-upload-placeholder {
   display: grid;
@@ -4801,6 +4861,7 @@ html, body { overflow-x: hidden; }
   align-items: start;
 }
 .edit-preview-column {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
