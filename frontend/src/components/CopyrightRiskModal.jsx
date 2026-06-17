@@ -1,113 +1,96 @@
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import Icon from "./Icon";
-import { ProgressLoader } from "./LoadingComponents";
 
 const LABELS = {
   SAFE: "SAFE",
-  NOT_SAFE: "NOT SAFE",
-  NEEDS_REVIEW: "NEEDS REVIEW",
+  NOT_SAFE: "RISKY",
+  NEEDS_REVIEW: "REVIEW",
 };
 
-export default function CopyrightRiskModal({ open, loading, error, result, onClose }) {
-  if (!open) return null;
+function resultTone(normalized) {
+  if (normalized === "SAFE") return "safe";
+  if (normalized === "NOT_SAFE") return "not-safe";
+  return "review";
+}
 
+export default function CopyrightRiskModal({ open, loading, error, result, onClose }) {
   const normalized = result?.result || "";
-  const label = LABELS[normalized] || "NEEDS REVIEW";
-  const tone = normalized === "SAFE" ? "safe" : normalized === "NOT_SAFE" ? "not-safe" : "review";
+  const label = LABELS[normalized] || "REVIEW";
+  const tone = resultTone(normalized);
   const riskyTerms = Array.isArray(result?.risky_terms) ? result.risky_terms : [];
-  const categories = Array.isArray(result?.matched_categories) ? result.matched_categories : [];
+  const visibleTerms = riskyTerms.slice(0, 5);
+  const hiddenTermCount = Math.max(0, riskyTerms.length - visibleTerms.length);
   const tokens = result?.tokens_remaining || null;
 
+  useEffect(() => {
+    if (!open || loading || error || normalized !== "SAFE") return undefined;
+    const timer = window.setTimeout(() => {
+      onClose?.();
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [open, loading, error, normalized, onClose]);
+
+  if (!open) return null;
+
   return createPortal(
-    <div className="pp-modal-overlay ai-risk-overlay" onClick={loading ? undefined : onClose}>
-      <div className="pp-modal ai-risk-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
-        <button type="button" className="pp-modal-close" onClick={onClose} disabled={loading} aria-label="Close">
-          <Icon name="x" />
-        </button>
+    <div className={`ai-risk-card ai-risk-card-${tone}`} role="status" aria-live="polite">
+      <button type="button" className="ai-risk-card-close" onClick={onClose} disabled={loading} aria-label="Close">
+        <Icon name="x" />
+      </button>
 
-        {loading ? (
-          <div className="ai-risk-loading">
-            <ProgressLoader
-              title="Checking design risk..."
-              subtitle="AI risk check is informational only. Review carefully before publishing."
-              steps={["Reading listing text", "Checking similarity signals", "Reviewing risk terms", "Preparing report"]}
-            />
-          </div>
-        ) : error ? (
-          <div className="ai-risk-error" role="alert">
-            <span className="ai-risk-icon ai-risk-icon-review"><Icon name="help" /></span>
+      {loading ? (
+        <>
+          <div className="ai-risk-card-head">
+            <span className="ai-risk-card-icon"><span className="pp-spinner pp-spinner-sm" /></span>
             <div>
-              <h3>AI Risk Check</h3>
-              <p>{error}</p>
-              <small>AI risk check is informational only. Review carefully before publishing.</small>
+              <strong>Checking...</strong>
+              <span>Reviewing listing risk</span>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="ai-risk-head">
-              <span className={`ai-risk-icon ai-risk-icon-${tone}`}><Icon name={tone === "safe" ? "check" : "help"} /></span>
+          <p className="ai-risk-card-reason">AI risk check is informational only.</p>
+        </>
+      ) : error ? (
+        <>
+          <div className="ai-risk-card-head">
+            <span className="ai-risk-card-icon"><Icon name="help" /></span>
+            <div>
+              <strong>REVIEW</strong>
+              <span>AI Check failed</span>
+            </div>
+          </div>
+          <p className="ai-risk-card-reason">{error}</p>
+        </>
+      ) : (
+        <>
+          <div className="ai-risk-card-head">
+            <span className="ai-risk-card-icon"><Icon name={tone === "safe" ? "check" : "help"} /></span>
+            <div>
+              <strong>{label}</strong>
+              <span>{typeof result?.score === "number" ? `${result.score}/100` : "Score unavailable"}</span>
+            </div>
+          </div>
+
+          <p className="ai-risk-card-reason">{result?.reason || "No reason returned."}</p>
+
+          {riskyTerms.length > 0 && (
+            <details className="ai-risk-card-terms" open={tone === "not-safe"}>
+              <summary>Risky terms</summary>
               <div>
-                <h3>AI Copyright Risk Check</h3>
-                <p>AI risk check is informational only. Review carefully before publishing.</p>
+                {visibleTerms.map((term) => <b key={term}>{term}</b>)}
+                {hiddenTermCount > 0 && <b>+{hiddenTermCount}</b>}
               </div>
+            </details>
+          )}
+
+          {tokens && (
+            <div className="ai-risk-card-tokens">
+              <span>{tokens.daily_remaining ?? 0} daily</span>
+              <span>{tokens.extra_tokens ?? 0} extra</span>
             </div>
-
-            <div className={`ai-risk-result ai-risk-result-${tone}`}>
-              <span>{label}</span>
-              {typeof result?.score === "number" && <strong>{result.score}/100</strong>}
-            </div>
-
-            <div className="ai-risk-section">
-              <span>Reason</span>
-              <p>{result?.reason || "No reason returned."}</p>
-            </div>
-
-            <div className="ai-risk-grid">
-              <div className="ai-risk-section">
-                <span>Risky terms</span>
-                {riskyTerms.length > 0 ? (
-                  <div className="ai-risk-chips">
-                    {riskyTerms.map((term) => <b key={term}>{term}</b>)}
-                  </div>
-                ) : (
-                  <p>None found.</p>
-                )}
-              </div>
-              <div className="ai-risk-section">
-                <span>Matched categories</span>
-                {categories.length > 0 ? (
-                  <div className="ai-risk-chips ai-risk-chips-muted">
-                    {categories.map((category) => <b key={category}>{category}</b>)}
-                  </div>
-                ) : (
-                  <p>None found.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="ai-risk-section ai-risk-recommendation">
-              <span>Recommended action</span>
-              <p>{result?.recommendation || "Review official sources before publishing."}</p>
-            </div>
-
-            {tokens && (
-              <div className="ai-risk-token-row">
-                <span>AI tokens remaining</span>
-                <strong>{tokens.daily_remaining ?? 0} daily</strong>
-                <strong>{tokens.extra_tokens ?? 0} extra</strong>
-              </div>
-            )}
-          </>
-        )}
-
-        {!loading && (
-          <div className="pp-modal-actions ai-risk-actions">
-            <button type="button" className="primary-button" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </>
+      )}
     </div>,
     document.body
   );

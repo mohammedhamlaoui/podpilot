@@ -1002,7 +1002,7 @@ export default function DesignManager({
         primary_tag: tags[0] || "",
         supporting_tags: tags.slice(1).join(", "),
       }, activeCreateImage.file || null);
-      setAiResult(result);
+      applyCreateAiListingResult(result);
       setAiError("");
     } catch (error) {
       const detail = error.response?.data?.detail;
@@ -1014,14 +1014,15 @@ export default function DesignManager({
     }
   }
 
-  function applyCreateAiResult() {
-    if (!aiResult || !activeCreateImage) return;
-    updateCreateDraft("title", aiResult.title || activeCreateDraft.title);
-    updateCreateDraft("description", aiResult.description || activeCreateDraft.description);
-    updateCreateDraft("tags", [aiResult.main_tag, aiResult.supporting_tags].filter(Boolean).join(", "));
+  function applyCreateAiListingResult(result) {
+    if (!result || !activeCreateImage) return;
+    updateCreateDraft("title", result.title || activeCreateDraft.title);
+    updateCreateDraft("description", result.description || activeCreateDraft.description);
+    updateCreateDraft("tags", [result.main_tag, result.supporting_tags].filter(Boolean).join(", "));
     setAiResult(null);
     setAiError("");
     setActiveTab("Info");
+    showToast("AI listing applied.", "success");
   }
 
   async function handleRetryDesignCreate(item) {
@@ -1146,12 +1147,6 @@ export default function DesignManager({
     } else {
       setGeneratingAllError(`Generated ${successCount} of ${total} listings successfully. ${failedCount} failed.`);
     }
-  }
-
-  function closeAiModal() {
-    if (isAiGenerating) return;
-    setAiResult(null);
-    setAiError("");
   }
 
   function titleForTrademarkModal(results) {
@@ -1527,55 +1522,6 @@ export default function DesignManager({
 
         {toast && createPortal(
           <div className={`tp-toast tp-toast-${toast.type}`}>{toast.msg}</div>,
-          document.body
-        )}
-
-        {(aiResult || aiError) && createPortal(
-          <div className="pp-modal-overlay ai-listing-overlay" onClick={closeAiModal}>
-            {false ? (
-              <div className="pp-loading-overlay-content" onClick={(event) => event.stopPropagation()}>
-                <ProgressLoader
-                  title="Generating listing content..."
-                  subtitle="PodPilot is reading the design and current metadata."
-                  steps={["Reading design details", "Reviewing metadata", "Drafting listing copy", "Preparing preview"]}
-                />
-              </div>
-            ) : (
-              <div className="pp-modal ai-listing-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
-                <div className="ai-listing-modal-head">
-                  <span className="ai-listing-icon"><Icon name="robot" /></span>
-                  <div>
-                    <h3>AI Listing Content</h3>
-                    <p>Preview generated metadata, then apply it to this TeePublic draft.</p>
-                  </div>
-                </div>
-
-                {aiError && <div className="ai-listing-error" role="alert">{aiError}</div>}
-
-                {aiResult && (
-                  <div className="ai-listing-preview">
-                    <label><span>Title</span><p>{aiResult.title}</p></label>
-                    <label><span>Description</span><p>{aiResult.description}</p></label>
-                    <div className="ai-listing-preview-grid">
-                      <label><span>Main Tag</span><p>{aiResult.main_tag}</p></label>
-                      <label><span>Supporting Tags</span><p>{aiResult.supporting_tags}</p></label>
-                    </div>
-                  </div>
-                )}
-
-                <div className="pp-modal-actions ai-listing-actions">
-                  <button type="button" className="secondary-button" onClick={closeAiModal}>Cancel</button>
-                  <button type="button" className="secondary-button" onClick={handleCreateAiGenerate}>
-                    <Icon name="refresh" />
-                    <span>Regenerate</span>
-                  </button>
-                  <button type="button" className="primary-button" onClick={applyCreateAiResult} disabled={!aiResult}>
-                    Apply to form
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>,
           document.body
         )}
 
