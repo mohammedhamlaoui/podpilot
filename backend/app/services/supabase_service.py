@@ -342,11 +342,11 @@ def _parse_db_datetime(value: Any) -> Optional[datetime]:
 
 def _cleanup_at_for_row(row: dict[str, Any]) -> str:
     created_at = _parse_db_datetime(row.get("created_at")) or datetime.now(timezone.utc)
-    return (created_at + timedelta(hours=12)).isoformat()
+    return (created_at + timedelta(hours=24)).isoformat()
 
 
 def _ensure_cleanup_at_for_designs(rows: list[dict[str, Any]]) -> None:
-    """Set the fixed 12-hour cleanup deadline once for new/legacy rows.
+    """Set the fixed 24-hour cleanup deadline once for new/legacy rows.
 
     The deadline is derived from the row's original created_at/import time.
     Normal metadata/image/status updates must not recalculate it, because
@@ -493,7 +493,7 @@ def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
 
     New rows use cleanup_at as their fixed retention deadline. Older rows
     without cleanup_at use created_at <= cutoff_time. updated_at is never used
-    for retention, so normal edits do not extend the 12-hour window.
+    for retention, so normal edits do not extend the 24-hour window.
     """
     iso_cutoff = cutoff_time.isoformat()
     cols = _select_cleanup_columns()

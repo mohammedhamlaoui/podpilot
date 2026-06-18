@@ -18,7 +18,7 @@ on:
       cutoff_hours:
         description: 'Cutoff hours for designs'
         required: true
-        default: '12'
+        default: '24'
         type: string
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
       - name: Clean Expired Design Workspaces
         run: |
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          CUTOFF="${{ github.event.inputs.cutoff_hours || '12' }}"
+          CUTOFF="${{ github.event.inputs.cutoff_hours || '24' }}"
           CONFIRM_PARAM=""
           if [ "$DRY_RUN" = "false" ]; then
             CONFIRM_PARAM="&confirm=true"

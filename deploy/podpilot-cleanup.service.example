@@ -9,6 +9,6 @@ User=podpilot
 Group=podpilot
 WorkingDirectory=/opt/podpilot/current
 EnvironmentFile=/etc/podpilot/backend.env
-ExecStart=/opt/podpilot/current/backend/.venv/bin/python /opt/podpilot/current/backend/scripts/cleanup_expired_designs.py --execute --retention-hours 12 --batch-size 200
+ExecStart=/opt/podpilot/current/backend/.venv/bin/python /opt/podpilot/current/backend/scripts/cleanup_expired_designs.py --execute --retention-hours 24 --batch-size 200
 NoNewPrivileges=true
 PrivateTmp=true
