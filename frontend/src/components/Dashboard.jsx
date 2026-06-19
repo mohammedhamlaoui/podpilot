@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Icon from "./Icon";
 import AiCreditsDashboardCard from "./AiCreditsDashboardCard";
 import ThemeToggle from "./ThemeToggle";
@@ -48,6 +48,7 @@ function AiCreditsHeaderPill({ summary }) {
 }
 
 export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false, trialEligibility = null }) {
+  const [showAiListingNotice, setShowAiListingNotice] = useState(true);
   const pricingUrl = getPricingUrl();
   const canUseRedbubble = Boolean(platformAccess?.redbubble);
   const canUseTeePublic = Boolean(platformAccess?.teepublic);
@@ -123,6 +124,26 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
           </button>
         </div>
       </div>
+
+      {showAiListingNotice && (
+        <div className="pp-ai-listing-notice" role="status" aria-live="polite">
+          <div className="pp-ai-listing-notice-icon" aria-hidden="true">
+            <Icon name="sparkle" />
+          </div>
+          <div className="pp-ai-listing-notice-copy">
+            <strong>AI Listing is temporarily unavailable</strong>
+            <span>We are fixing an issue and expect it to be back soon. Other dashboard features continue to work.</span>
+          </div>
+          <button
+            type="button"
+            className="pp-ai-listing-notice-dismiss"
+            onClick={() => setShowAiListingNotice(false)}
+            aria-label="Dismiss AI Listing notice"
+          >
+            <Icon name="x" />
+          </button>
+        </div>
+      )}
 
       <AiCreditsDashboardCard />
 
