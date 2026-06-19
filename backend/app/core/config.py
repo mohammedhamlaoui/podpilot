@@ -74,6 +74,13 @@ AI_MODEL = _optional("AI_MODEL", "gemini-2.5-flash")
 OPENROUTER_API_KEY = _optional("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = _optional("OPENROUTER_MODEL", "rekaai/reka-edge")
 AI_LISTING_PROVIDER = _optional("AI_LISTING_PROVIDER", "openrouter").lower().strip()
+OPENROUTER_FREE_FALLBACK_MODEL = _optional(
+    "OPENROUTER_FREE_FALLBACK_MODEL",
+    "openrouter/free",
+)
+ENABLE_OPENROUTER_FREE_FALLBACK = (
+    _optional("ENABLE_OPENROUTER_FREE_FALLBACK", "false").lower() == "true"
+)
 
 
 # ── Trademark check ────────────────────────────────────────────────────────

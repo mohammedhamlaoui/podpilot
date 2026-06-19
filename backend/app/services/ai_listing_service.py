@@ -13,7 +13,16 @@ import httpx
 from app.core.config import DEBUG
 from app.services.logging_utils import error_type as safe_error_type, short_id
 
-from app.core.config import AI_MODEL, AI_PROVIDER, GEMINI_API_KEY, OPENROUTER_API_KEY, AI_LISTING_PROVIDER
+from app.core.config import (
+    AI_LISTING_PROVIDER,
+    AI_MODEL,
+    AI_PROVIDER,
+    ENABLE_OPENROUTER_FREE_FALLBACK,
+    GEMINI_API_KEY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_FREE_FALLBACK_MODEL,
+    OPENROUTER_MODEL,
+)
 
 
 class AIListingError(Exception):
@@ -306,7 +315,7 @@ def _clean_and_normalize_metadata(
     }
 
 
-async def generate_listing_content(
+async def _generate_listing_gemini(
     *,
     design: dict[str, Any],
     platform: str,
@@ -316,59 +325,8 @@ async def generate_listing_content(
     image_mime_type: str = "",
 ) -> dict[str, str]:
     import logging
-    import time
     logger = logging.getLogger("podpilot.ai")
-    fallback_used = False
-    openrouter_ms = 0
-
     design_id = short_id(design.get("id"))
-    logger.info(
-        "ai_generate_started design_id=%s platform=%s configured_provider=%s has_image=%s",
-        design_id,
-        platform,
-        AI_LISTING_PROVIDER,
-        bool(image_url or image_bytes),
-    )
-
-    # OpenRouter routing
-    if AI_LISTING_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
-        start_time = time.perf_counter()
-        try:
-            from app.services.openrouter_service import generate_listing_openrouter
-            result = await generate_listing_openrouter(
-                design=design,
-                platform=platform,
-                current_metadata=current_metadata,
-                image_url=image_url,
-                image_bytes=image_bytes,
-                image_mime_type=image_mime_type,
-            )
-            openrouter_ms = int((time.perf_counter() - start_time) * 1000)
-            logger.info(
-                "ai_generate_succeeded design_id=%s provider=openrouter fallback_used=false duration_ms=%d",
-                design_id,
-                openrouter_ms,
-            )
-            return {
-                "title": result["title"],
-                "description": result["description"],
-                "main_tag": result["main_tag"],
-                "supporting_tags": result["supporting_tags"],
-            }
-        except Exception as error:
-            from app.services.openrouter_service import OpenRouterListingError
-            if isinstance(error, OpenRouterListingError) and "AI provider authentication failed" in str(error):
-                raise AIListingError(str(error)) from error
-            openrouter_ms = int((time.perf_counter() - start_time) * 1000)
-            fallback_used = True
-            logger.warning(
-                "ai_generate_provider_failed design_id=%s provider=openrouter fallback_used=true duration_ms=%d error_type=%s",
-                design_id,
-                openrouter_ms,
-                safe_error_type(error),
-            )
-
-    # Gemini Fallback / Default
     if not GEMINI_API_KEY:
         raise AIListingError("Gemini AI is not configured. Add GEMINI_API_KEY to backend/.env.")
 
@@ -467,20 +425,147 @@ async def generate_listing_content(
             parsed = _parse_json_response(text)
             normalized = _clean_and_normalize_metadata(parsed, platform)
     except Exception as final_error:
-        logger.warning(
-            "ai_generate_failed design_id=%s provider=gemini fallback_used=%s error_type=%s",
-            design_id,
-            fallback_used,
-            safe_error_type(final_error),
-        )
-        raise AIListingError(f"AI listing generation failed. Error: {final_error}") from final_error
+        raise AIListingError(f"Gemini generation failed: {final_error}") from final_error
 
-    provider_log = "openrouter" if fallback_used else "gemini"
-    logger.info(
-        "ai_generate_succeeded design_id=%s provider=%s fallback_used=%s openrouter_ms=%d",
-        design_id,
-        provider_log,
-        fallback_used,
-        openrouter_ms,
-    )
     return normalized
+
+
+async def generate_listing_content(
+    *,
+    design: dict[str, Any],
+    platform: str,
+    current_metadata: Optional[dict[str, Any]] = None,
+    image_url: str = "",
+    image_bytes: Optional[bytes] = None,
+    image_mime_type: str = "",
+) -> dict[str, str]:
+    import asyncio
+    import logging
+    import time
+
+    from app.services.openrouter_service import generate_listing_openrouter
+
+    logger = logging.getLogger("podpilot.ai")
+    design_id = short_id(design.get("id"))
+    failures: list[tuple[str, Exception]] = []
+
+    logger.info(
+        "ai_generate_started design_id=%s platform=%s configured_provider=%s has_image=%s",
+        design_id,
+        platform,
+        AI_LISTING_PROVIDER,
+        bool(image_url or image_bytes),
+    )
+
+    async def try_openrouter(
+        *,
+        provider_label: str,
+        model: str,
+        timeout_seconds: float,
+        structured_output: bool,
+        require_tags_array: bool,
+    ) -> Optional[dict[str, str]]:
+        started_at = time.perf_counter()
+        try:
+            generation = generate_listing_openrouter(
+                design=design,
+                platform=platform,
+                current_metadata=current_metadata,
+                image_url=image_url,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                structured_output=structured_output,
+                require_tags_array=require_tags_array,
+                provider_label=provider_label,
+            )
+            result = (
+                await asyncio.wait_for(generation, timeout=timeout_seconds)
+                if provider_label == "openrouter_free"
+                else await generation
+            )
+            logger.info(
+                "ai_generate_succeeded design_id=%s ai_listing_provider=%s ai_listing_model=%s duration_ms=%d",
+                design_id,
+                provider_label,
+                model,
+                int((time.perf_counter() - started_at) * 1000),
+            )
+            return {
+                "title": result["title"],
+                "description": result["description"],
+                "main_tag": result["main_tag"],
+                "supporting_tags": result["supporting_tags"],
+            }
+        except Exception as error:
+            failures.append((provider_label, error))
+            logger.warning(
+                "ai_generate_provider_failed design_id=%s ai_listing_provider=%s ai_listing_model=%s duration_ms=%d error_type=%s",
+                design_id,
+                provider_label,
+                model,
+                int((time.perf_counter() - started_at) * 1000),
+                safe_error_type(error),
+            )
+            return None
+
+    # Preserve the existing paid OpenRouter -> Gemini provider order.
+    if AI_LISTING_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
+        result = await try_openrouter(
+            provider_label="openrouter",
+            model=OPENROUTER_MODEL,
+            timeout_seconds=60.0,
+            structured_output=False,
+            require_tags_array=False,
+        )
+        if result is not None:
+            return result
+
+    if GEMINI_API_KEY:
+        started_at = time.perf_counter()
+        try:
+            result = await _generate_listing_gemini(
+                design=design,
+                platform=platform,
+                current_metadata=current_metadata,
+                image_url=image_url,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+            )
+            logger.info(
+                "ai_generate_succeeded design_id=%s ai_listing_provider=gemini ai_listing_model=%s duration_ms=%d",
+                design_id,
+                AI_MODEL,
+                int((time.perf_counter() - started_at) * 1000),
+            )
+            return result
+        except Exception as error:
+            failures.append(("gemini", error))
+            logger.warning(
+                "ai_generate_provider_failed design_id=%s ai_listing_provider=gemini ai_listing_model=%s duration_ms=%d error_type=%s",
+                design_id,
+                AI_MODEL,
+                int((time.perf_counter() - started_at) * 1000),
+                safe_error_type(error),
+            )
+
+    # Emergency-only final fallback. It is never used for image generation or
+    # as the primary listing model, and is skipped unless explicitly enabled.
+    if ENABLE_OPENROUTER_FREE_FALLBACK and OPENROUTER_API_KEY:
+        result = await try_openrouter(
+            provider_label="openrouter_free",
+            model=OPENROUTER_FREE_FALLBACK_MODEL,
+            timeout_seconds=20.0,
+            structured_output=True,
+            require_tags_array=True,
+        )
+        if result is not None:
+            return result
+
+    logger.warning(
+        "ai_generate_failed design_id=%s providers_attempted=%s",
+        design_id,
+        ",".join(provider for provider, _ in failures) or "none",
+    )
+    raise AIListingError("AI listing generation is temporarily unavailable. Please try again.")
