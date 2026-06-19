@@ -13,6 +13,26 @@ class OpenRouterListingError(Exception):
     """Exception raised when OpenRouter listing generation fails."""
 
 
+LISTING_JSON_SCHEMA = {
+    "name": "podpilot_listing",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "main_tag": {"type": "string"},
+            "supporting_tags": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["title", "description", "main_tag", "supporting_tags"],
+        "additionalProperties": False,
+    },
+}
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
@@ -191,7 +211,7 @@ def _is_forbidden_tag(tag: str) -> bool:
 
 
 def _clean_and_normalize_metadata(
-    data: dict[str, Any], platform: str
+    data: dict[str, Any], platform: str, *, require_tags_array: bool = False
 ) -> dict[str, Any]:
     """Normalize and validate all fields, raising OpenRouterListingError on failure."""
     title = _stringify(data.get("title"))
@@ -199,7 +219,11 @@ def _clean_and_normalize_metadata(
     main_tag = _stringify(data.get("main_tag") or data.get("primary_tag"))
     
     # Extract raw supporting tags list
-    tags_val = data.get("supporting_tags") or data.get("tags") or []
+    tags_val = data.get("supporting_tags")
+    if tags_val is None:
+        tags_val = data.get("tags") or []
+    if require_tags_array and not isinstance(tags_val, list):
+        raise OpenRouterListingError("Supporting tags must be an array.")
     if isinstance(tags_val, str):
         raw_tags = [t.strip() for t in tags_val.split(",") if t.strip()]
     elif isinstance(tags_val, list):
@@ -277,6 +301,11 @@ async def generate_listing_openrouter(
     image_url: str = "",
     image_bytes: Optional[bytes] = None,
     image_mime_type: str = "",
+    model: str = "",
+    timeout_seconds: float = 60.0,
+    structured_output: bool = False,
+    require_tags_array: bool = False,
+    provider_label: str = "openrouter",
 ) -> dict[str, Any]:
     if not config.OPENROUTER_API_KEY:
         raise OpenRouterListingError("OpenRouter API key is not configured.")
@@ -307,8 +336,9 @@ async def generate_listing_openrouter(
             }
         })
 
+    selected_model = model or config.OPENROUTER_MODEL or "rekaai/reka-edge"
     payload = {
-        "model": config.OPENROUTER_MODEL or "rekaai/reka-edge",
+        "model": selected_model,
         "messages": [
             {
                 "role": "user",
@@ -318,6 +348,11 @@ async def generate_listing_openrouter(
         "temperature": 0.2,
         "max_tokens": 1024
     }
+    if structured_output:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": LISTING_JSON_SCHEMA,
+        }
 
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
@@ -332,7 +367,7 @@ async def generate_listing_openrouter(
     try:
         # First attempt
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     json=payload,
@@ -348,7 +383,16 @@ async def generate_listing_openrouter(
             if config.DEBUG:
                 logger.debug("openrouter_response_received chars=%d", len(content or ""))
             parsed = _parse_json_response(content)
-            normalized = _clean_and_normalize_metadata(parsed, platform)
+            normalized = _clean_and_normalize_metadata(
+                parsed,
+                platform,
+                require_tags_array=require_tags_array,
+            )
+            logger.info(
+                "ai_listing_provider=%s ai_listing_model=%s",
+                provider_label,
+                data.get("model") or selected_model,
+            )
         except Exception as first_error:
             if isinstance(first_error, OpenRouterListingError) and "AI provider authentication failed" in str(first_error):
                 raise first_error
@@ -371,7 +415,7 @@ async def generate_listing_openrouter(
                 })
             
             retry_payload = {
-                "model": config.OPENROUTER_MODEL or "rekaai/reka-edge",
+                "model": selected_model,
                 "messages": [
                     {
                         "role": "user",
@@ -382,7 +426,9 @@ async def generate_listing_openrouter(
                 "max_tokens": 1024
             }
             
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # Retry without response_format so routed free models that do not
+            # support structured outputs can still return repairable JSON.
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     json=retry_payload,
@@ -396,7 +442,16 @@ async def generate_listing_openrouter(
             if config.DEBUG:
                 logger.debug("openrouter_retry_response_received chars=%d", len(content or ""))
             parsed = _parse_json_response(content)
-            normalized = _clean_and_normalize_metadata(parsed, platform)
+            normalized = _clean_and_normalize_metadata(
+                parsed,
+                platform,
+                require_tags_array=require_tags_array,
+            )
+            logger.info(
+                "ai_listing_provider=%s ai_listing_model=%s",
+                provider_label,
+                data.get("model") or selected_model,
+            )
     except Exception as final_error:
         if isinstance(final_error, OpenRouterListingError):
             raise final_error

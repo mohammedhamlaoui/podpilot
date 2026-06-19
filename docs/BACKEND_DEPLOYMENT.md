@@ -75,6 +75,19 @@ chown root:root /etc/podpilot/backend.env
 
 Use `backend/.env.production.example` as the shape, but put the real values only in `/etc/podpilot/backend.env`.
 
+AI Listing has an optional emergency OpenRouter free fallback. It runs only
+after the normal listing providers fail and is disabled unless explicitly
+enabled:
+
+```env
+OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+ENABLE_OPENROUTER_FREE_FALLBACK=true
+OPENROUTER_FREE_FALLBACK_MODEL=openrouter/free
+```
+
+This fallback is not used for image generation. Keep the API key in the
+server-only env file.
+
 Security reminders:
 
 - Never commit `PADDLE_API_KEY`.
