@@ -366,7 +366,7 @@ export default function LandingPage({ theme, setTheme }) {
             </p>
             <div className="landing-hero-actions">
               <LandingButton>Start Free Trial</LandingButton>
-              <LandingButton href="/extension-download" variant="secondary" extensionIcon>Download Extension</LandingButton>
+              <LandingButton href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb" variant="secondary" extensionIcon>Download Extension</LandingButton>
             </div>
             <small>Built for POD sellers who prepare and upload designs in batches.</small>
           </div>
@@ -439,7 +439,7 @@ export default function LandingPage({ theme, setTheme }) {
           <h2>Ready to bulk upload POD designs with less copy-paste?</h2>
           <div className="landing-hero-actions">
             <LandingButton>Start Free Trial</LandingButton>
-            <LandingButton href="/extension-download" variant="secondary" extensionIcon>Download Extension</LandingButton>
+            <LandingButton href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb" variant="secondary" extensionIcon>Download Extension</LandingButton>
           </div>
         </div>
       </section>

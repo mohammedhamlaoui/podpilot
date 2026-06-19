@@ -102,7 +102,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
           </a>
 
           <a
-            href="https://podpilot.space/extension-download"
+            href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb"
             target="_blank"
             rel="noopener noreferrer"
             className="pp-header-btn"

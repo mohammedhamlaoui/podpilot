@@ -18,7 +18,7 @@ const faqItems = [
       <>
         You can get it directly from the Chrome Web Store at{" "}
         <a 
-          href="https://podpilot.space/extension-download" 
+          href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb"
           target="_blank" 
           rel="noopener noreferrer"
           style={{ color: "#7C3AED", textDecoration: "underline", fontWeight: 500 }}

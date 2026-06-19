@@ -105,7 +105,7 @@ export default function ThankYouPage() {
                   <ArrowRight size={16} />
                 </a>
                 <a 
-                  href="https://podpilot.space/extension-download" 
+                  href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb"
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="thank-you-action-link thank-you-download-link"
