@@ -32,8 +32,19 @@ const PLAN_LABELS = {
   all_platforms: "All Platforms",
 };
 
+function normalizeBillingSummary(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function displayString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
 function formatDate(value) {
   if (!value) return "Pending billing details";
+  if (!(value instanceof Date) && typeof value !== "string" && typeof value !== "number") {
+    return "Pending billing details";
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Pending billing details";
   return new Intl.DateTimeFormat(undefined, {
@@ -48,7 +59,8 @@ function formatStatus(status) {
 }
 
 function planName(summary) {
-  if (summary?.plan_label) return summary.plan_label;
+  const backendLabel = displayString(summary?.plan_label);
+  if (backendLabel) return backendLabel;
   const plan = String(summary?.plan || "").toLowerCase();
   return PLAN_LABELS[plan] ? `${PLAN_LABELS[plan]} Plan` : "No active plan";
 }
@@ -62,6 +74,7 @@ function inferBillingCycle(summary) {
 
 function formatMoney(value, currency = "USD") {
   if (value === undefined || value === null || value === "") return "Pending billing details";
+  if (typeof value !== "string" && typeof value !== "number") return "Pending billing details";
   const numeric = Number(value);
   if (Number.isNaN(numeric)) return String(value);
   try {
@@ -76,7 +89,8 @@ function formatMoney(value, currency = "USD") {
 }
 
 function subscriptionPrice(summary) {
-  if (summary?.price_display) return summary.price_display;
+  const backendPrice = displayString(summary?.price_display);
+  if (backendPrice) return backendPrice;
   const amount =
     summary?.price ||
     summary?.amount ||
@@ -113,11 +127,12 @@ function getPayments(summary) {
     summary?.transactions,
     summary?.recent_payments,
   ];
-  return candidates.find((value) => Array.isArray(value)) || [];
+  const payments = candidates.find((value) => Array.isArray(value)) || [];
+  return payments.filter((payment) => payment && typeof payment === "object" && !Array.isArray(payment));
 }
 
 function paymentAmount(payment) {
-  return payment.amount || payment.total || payment.price || formatMoney(payment.value, payment.currency);
+  return payment?.amount || payment?.total || payment?.price || formatMoney(payment?.value, payment?.currency);
 }
 
 function statusTone(status) {
@@ -192,7 +207,7 @@ export default function BillingSubscriptionsPage({
   initialSubscription = null,
   initialPlatformAccess = null,
 }) {
-  const [summary, setSummary] = useState(initialSubscription);
+  const [summary, setSummary] = useState(() => normalizeBillingSummary(initialSubscription));
   const [platformAccess, setPlatformAccess] = useState(initialPlatformAccess);
   const [loading, setLoading] = useState(!initialSubscription);
   const [error, setError] = useState("");
@@ -207,7 +222,7 @@ export default function BillingSubscriptionsPage({
         getMySubscription(),
         getMyPlatformAccess().catch(() => initialPlatformAccess),
       ]);
-      setSummary(nextSummary || null);
+      setSummary(normalizeBillingSummary(nextSummary));
       setPlatformAccess(nextAccess || null);
     } catch (err) {
       console.warn("[Billing] details load failed:", err?.message || err);
