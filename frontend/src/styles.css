@@ -1650,6 +1650,13 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .pp-dash-manage-btn svg { width: 16px; height: 16px; }
 /* ── Marketplace view ────────────────────────────────────────────────────── */
 .pp-marketplace-view { display: flex; flex-direction: column; gap: 20px; }
+
+/* Route visibility must win over marketplace layout declarations. Keeping the
+   inactive workspace mounted preserves unsaved, file-backed editor drafts. */
+.pp-marketplace-view[hidden],
+.pp-marketplace-view [hidden] {
+  display: none !important;
+}
 /* ── Login page ──────────────────────────────────────────────────────────── */
 .login-page { display: grid; place-items: center; min-height: 100vh; background: #f5f7fb; }
 .login-card { width: min(440px, calc(100% - 32px)); padding: 32px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
