@@ -480,7 +480,7 @@ class CheckoutRequest(BaseModel):
     credit_pack_id: Optional[str] = None
 
 
-TRIAL_DAYS = 3
+TRIAL_DAYS = 7
 
 
 def _normalize_checkout_plan(plan_key: str) -> str:
@@ -699,7 +699,7 @@ def get_checkout_price_id(
         selected_price_id=resolved_id,
     )
 
-    button_label = "Start 3-day free trial" if trial_eligible else "Subscribe now"
+    button_label = "Start 7-day free trial" if trial_eligible else "Subscribe now"
     return {
         "intent_type": "subscription",
         "plan_key": plan,

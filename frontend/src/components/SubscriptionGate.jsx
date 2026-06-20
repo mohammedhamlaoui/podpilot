@@ -29,7 +29,7 @@ const PLAN_CARDS = [
     name: "Redbubble Plan",
     price: "$4.99",
     perks: [
-      "3-day free trial",
+      "7-day free trial",
       "Unlimited Redbubble uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -43,7 +43,7 @@ const PLAN_CARDS = [
     name: "All Platforms Plan",
     price: "$6.99",
     perks: [
-      "3-day free trial",
+      "7-day free trial",
       "Unlimited Redbubble + TeePublic uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -58,7 +58,7 @@ const PLAN_CARDS = [
     name: "TeePublic Plan",
     price: "$4.99",
     perks: [
-      "3-day free trial",
+      "7-day free trial",
       "Unlimited TeePublic uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -408,7 +408,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
       <div className="pp-locked-card">
         <div className="pp-locked-head">
           <h1>Choose a plan to continue</h1>
-          <p>{trialEligible ? "Start your 3-day free trial to unlock PodPilot." : "Choose a plan to unlock PodPilot."}</p>
+          <p>{trialEligible ? "Start your 7-day free trial to unlock PodPilot." : "Choose a plan to unlock PodPilot."}</p>
           <small className="pp-locked-note">{reason}</small>
         </div>
 
@@ -443,7 +443,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
                   aria-busy={isLoading || undefined}
                 >
                   {isLoading && <Spinner size="sm" className="pp-spinner-on-button" />}
-                  <span>{isLoading ? "Opening checkout..." : (trialEligible ? "Start 3-day trial" : "Subscribe now")}</span>
+                  <span>{isLoading ? "Opening checkout..." : (trialEligible ? "Start 7-day trial" : "Subscribe now")}</span>
                 </button>
                 {!trialEligible && (
                   <small className="pp-locked-note">Free trial already used on this device or network.</small>

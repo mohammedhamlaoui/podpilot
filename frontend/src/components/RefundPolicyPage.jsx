@@ -12,16 +12,16 @@ const refundSections = [
     ],
   },
   {
-    title: "2. The 3-Day Free Trial",
+    title: "2. The 7-Day Free Trial",
     body: [
-      "All new subscription plans (Redbubble, TeePublic, and All Platforms) include an unconditional 3-day free trial. This trial is intended to give you full operational access to test the browser extension automation and web dashboard workflow in your own browser.",
-      "If you cancel your subscription before the end of the 3-day trial period, you will not be charged. It is the user's responsibility to cancel before the trial concludes if they choose not to continue with a paid subscription.",
+      "Trial-eligible customers can start a 7-day free trial on any new subscription plan (Redbubble, TeePublic, or All Platforms). This trial gives you full operational access to test the browser extension automation and web dashboard workflow in your own browser.",
+      "If you cancel your subscription before the end of the 7-day trial period, you will not be charged. It is the user's responsibility to cancel before the trial concludes if they choose not to continue with a paid subscription.",
     ],
   },
   {
     title: "3. paid Subscriptions & Cancellation",
     body: [
-      "After the 3-day trial period concludes, your selected billing cycle (monthly or annual) will initiate, and your payment method will be charged through our secure merchant of record, Paddle.",
+      "After the 7-day trial period concludes, your selected billing cycle (monthly or annual) will initiate, and your payment method will be charged through our secure merchant of record, Paddle.",
       "You can cancel your subscription at any time. When you cancel, your access to advanced platform tools, upload limits, and daily AI listing tokens will remain active and unrestricted until the end of your current paid billing period. No further renewal charges will be made.",
     ],
   },
@@ -89,7 +89,7 @@ export default function RefundPolicyPage() {
           <p>Effective Date: May 2026</p>
           <div className="privacy-note" style={{ background: "rgba(124,58,237,0.05)", border: "1px solid rgba(124,58,237,0.15)", borderRadius: "8px", padding: "1rem", display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "1rem" }}>
             <FileText size={18} strokeWidth={2.2} style={{ color: "#7C3AED" }} />
-            <span style={{ fontSize: "0.9rem" }}>PodPilot includes a 3-day free trial so you can test the product before being billed. Paid payments are generally non-refundable except as required by law.</span>
+            <span style={{ fontSize: "0.9rem" }}>Trial-eligible customers can try PodPilot free for 7 days before being billed. Paid payments are generally non-refundable except as required by law.</span>
           </div>
         </div>
       </section>

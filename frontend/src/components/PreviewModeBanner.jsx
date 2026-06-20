@@ -14,7 +14,7 @@ export default function PreviewModeBanner({ trialEligibility = null }) {
         <strong>Your workspace is in preview mode</strong>
         <span>
           {trialEligible
-            ? "Start your 3-day free trial to import designs, run AI tools, and upload to Redbubble or TeePublic."
+            ? "Start your 7-day free trial to import designs, run AI tools, and upload to Redbubble or TeePublic."
             : "Choose a plan to unlock PodPilot."}
         </span>
       </div>

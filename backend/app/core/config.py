@@ -134,7 +134,7 @@ PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
 # production. Do not hardcode real Paddle IDs in the repository.
 #
 # Legacy PADDLE_*_PRICE_ID values are kept as backward-compatible aliases for
-# the monthly 3-day-trial prices. Legacy PADDLE_*_PAID_PRICE_ID values are
+# the monthly 7-day-trial prices. Legacy PADDLE_*_PAID_PRICE_ID values are
 # kept as aliases for monthly no-trial prices.
 PADDLE_REDBUBBLE_PRICE_ID = _optional("PADDLE_REDBUBBLE_PRICE_ID", "")
 PADDLE_TEEPUBLIC_PRICE_ID = _optional("PADDLE_TEEPUBLIC_PRICE_ID", "")
@@ -158,7 +158,7 @@ AI_TOKEN_PACKS = {
 }
 
 # Explicit monthly and annual subscription price IDs. The *_TRIAL_* IDs should
-# point to Paddle prices with trial_period=3 days. The non-trial IDs should
+# point to Paddle prices with trial_period=7 days. The non-trial IDs should
 # point to otherwise identical Paddle prices with trial_period=null.
 PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID = _optional(
     "PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID",

@@ -265,7 +265,7 @@ export default function CheckoutPage({ theme, setTheme }) {
   const billingInfo = planInfo[billing] || planInfo.annual;
   const isTrialEligible = !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
   const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
-  const checkoutButtonLabel = checkoutConfig?.button_label || (isTrialEligible ? "Start 3-day free trial" : "Subscribe now");
+  const checkoutButtonLabel = checkoutConfig?.button_label || (isTrialEligible ? "Start 7-day free trial" : "Subscribe now");
   const trialDays = Number(checkoutConfig?.trial_days || 0);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
   if (CHECKOUT_DEBUG) {
@@ -505,7 +505,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                   {isTrialEligible && (
                     <div className="checkout-trial-badge">
                       <Sparkles size={14} className="animate-pulse" />
-                      <span>{trialDays || 3}-Day Free Trial Included</span>
+                      <span>{trialDays || 7}-Day Free Trial Included</span>
                     </div>
                   )}
                   {checkoutConfigError && (
@@ -515,7 +515,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                   )}
                   <p className="checkout-billing-note">
                     {isTrialEligible
-                      ? `3 days free, then ${billingInfo.total} ${billing === "annual" ? "annually" : "monthly"}.`
+                      ? `${trialDays || 7} days free, then ${billingInfo.total} ${billing === "annual" ? "annually" : "monthly"}.`
                       : `You will be charged ${billingInfo.total} today.`}
                   </p>
                 </div>
@@ -563,7 +563,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                             <td className="text-right">{billingInfo.subtotal}</td>
                           </tr>
                           <tr>
-                            <td>Free Trial (3 Days)</td>
+                            <td>Free Trial ({trialDays || 7} Days)</td>
                             <td className="text-right" style={{ color: "#10B981", fontWeight: 700 }}>
                               -{billingInfo.subtotal}
                             </td>

@@ -429,7 +429,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
               const disabled = (Boolean(checkoutPlan) && !isLoading) || !isConfigured;
 
               const yearlyTotal = plan.planId === "all_platforms" ? "$69.90" : "$49.90";
-              const subscribeLabel = showTrialOffer ? "Start 3-day free trial" : "Subscribe now";
+              const subscribeLabel = showTrialOffer ? "Start 7-day free trial" : "Subscribe now";
               const buttonText = isAnnual
                 ? (!isAnnualPaddleConfigured(plan.planId)
                     ? "Coming soon"
@@ -528,7 +528,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                     boxShadow: plan.featured ? "0 4px 12px rgba(124, 58, 237, 0.08)" : "none"
                     }}>
                       <Gift size={16} className="animate-pulse" style={{ color: "var(--accent, #7c3aed)", flexShrink: 0 }} />
-                      <span>3-day free trial included</span>
+                      <span>7-day free trial included</span>
                     </div>
                   )}
 
