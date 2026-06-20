@@ -245,6 +245,43 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     return ""
 
 
+def paddle_billing_cycle_for_price_id(price_id: str) -> str:
+    """Map a configured Paddle subscription price id to its billing cycle."""
+    pid = (price_id or "").strip()
+    if not pid:
+        return ""
+
+    annual_ids = {
+        PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
+        PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+        PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
+        PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
+    }
+    monthly_ids = {
+        PADDLE_REDBUBBLE_PRICE_ID,
+        PADDLE_TEEPUBLIC_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_PRICE_ID,
+        PADDLE_REDBUBBLE_PAID_PRICE_ID,
+        PADDLE_TEEPUBLIC_PAID_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_PAID_PRICE_ID,
+        PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
+        PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+        PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
+        PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
+        PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
+    }
+    annual_ids.discard("")
+    monthly_ids.discard("")
+    if pid in annual_ids:
+        return "annual"
+    if pid in monthly_ids:
+        return "monthly"
+    return ""
+
+
 def paddle_price_has_trial(price_id: str) -> bool:
     """Return true when a price ID matches one of the configured trial prices."""
     pid = (price_id or "").strip()

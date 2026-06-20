@@ -49,6 +49,24 @@ PLATFORM_ACCESS_BY_PLAN = {
     "all_platforms": {"redbubble": True, "teepublic": True},
 }
 
+PLAN_LABELS = {
+    "redbubble": "Redbubble Plan",
+    "teepublic": "TeePublic Plan",
+    "all_platforms": "All Platforms Plan",
+}
+
+# Public catalog amounts used only to describe a subscription whose Paddle
+# price id has already been persisted by the webhook. Paddle remains the
+# authority for charging; this mapping never creates or changes a checkout.
+PLAN_BILLING_CATALOG = {
+    ("redbubble", "monthly"): {"amount": 4.99, "monthly_equivalent": 4.99},
+    ("redbubble", "annual"): {"amount": 49.90, "monthly_equivalent": 4.16},
+    ("teepublic", "monthly"): {"amount": 4.99, "monthly_equivalent": 4.99},
+    ("teepublic", "annual"): {"amount": 49.90, "monthly_equivalent": 4.16},
+    ("all_platforms", "monthly"): {"amount": 6.99, "monthly_equivalent": 6.99},
+    ("all_platforms", "annual"): {"amount": 69.90, "monthly_equivalent": 5.83},
+}
+
 SUBSCRIPTION_REQUIRED_DETAIL = "Subscription required. Start your free trial to use this feature."
 PLATFORM_LOCKED_DETAIL = "This platform is locked for your current plan. Please upgrade."
 TRIAL_ALREADY_USED_DETAIL = "Free trial already used. Please choose a paid plan to continue."
@@ -79,6 +97,47 @@ def get_current_month_key() -> str:
 
 def get_plan_limit(plan: str) -> Optional[int]:
     return PLAN_LIMITS.get(normalize_plan(plan))
+
+
+def _money_display(amount: float) -> str:
+    return f"${amount:,.2f}"
+
+
+def get_subscription_billing_details(subscription: dict[str, Any]) -> dict[str, Any]:
+    """Return display-safe billing metadata derived from a persisted row."""
+    plan = normalize_plan(subscription.get("plan"))
+    paddle_price_id = _as_iso(subscription.get("paddle_price_id")) or ""
+    mapped_plan = config.paddle_plan_for_price_id(paddle_price_id)
+    if mapped_plan in PLAN_LIMITS:
+        plan = mapped_plan
+
+    billing_cycle = config.paddle_billing_cycle_for_price_id(paddle_price_id)
+    if not billing_cycle:
+        stored_cycle = str(subscription.get("billing_cycle") or "").strip().lower()
+        if stored_cycle in {"monthly", "annual"}:
+            billing_cycle = stored_cycle
+
+    catalog = PLAN_BILLING_CATALOG.get((plan, billing_cycle))
+    details: dict[str, Any] = {
+        "plan": plan or None,
+        "plan_label": PLAN_LABELS.get(plan, "Pending plan details"),
+        "billing_cycle": billing_cycle or None,
+        "paddle_price_id": paddle_price_id or None,
+        "currency": "USD" if catalog else None,
+        "price": catalog["amount"] if catalog else None,
+        "price_display": None,
+        "monthly_equivalent_display": None,
+    }
+    if catalog:
+        amount = float(catalog["amount"])
+        monthly_equivalent = float(catalog["monthly_equivalent"])
+        details["price_display"] = (
+            f"{_money_display(amount)} annually"
+            if billing_cycle == "annual"
+            else f"{_money_display(amount)} / month"
+        )
+        details["monthly_equivalent_display"] = f"{_money_display(monthly_equivalent)} / month"
+    return details
 
 
 def _raise_supabase_error(action: str, error: Exception) -> None:
@@ -1248,6 +1307,17 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         daily_used = 0
 
     daily_remaining = max(daily_limit - daily_used, 0)
+    billing_details = get_subscription_billing_details(subscription)
+    resolved_plan = billing_details.get("plan") or plan
+    resolved_access = PLATFORM_ACCESS_BY_PLAN.get(resolved_plan or "", {}) if is_active else {}
+    next_payment_date = (
+        _as_iso(subscription.get("trial_ends_at")) or current_period_ends_at
+        if status == "trialing"
+        else current_period_ends_at
+    )
+    billing_status = status
+    if status in ACTIVE_UPLOAD_STATUSES and not is_active:
+        billing_status = "expired"
 
     return {
         "subscription_loaded": True,
@@ -1255,8 +1325,9 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         "has_subscription": True,
         "has_active_subscription": is_active,
         "trial_active": trial_active,
-        "plan": plan,
+        **billing_details,
         "status": status,
+        "billing_status": billing_status,
         "monthly_upload_limit": monthly_limit,
         "uploaded_count": uploaded_count,
         "remaining_uploads": remaining_uploads,
@@ -1266,9 +1337,20 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         "current_period_ends_at": current_period_ends_at,
         "current_period_end": current_period_ends_at,
         "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
+        "next_payment_date": next_payment_date,
+        "renewal_behavior": (
+            "ends_at_period_close"
+            if bool(subscription.get("cancel_at_period_end") or False)
+            else "renews_automatically" if is_active else "not_renewing"
+        ),
+        "platform_access": [
+            platform for platform in ("redbubble", "teepublic")
+            if resolved_access.get(platform)
+        ],
         "paddle_customer_id": _as_iso(subscription.get("paddle_customer_id")),
         "paddle_subscription_id": _as_iso(subscription.get("paddle_subscription_id")),
         "ai_tokens": ai_tokens_val,
+        "extra_ai_tokens": ai_tokens_val,
         "daily_ai_tokens": daily_tokens,
         "daily_ai_tokens_limit": daily_limit,
         "daily_ai_tokens_used": daily_used,

@@ -23,6 +23,7 @@ const STATUS_LABELS = {
   cancelled: "Canceled",
   past_due: "Past due",
   paused: "Paused",
+  expired: "Expired",
 };
 
 const PLAN_LABELS = {
@@ -32,9 +33,9 @@ const PLAN_LABELS = {
 };
 
 function formatDate(value) {
-  if (!value) return "Not available";
+  if (!value) return "Pending billing details";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not available";
+  if (Number.isNaN(date.getTime())) return "Pending billing details";
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -47,6 +48,7 @@ function formatStatus(status) {
 }
 
 function planName(summary) {
+  if (summary?.plan_label) return summary.plan_label;
   const plan = String(summary?.plan || "").toLowerCase();
   return PLAN_LABELS[plan] ? `${PLAN_LABELS[plan]} Plan` : "No active plan";
 }
@@ -55,11 +57,11 @@ function inferBillingCycle(summary) {
   const cycle = String(summary?.billing_cycle || summary?.billingCycle || "").toLowerCase();
   if (cycle === "annual" || cycle === "yearly") return "Annual";
   if (cycle === "monthly") return "Monthly";
-  return "Not available";
+  return "Pending billing details";
 }
 
 function formatMoney(value, currency = "USD") {
-  if (value === undefined || value === null || value === "") return "Not available";
+  if (value === undefined || value === null || value === "") return "Pending billing details";
   const numeric = Number(value);
   if (Number.isNaN(numeric)) return String(value);
   try {
@@ -74,16 +76,26 @@ function formatMoney(value, currency = "USD") {
 }
 
 function subscriptionPrice(summary) {
+  if (summary?.price_display) return summary.price_display;
   const amount =
     summary?.price ||
     summary?.amount ||
     summary?.subscription_price ||
     summary?.unit_price ||
     summary?.recurring_amount;
-  return formatMoney(amount, summary?.currency);
+  const formatted = formatMoney(amount, summary?.currency);
+  if (formatted === "Pending billing details") return formatted;
+  const cycle = String(summary?.billing_cycle || "").toLowerCase();
+  if (cycle === "annual") return `${formatted} annually`;
+  if (cycle === "monthly") return `${formatted} / month`;
+  return formatted;
 }
 
 function platformAccessLabel(access, summary) {
+  const backendAccess = Array.isArray(summary?.platform_access) ? summary.platform_access : [];
+  if (backendAccess.includes("redbubble") && backendAccess.includes("teepublic")) return "All Platforms";
+  if (backendAccess.includes("redbubble")) return "Redbubble";
+  if (backendAccess.includes("teepublic")) return "TeePublic";
   const plan = String(summary?.plan || access?.plan || "").toLowerCase();
   if (plan === "all_platforms") return "All Platforms";
   if (access?.redbubble && access?.teepublic) return "All Platforms";
@@ -209,7 +221,7 @@ export default function BillingSubscriptionsPage({
     void loadBilling();
   }, [loadBilling]);
 
-  const status = String(summary?.status || "inactive").toLowerCase();
+  const status = String(summary?.billing_status || summary?.status || "inactive").toLowerCase();
   const hasSubscription = Boolean(summary?.has_subscription);
   const hasActiveSubscription = Boolean(
     summary?.has_active_subscription ||
@@ -223,7 +235,10 @@ export default function BillingSubscriptionsPage({
   const dailyRemaining = Number(summary?.daily_ai_tokens_remaining ?? summary?.daily_ai_tokens ?? 0);
   const dailyUsed = Number(summary?.daily_ai_tokens_used ?? Math.max(dailyLimit - dailyRemaining, 0));
   const dailyPercent = dailyLimit > 0 ? Math.min(100, Math.max(0, Math.round((dailyUsed / dailyLimit) * 100))) : 0;
-  const extraTokens = Number(summary?.ai_tokens || 0);
+  const extraTokens = Number(summary?.extra_ai_tokens ?? summary?.ai_tokens ?? 0);
+  const backendPlatformAccess = Array.isArray(summary?.platform_access) ? summary.platform_access : [];
+  const redbubbleAccess = Boolean(platformAccess?.redbubble || backendPlatformAccess.includes("redbubble"));
+  const teepublicAccess = Boolean(platformAccess?.teepublic || backendPlatformAccess.includes("teepublic"));
   const platformLabel = platformAccessLabel(platformAccess, summary);
   const isEmptySubscription = !hasSubscription || !hasActiveSubscription;
 
@@ -280,7 +295,9 @@ export default function BillingSubscriptionsPage({
     ["Price", subscriptionPrice(summary)],
     ["Trial end date", status === "trialing" ? formatDate(summary?.trial_ends_at) : "Not applicable"],
     ["Next payment date", formatDate(summary?.next_payment_date || summary?.current_period_ends_at || summary?.current_period_end)],
-    ["Renewal", summary?.cancel_at_period_end ? "Ends at period close" : "Renews automatically"],
+    ["Renewal", summary?.renewal_behavior === "ends_at_period_close" || summary?.cancel_at_period_end
+      ? "Ends at period close"
+      : summary?.renewal_behavior === "not_renewing" ? "Not renewing" : "Renews automatically"],
   ];
 
   return (
@@ -341,8 +358,8 @@ export default function BillingSubscriptionsPage({
               <p>{platformLabel}</p>
             </div>
             <div className="billing-platform-list">
-              <PlatformPill active={Boolean(platformAccess?.redbubble)} label="Redbubble" />
-              <PlatformPill active={Boolean(platformAccess?.teepublic)} label="TeePublic" />
+              <PlatformPill active={redbubbleAccess} label="Redbubble" />
+              <PlatformPill active={teepublicAccess} label="TeePublic" />
             </div>
           </div>
         </section>
@@ -454,7 +471,7 @@ export default function BillingSubscriptionsPage({
                       Open
                     </a>
                   ) : (
-                    <span>Not available</span>
+                    <span>Receipt unavailable</span>
                   )}
                 </div>
               ))}

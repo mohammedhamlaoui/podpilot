@@ -651,7 +651,10 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
         "cancel_at_period_end": cancel_at_period_end,
         "billing_anchor": billing_anchor,
     }
-    billing_cycle = _extract_billing_cycle(custom)
+    billing_cycle = (
+        config.paddle_billing_cycle_for_price_id(paddle_price_id or "")
+        or _extract_billing_cycle(custom)
+    )
     if billing_cycle and _subscription_column_exists("billing_cycle"):
         payload["billing_cycle"] = billing_cycle
     # Drop None values so we don't overwrite existing valid columns with
