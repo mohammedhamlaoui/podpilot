@@ -1028,8 +1028,6 @@ export default function DesignManager({
     );
   }
 
-  const matchedCount = designs.filter((design) => findImageForDesign(design, uploadedImages)).length;
-  const missingCount = Math.max(designs.length - matchedCount, 0);
   const editingDesign = editingId && editingId !== "new"
     ? designs.find((design) => design.id === editingId)
     : null;
@@ -2036,29 +2034,6 @@ export default function DesignManager({
             <span>Add New</span>
           </button>
         </div>
-      </div>
-
-      <div className="manager-stats">
-        <article>
-          <span>Total Designs</span>
-          <strong>{designs.length}</strong>
-          <small>{uploadedImages.length} images available</small>
-        </article>
-        <article>
-          <span>Matched</span>
-          <strong>{matchedCount}</strong>
-          <small>ready for upload queue</small>
-        </article>
-        <article>
-          <span>Missing</span>
-          <strong>{missingCount}</strong>
-          <small>need image review</small>
-        </article>
-        <article>
-          <span>Selected</span>
-          <strong>{selectedIds.length}</strong>
-          <small>bulk actions prepared</small>
-        </article>
       </div>
 
       {editingId === "new" && typeof onEditorOpen !== "function" && (

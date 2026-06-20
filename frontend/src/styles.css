@@ -1743,11 +1743,6 @@ body { background: var(--pp-bg); }
 .manager-actions .primary-button { background: var(--pp-accent); }
 .manager-actions .primary-button:hover:not(:disabled) { background: var(--pp-accent-strong); }
 .manager-actions .secondary-button { border-color: var(--pp-border); }
-/* ── Hide broken stats block ─────────────────────────────────────────────── */
-/* The "Total Designs22 images available" raw text was the unstyled
-   .manager-stats block. We hide it cleanly here — the real stats live on
-   the Dashboard. */
-.manager-stats { display: none; }
 /* ── Manager toolbar ─────────────────────────────────────────────────────── */
 .manager-toolbar {
   margin-top: 4px;
@@ -8823,20 +8818,6 @@ button.copy-link-open .pp-spinner-on-button {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.marketplace-manager .manager-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.marketplace-manager .manager-stats article {
-  min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--pp-border, #e5e7eb);
-  border-radius: 14px;
-  background: #fbfcfe;
-  box-shadow: var(--pp-shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.04));
-}
-.marketplace-manager .manager-stats span,
 .marketplace-manager .search-field span {
   display: block;
   color: var(--pp-text-muted, #64748b);
@@ -8844,22 +8825,6 @@ button.copy-link-open .pp-spinner-on-button {
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-.marketplace-manager .manager-stats strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--pp-text, #0f172a);
-  font-size: 24px;
-  font-weight: 750;
-  line-height: 1;
-}
-.marketplace-manager .manager-stats small {
-  display: block;
-  margin-top: 7px;
-  color: var(--pp-text-muted, #64748b);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.35;
 }
 .marketplace-manager .manager-toolbar {
   align-items: end;
@@ -9090,9 +9055,6 @@ button.copy-link-open .pp-spinner-on-button {
   background: #eef2f7;
 }
 @media (max-width: 980px) {
-  .marketplace-manager .manager-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .marketplace-manager .manager-header,
   .marketplace-import .import-title-row {
     align-items: flex-start;
@@ -9110,7 +9072,6 @@ button.copy-link-open .pp-spinner-on-button {
   .marketplace-import .preview-card {
     padding: 16px;
   }
-  .marketplace-manager .manager-stats,
   .marketplace-manager .manager-toolbar,
   .marketplace-import .import-status-row {
     grid-template-columns: 1fr;
@@ -11344,14 +11305,6 @@ button.copy-link-open .pp-spinner-on-button {
 }
 
 /* Fix Broken White Blocks globally */
-[data-theme="dark"] .marketplace-manager .manager-stats article {
-  background: var(--card-bg) !important;
-  border: 1px solid var(--border-color) !important;
-  box-shadow: var(--shadow-card) !important;
-}
-[data-theme="dark"] .marketplace-manager .manager-stats strong {
-  color: var(--text-primary) !important;
-}
 [data-theme="dark"] .marketplace-manager .empty-state,
 [data-theme="dark"] .marketplace-import .empty-state {
   background: var(--empty-state-bg) !important;
