@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const WHATSAPP_NUMBER = "212708280092";
+const WHATSAPP_NUMBER = "212752403965";
 const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
 
 export default function WhatsAppFloatingButton() {
