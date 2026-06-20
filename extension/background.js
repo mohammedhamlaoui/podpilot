@@ -55,6 +55,7 @@ const DEFAULT_STATE = {
   completedDesignIds: {},
   failedDesignIds: {},
   terminalHandled: {},
+  statusSyncEvents: {},
   processingDesignId: null,
   currentDesignId: null,
   processingStartedForCurrentDesign: false,
@@ -1821,7 +1822,10 @@ function getDuplicateUrl(copyLink) {
  */
 async function postDesignStatus(designId, payload) {
   if (!designId) return null;
-  if (!self.PodPilotAuth) return null;
+  if (!self.PodPilotAuth) {
+    await recordUploadStatusSync(designId, payload, false, "Extension authentication is unavailable.");
+    return null;
+  }
 
   const body = JSON.stringify(payload);
   const maxAttempts = 3;
@@ -1832,24 +1836,57 @@ async function postDesignStatus(designId, payload) {
         `/designs/${encodeURIComponent(designId)}/status`,
         { method: "POST", body }
       );
-      if (response.ok) return await response.json();
+      if (response.ok) {
+        const updatedDesign = await response.json();
+        await recordUploadStatusSync(designId, payload, true, "", updatedDesign);
+        return updatedDesign;
+      }
       if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
         console.warn("[PodPilot] postDesignStatus rejected:", response.status);
+        await recordUploadStatusSync(designId, payload, false, `Backend rejected the status update (${response.status}).`);
         return null;
       }
     } catch (error) {
       if (error instanceof self.PodPilotAuth.ApiAuthError) {
         try { chrome.runtime.sendMessage({ action: "auth_required" }, () => { void chrome.runtime.lastError; }); } catch (_) {}
+        await recordUploadStatusSync(designId, payload, false, "Authentication is required to save the upload status.");
         return null;
       }
       if (attempt === maxAttempts) {
         console.warn("postDesignStatus failed after retries:", error?.message || error);
+        await recordUploadStatusSync(designId, payload, false, "Could not save the upload status after retries.");
         return null;
       }
     }
     await new Promise((r) => setTimeout(r, backoffMs));
   }
+  await recordUploadStatusSync(designId, payload, false, "Could not save the upload status after retries.");
   return null;
+}
+
+async function recordUploadStatusSync(designId, payload, succeeded, errorMessage = "", updatedDesign = null) {
+  const state = await getQueueState();
+  const cleanDesignId = String(designId || "").trim();
+  const queuedDesign = state.queue.find((design) => String(design.id || design.design_id || "").trim() === cleanDesignId);
+  const platform = String(queuedDesign?.marketplace || updatedDesign?.marketplace || state.marketplace || "redbubble").toLowerCase();
+  const status = String(updatedDesign?.status || payload?.status || "").toLowerCase();
+  const statusSyncEvents = normalizeIdMap(state.statusSyncEvents);
+  const eventKey = `${platform}:${cleanDesignId}`;
+
+  console.info(`[PodPilot Upload Status] updating platform=${platform} designId=${cleanDesignId} status=${status}`);
+  statusSyncEvents[eventKey] = {
+    platform,
+    designId: cleanDesignId,
+    status,
+    error_message: updatedDesign?.error_message || payload?.error_message || "",
+    backend_state: succeeded ? "success" : "failed",
+    backend_error: succeeded ? "" : (errorMessage || "Could not save the upload status."),
+    updated_at: new Date().toISOString(),
+  };
+  await setQueueState({ statusSyncEvents });
+
+  if (succeeded) console.info("[PodPilot Upload Status] backend update success");
+  else console.error("[PodPilot Upload Status] backend update failed");
 }
 
 async function postUploadSessionItemStatus(sessionId, designId, status, errorMessage = "") {
@@ -2192,6 +2229,7 @@ async function getQueueState() {
     completedDesignIds: normalizeIdMap(stored.completedDesignIds),
     failedDesignIds: normalizeIdMap(stored.failedDesignIds),
     terminalHandled: normalizeIdMap(stored.terminalHandled),
+    statusSyncEvents: normalizeIdMap(stored.statusSyncEvents),
     processingDesignId: stored.processingDesignId || null,
     currentDesignId: stored.currentDesignId || null,
     processingStartedForCurrentDesign: stored.processingStartedForCurrentDesign === true,

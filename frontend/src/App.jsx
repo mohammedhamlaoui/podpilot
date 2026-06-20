@@ -249,6 +249,22 @@ function getMarketplaceSetter(marketplace, redbubbleSetter, teepublicSetter) {
   return marketplace === "teepublic" ? teepublicSetter : redbubbleSetter;
 }
 
+const ACTIVE_EXTENSION_QUEUE_STATUSES = new Set(["starting", "running", "paused"]);
+
+function normalizeExtensionUploadStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (["running", "in_progress", "uploading"].includes(status)) return "uploading";
+  if (["done", "success", "uploaded"].includes(status)) return "uploaded";
+  if (["error", "failed", "skipped"].includes(status)) return "failed";
+  if (["not_uploaded", "pending", "queued", "preparing", "ready"].includes(status)) return "not_uploaded";
+  return "";
+}
+
+function normalizeUploadPlatform(value) {
+  const platform = String(value || "").trim().toLowerCase();
+  return DESIGN_MARKETPLACES.includes(platform) ? platform : "";
+}
+
 function readEditorIndex(marketplace) {
   try {
     const value = Number(sessionStorage.getItem(EDITOR_INDEX_KEYS[marketplace]));
@@ -542,6 +558,9 @@ export default function App() {
   const hasLoadedDesigns = useRef(false);
   const previousUserIdRef = useRef("");
   const designRefreshRequestsRef = useRef(new Map());
+  const uploadStatusRowSignaturesRef = useRef(new Map());
+  const uploadStatusEventSignaturesRef = useRef(new Map());
+  const uploadStatusFailedSyncRef = useRef(new Set());
   const subscriptionRequestRef = useRef(0);
   const subscriptionSnapshotRef = useRef({
     loaded: false,
@@ -579,6 +598,9 @@ export default function App() {
     hasStartedInitialDesignLoad.current = false;
     hasLoadedDesigns.current = false;
     designRefreshRequestsRef.current.clear();
+    uploadStatusRowSignaturesRef.current.clear();
+    uploadStatusEventSignaturesRef.current.clear();
+    uploadStatusFailedSyncRef.current.clear();
     setRedbubbleDesigns([]);
     setTeepublicDesigns([]);
     setIsLoadingDesigns(false);
@@ -600,6 +622,9 @@ export default function App() {
       hasStartedInitialDesignLoad.current = false;
       hasLoadedDesigns.current = false;
       designRefreshRequestsRef.current.clear();
+      uploadStatusRowSignaturesRef.current.clear();
+      uploadStatusEventSignaturesRef.current.clear();
+      uploadStatusFailedSyncRef.current.clear();
       setRedbubbleDesigns([]);
       setTeepublicDesigns([]);
       setPlatformAccess(DEFAULT_PLATFORM_ACCESS);
@@ -868,11 +893,52 @@ export default function App() {
 
   useEffect(() => { refreshDesigns(); }, [refreshDesigns]);
 
-  // Poll every 30s while extension is available; refreshes stay quiet after the initial load.
+  // Read the extension's local queue frequently while an upload is active. This is a
+  // local browser message (not backend polling), so rows can update promptly without
+  // increasing API traffic. A backend refresh still runs once when the queue settles.
   useEffect(() => {
     if (!isAuthenticated || !EXTENSION_ID.trim() || !window.chrome?.runtime?.sendMessage) return undefined;
     let cancelled = false;
+    let timerId = null;
+    let inFlight = false;
+    let previousQueueStatus = "";
+
+    const updateDesignRow = (platform, designId, status, errorMessage = "") => {
+      const cleanPlatform = normalizeUploadPlatform(platform);
+      const cleanDesignId = String(designId || "").trim();
+      const cleanStatus = normalizeExtensionUploadStatus(status);
+      if (!cleanPlatform || !cleanDesignId || !cleanStatus) return;
+
+      const signatureKey = `${cleanPlatform}:${cleanDesignId}`;
+      const signature = `${cleanStatus}:${errorMessage || ""}`;
+      if (uploadStatusRowSignaturesRef.current.get(signatureKey) === signature) return;
+      uploadStatusRowSignaturesRef.current.set(signatureKey, signature);
+
+      console.info("[PodPilot Upload Status] status update received");
+      console.info(`[PodPilot Upload Status] updating platform=${cleanPlatform} designId=${cleanDesignId} status=${cleanStatus}`);
+      setMarketplaceDesigns(cleanPlatform, (current) => {
+        let changed = false;
+        const next = current.map((design) => {
+          const rowId = String(design.id || design.design_id || "").trim();
+          if (rowId !== cleanDesignId) return design;
+          const nextError = cleanStatus === "failed" ? (errorMessage || design.error_message || "") : "";
+          if (design.status === cleanStatus && (design.error_message || "") === nextError) return design;
+          changed = true;
+          return { ...design, status: cleanStatus, error_message: nextError };
+        });
+        return changed ? next : current;
+      });
+    };
+
+    const scheduleNext = (delay) => {
+      if (cancelled) return;
+      if (timerId) window.clearTimeout(timerId);
+      timerId = window.setTimeout(tick, delay);
+    };
+
     const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
         const ext = await new Promise((resolve) => {
           window.chrome.runtime.sendMessage(EXTENSION_ID, { action: "get_status" }, (response) => {
@@ -880,17 +946,86 @@ export default function App() {
             resolve(response || { ok: false });
           });
         });
-        const status = ext?.state?.status;
-        if ((status === "running" || status === "paused") && !cancelled) {
-          await refreshDesigns({ force: true, reason: "extension-poll" });
-        } else if (status === "idle" && !cancelled) {
-          await refreshDesigns({ reason: "extension-idle" });
+
+        const extensionState = ext?.state;
+        if (!ext?.ok || !extensionState || cancelled) return;
+        const queueStatus = String(extensionState.status || "idle").toLowerCase();
+        const queuePlatform = normalizeUploadPlatform(extensionState.marketplace);
+
+        const queueIsActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(queueStatus);
+        (Array.isArray(extensionState.queue) ? extensionState.queue : []).forEach((item) => {
+          const itemStatus = normalizeExtensionUploadStatus(item.status);
+          // save_designs initializes idle queue entries as pending; those are not
+          // upload events and must never overwrite persisted table statuses.
+          if (!queueIsActive && itemStatus === "not_uploaded") return;
+          updateDesignRow(
+            item.marketplace || queuePlatform,
+            item.id || item.design_id,
+            itemStatus,
+            item.error_message || item.error || "",
+          );
+        });
+
+        const syncEvents = Object.values(extensionState.statusSyncEvents || {});
+        syncEvents.forEach((event) => {
+          const platform = normalizeUploadPlatform(event?.platform);
+          const designId = String(event?.designId || event?.design_id || "").trim();
+          if (!platform || !designId) return;
+          const eventKey = `${platform}:${designId}`;
+          const eventSignature = `${event.updated_at || ""}:${event.backend_state || ""}:${event.status || ""}`;
+          if (uploadStatusEventSignaturesRef.current.get(eventKey) === eventSignature) return;
+          uploadStatusEventSignaturesRef.current.set(eventKey, eventSignature);
+
+          updateDesignRow(platform, designId, event.status, event.error_message || "");
+          if (event.backend_state === "success") {
+            uploadStatusFailedSyncRef.current.delete(eventKey);
+            console.info("[PodPilot Upload Status] backend update success");
+          } else if (event.backend_state === "failed") {
+            uploadStatusFailedSyncRef.current.add(eventKey);
+            console.error("[PodPilot Upload Status] backend update failed");
+            setDashboardToast({
+              type: "error",
+              message: event.backend_error || "Upload status changed, but it could not be saved. Please try Refresh.",
+            });
+          }
+        });
+
+        const wasActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(previousQueueStatus);
+        const isActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(queueStatus);
+        const platformHasFailedSync = queuePlatform && Array.from(uploadStatusFailedSyncRef.current)
+          .some((key) => key.startsWith(`${queuePlatform}:`));
+        if (wasActive && !isActive && !platformHasFailedSync && queuePlatform) {
+          void refreshDesigns({
+            force: true,
+            marketplaces: [queuePlatform],
+            preserveCurrent: true,
+            reason: "extension-complete",
+          });
         }
-      } catch (_) {}
+        previousQueueStatus = queueStatus;
+      } catch (error) {
+        console.warn("[PodPilot Upload Status] extension status check failed:", error?.message || error);
+      } finally {
+        inFlight = false;
+        const isActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(previousQueueStatus);
+        const isPlatformPage = activeRoute === "redbubble" || activeRoute === "teepublic";
+        scheduleNext(isActive ? 1500 : (isPlatformPage ? 10000 : 30000));
+      }
     };
-    const intervalId = window.setInterval(tick, 30000);
-    return () => { cancelled = true; window.clearInterval(intervalId); };
-  }, [isAuthenticated, refreshDesigns]);
+
+    const checkNow = () => {
+      if (document.visibilityState === "visible") scheduleNext(0);
+    };
+    void tick();
+    window.addEventListener("focus", checkNow);
+    document.addEventListener("visibilitychange", checkNow);
+    return () => {
+      cancelled = true;
+      if (timerId) window.clearTimeout(timerId);
+      window.removeEventListener("focus", checkNow);
+      document.removeEventListener("visibilitychange", checkNow);
+    };
+  }, [activeRoute, isAuthenticated, refreshDesigns, setMarketplaceDesigns]);
 
   // Sync designs to extension
   useEffect(() => {
