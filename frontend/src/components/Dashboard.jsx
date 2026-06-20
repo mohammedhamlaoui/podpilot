@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import Icon from "./Icon";
 import AiCreditsDashboardCard from "./AiCreditsDashboardCard";
 import ThemeToggle from "./ThemeToggle";
-import StorageNoticeBell from "./StorageNoticeBell";
 import { getPricingUrl } from "../lib/subscriptionAccess";
 
 function percent(uploaded, total) {
@@ -88,7 +87,6 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
           <p>{isLoading ? "Loading dashboard..." : "Overview of your designs across all platforms"}</p>
         </div>
         <div className="pp-dash-header-right">
-          <StorageNoticeBell />
           <AiCreditsHeaderPill summary={subscriptionSummary} />
           
           <a

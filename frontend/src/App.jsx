@@ -28,7 +28,6 @@ import EmailConfirmedPage from "./components/EmailConfirmedPage";
 import ExtensionAuthSuccess from "./components/ExtensionAuthSuccess";
 import NotFoundPage from "./components/NotFoundPage";
 import ThankYouPage from "./components/ThankYouPage";
-import StorageNoticeModal from "./components/StorageNoticeModal";
 import PreviewModeBanner from "./components/PreviewModeBanner";
 import { EXTENSION_ID } from "./config";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
@@ -1269,7 +1268,6 @@ export default function App() {
 
   return (
     <>
-      <StorageNoticeModal />
       <div className={`pp-app theme-${theme}`}>
         <Sidebar
           activeRoute={activeRoute}
