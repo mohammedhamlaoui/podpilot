@@ -218,6 +218,11 @@ export default function DesignManager({
   onImagesUploaded,
   onRefreshFromBackend,
   onEditDesign,
+  editorMode = false,
+  editorKind = "",
+  onEditorOpen,
+  onBackToDesigns,
+  designsLoaded = false,
   autoOpenCreate = false,
   createSignal = 0,
   userId = "",
@@ -394,6 +399,7 @@ export default function DesignManager({
     setActiveTab("Info");
     setAiResult(null);
     setAiError("");
+    onEditorOpen?.("create");
     console.log("[PodPilot] Add New opened for marketplace teepublic");
   }
 
@@ -578,6 +584,13 @@ export default function DesignManager({
     }
   }, [autoOpenCreate, createSignal]);
 
+  useEffect(() => {
+    if (!editorMode || editingId || isLoading || !designsLoaded) return;
+    if (editorKind === "create") {
+      startAdd();
+    }
+  }, [designsLoaded, editingId, editorKind, editorMode, isLoading]);
+
   // ── Close 3-dot menu on outside click / scroll / Escape ─────────────────
   useEffect(() => {
     if (!openActionId) return undefined;
@@ -618,7 +631,7 @@ export default function DesignManager({
     });
   }
 
-  function cancelEdit(silent = false) {
+  function cancelEdit(silent = false, navigateBack = true) {
     // Only show the leave-warning when the user explicitly navigates away,
     // NOT when this is called programmatically after a successful save.
     // Create-session local drafts are tracked in createImageIds / sessionImages;
@@ -635,6 +648,7 @@ export default function DesignManager({
     setAiError("");
     setCreateImageReplacements({});
     setClearedCreateImageIds(new Set());
+    if (navigateBack) onBackToDesigns?.();
   }
 
   async function saveDesign(event) {
@@ -1487,13 +1501,13 @@ export default function DesignManager({
     }
   }
 
-  if (editingId === "new") {
+  if (editorMode && editingId === "new") {
     return (
       <section className="workflow-panel manager-panel create-page">
         <div className="create-page-header">
           <div>
             <h2>Create TeePublic Design</h2>
-            <button type="button" className="secondary-button" onClick={cancelEdit}>
+            <button type="button" className="secondary-button" onClick={onBackToDesigns}>
               <Icon name="chevronLeft" />
               <span>Back to Designs</span>
             </button>
@@ -2327,7 +2341,7 @@ export default function DesignManager({
           // Redirect to the full TeePublicEditor instead of inline edit
           const idx = designs.findIndex((d) => d.id === editingId);
           if (idx >= 0) {
-            setTimeout(() => { cancelEdit(); onEditDesign(idx); }, 0);
+            setTimeout(() => { cancelEdit(true, false); onEditDesign(idx); }, 0);
           }
           return null;
         })()

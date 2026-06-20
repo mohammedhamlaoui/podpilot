@@ -208,6 +208,10 @@ const SUBSCRIPTION_POLL_ATTEMPTS = 2;
 const CHECKOUT_QUERY_KEY = "checkout";
 const CHECKOUT_QUERY_VALUE = "success";
 const DESIGN_MARKETPLACES = ["redbubble", "teepublic"];
+const EDITOR_INDEX_KEYS = {
+  redbubble: "podpilot:redbubble:selectedDesignIndex",
+  teepublic: "podpilot:teepublic:selectedDesignIndex",
+};
 const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
@@ -245,6 +249,23 @@ function getMarketplaceSetter(marketplace, redbubbleSetter, teepublicSetter) {
   return marketplace === "teepublic" ? teepublicSetter : redbubbleSetter;
 }
 
+function readEditorIndex(marketplace) {
+  try {
+    const value = Number(sessionStorage.getItem(EDITOR_INDEX_KEYS[marketplace]));
+    return Number.isInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeEditorIndex(marketplace, index) {
+  try {
+    sessionStorage.setItem(EDITOR_INDEX_KEYS[marketplace], String(Math.max(0, Number(index) || 0)));
+  } catch {
+    // Draft navigation still works in memory if session storage is unavailable.
+  }
+}
+
 function designDedupeKeys(design, marketplace) {
   if (!design) return [];
   const keys = [];
@@ -258,6 +279,11 @@ function designDedupeKeys(design, marketplace) {
 
 function designDedupeKey(design, marketplace) {
   return designDedupeKeys(design, marketplace)[0] || "";
+}
+
+function isLocalDraftDesign(design) {
+  const id = String(design?.id || "");
+  return id.startsWith("local_") || id.startsWith("temp_") || Boolean(design?.local_id || design?.tempId);
 }
 
 function findExistingDedupeKey(aliasToKey, aliases) {
@@ -346,24 +372,26 @@ function SubscriptionHydrationScreen({ error, onRetry, isRetrying }) {
 
 function readRouteFromLocation() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
-  if (!path) return { route: "dashboard", tab: "designs" };
-  if (path === "reset-password") return { route: "dashboard", tab: "designs" };
-  if (path === "subscription") return { route: "billing", tab: "designs" };
+  if (!path) return { route: "dashboard", tab: "designs", editor: false };
+  if (path === "reset-password") return { route: "dashboard", tab: "designs", editor: false };
+  if (path === "subscription") return { route: "billing", tab: "designs", editor: false };
   const [first, second] = path.split("/");
   if (first === "dashboard") {
     const nestedRoute = VALID_ROUTES.includes(second) ? second : "dashboard";
     const nestedTab = VALID_TABS.includes(path.split("/")[2]) ? path.split("/")[2] : "designs";
-    return { route: nestedRoute, tab: nestedTab };
+    return { route: nestedRoute, tab: nestedTab, editor: false };
   }
   const route = VALID_ROUTES.includes(first) ? first : "dashboard";
+  const editor = isPlatformRoute(route) && second === "editor";
   const tab = VALID_TABS.includes(second) ? second : "designs";
-  return { route, tab };
+  return { route, tab, editor };
 }
 
-function buildPath(route, tab) {
+function buildPath(route, tab, editorPlatform = "") {
   const safeRoute = VALID_ROUTES.includes(route) ? route : "dashboard";
   const safeTab = VALID_TABS.includes(tab) ? tab : "designs";
   if (safeRoute === "dashboard") return "/dashboard";
+  if (editorPlatform === safeRoute && isPlatformRoute(safeRoute)) return `/${safeRoute}/editor`;
   if (safeTab === "designs") return `/${safeRoute}`;
   return `/${safeRoute}/${safeTab}`;
 }
@@ -412,7 +440,7 @@ function isValidRoute(pathname) {
   if (first === "redbubble" || first === "teepublic") {
     if (segments.length === 1) return true;
     if (segments.length === 2) {
-      return segments[1] === "import" || segments[1] === "designs";
+      return segments[1] === "import" || segments[1] === "designs" || segments[1] === "editor";
     }
     return false;
   }
@@ -435,6 +463,11 @@ export default function App() {
   const initialRoute = readRouteFromLocation();
   const [activeRoute, setActiveRoute] = useState(initialRoute.route);
   const [activeTab, setActiveTab] = useState(initialRoute.tab);
+  const [editorPlatform, setEditorPlatform] = useState(initialRoute.editor ? initialRoute.route : "");
+  const [editorKinds, setEditorKinds] = useState(() => ({
+    redbubble: initialRoute.editor && initialRoute.route === "redbubble" ? "design" : "",
+    teepublic: initialRoute.editor && initialRoute.route === "teepublic" ? "design" : "",
+  }));
 
   // Prevent crawlers from indexing private app and checkout routes.
   useEffect(() => {
@@ -495,7 +528,8 @@ export default function App() {
   const [subscriptionUserId, setSubscriptionUserId] = useState("");
   const [trialEligibility, setTrialEligibility] = useState(null);
   const [isLoadingPlatformAccess, setIsLoadingPlatformAccess] = useState(true);
-  const [tpEditorIndex, setTpEditorIndex] = useState(-1);
+  const [rbEditorIndex, setRbEditorIndex] = useState(() => readEditorIndex("redbubble"));
+  const [tpEditorIndex, setTpEditorIndex] = useState(() => initialRoute.editor && initialRoute.route === "teepublic" ? readEditorIndex("teepublic") : -1);
   const [dashboardToast, setDashboardToast] = useState(null);
   const [uploadControlPrompt, setUploadControlPrompt] = useState({
     visible: false,
@@ -727,7 +761,12 @@ export default function App() {
           setMarketplaceDesigns(marketplace, (current) => mergeDesignCollections(current, freshDesigns, marketplace));
           await mergeCachedDesigns(userId, marketplace, freshDesigns);
         } else {
-          setMarketplaceDesigns(marketplace, freshDesigns);
+          setMarketplaceDesigns(marketplace, (current) => {
+            const localDrafts = current.filter(isLocalDraftDesign);
+            return localDrafts.length > 0
+              ? mergeDesignCollections(freshDesigns, localDrafts, marketplace, { prepend: true })
+              : freshDesigns;
+          });
           await setCachedDesigns(userId, marketplace, freshDesigns);
         }
         hasLoadedDesigns.current = true;
@@ -906,7 +945,7 @@ export default function App() {
     ) {
       return;
     }
-    const target = buildPath(activeRoute, activeTab);
+    const target = buildPath(activeRoute, activeTab, editorPlatform);
     const current = window.location.pathname + window.location.search + window.location.hash;
     const currentNoSearch = window.location.pathname;
     if (activeRoute === "billing" && currentNoSearch === "/subscription") {
@@ -920,19 +959,44 @@ export default function App() {
     // We intentionally use replaceState so the browser back button still works
     // for top-level page changes via the navigation handler (which pushes).
     void current;
-  }, [activeRoute, activeTab, isPasswordRecovery]);
+  }, [activeRoute, activeTab, editorPlatform, isPasswordRecovery]);
 
   // Respond to browser back/forward navigation
   useEffect(() => {
-    function onPopState() {
+    function onPopState(event) {
       const next = readRouteFromLocation();
       setActiveRoute(next.route);
       setActiveTab(next.tab);
-      setTpEditorIndex(-1);
+      setEditorPlatform(next.editor ? next.route : "");
+      if (next.editor) {
+        const historyKind = event.state?.editorKind;
+        const historyIndex = Number(event.state?.selectedDesignIndex);
+        if (Number.isInteger(historyIndex) && historyIndex >= 0) {
+          if (next.route === "teepublic") setTpEditorIndex(historyIndex);
+          else setRbEditorIndex(historyIndex);
+        }
+        setEditorKinds((current) => ({
+          ...current,
+          [next.route]: historyKind === "create" || historyKind === "design"
+            ? historyKind
+            : current[next.route] || "design",
+        }));
+      }
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (editorPlatform !== "teepublic" || editorKinds.teepublic !== "design") return;
+    if (isLoadingDesigns || !hasLoadedDesigns.current) return;
+    if (teepublicDesigns.length === 0) {
+      handleEditorUnavailable("teepublic");
+      return;
+    }
+    const safeIndex = Math.max(0, Math.min(tpEditorIndex, teepublicDesigns.length - 1));
+    if (safeIndex !== tpEditorIndex) setTpEditorIndex(safeIndex);
+  }, [editorKinds.teepublic, editorPlatform, isLoadingDesigns, teepublicDesigns.length, tpEditorIndex]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1094,7 +1158,7 @@ export default function App() {
   function handleNavigate(route) {
     setActiveRoute(route);
     setActiveTab("designs");
-    setTpEditorIndex(-1);
+    setEditorPlatform("");
     const target = buildPath(route, "designs");
     if (window.location.pathname !== target) {
       window.history.pushState(null, "", target);
@@ -1103,10 +1167,50 @@ export default function App() {
 
   function handleTabChange(nextTab) {
     setActiveTab(nextTab);
+    setEditorPlatform("");
     const target = buildPath(activeRoute, nextTab);
     if (window.location.pathname !== target) {
       window.history.pushState(null, "", target);
     }
+  }
+
+  function handleOpenEditor(platform, kind = "design", index = null) {
+    if (!isPlatformRoute(platform)) return;
+    if (Number.isInteger(index) && index >= 0) {
+      writeEditorIndex(platform, index);
+      if (platform === "teepublic") setTpEditorIndex(index);
+      else setRbEditorIndex(index);
+    }
+    setEditorKinds((current) => ({ ...current, [platform]: kind }));
+    setActiveRoute(platform);
+    setActiveTab("designs");
+    setEditorPlatform(platform);
+    const target = buildPath(platform, "designs", platform);
+    if (window.location.pathname !== target) {
+      window.history.pushState({ editorPlatform: platform, editorKind: kind, selectedDesignIndex: Number.isInteger(index) ? index : 0 }, "", target);
+    } else {
+      window.history.replaceState({ editorPlatform: platform, editorKind: kind, selectedDesignIndex: Number.isInteger(index) ? index : 0 }, "", target);
+    }
+  }
+
+  function handleBackToDesigns(platform) {
+    setActiveRoute(platform);
+    setActiveTab("designs");
+    setEditorPlatform("");
+    const target = buildPath(platform, "designs");
+    if (window.location.pathname !== target) window.history.pushState({ editorPlatform: "", editorKind: "" }, "", target);
+  }
+
+  function handleEditorUnavailable(platform) {
+    setEditorKinds((current) => ({ ...current, [platform]: "" }));
+    setDashboardToast({
+      type: "info",
+      message: `No ${platform === "teepublic" ? "TeePublic" : "Redbubble"} design is available to edit. Add or import a design first.`,
+    });
+    setActiveRoute(platform);
+    setActiveTab("designs");
+    setEditorPlatform("");
+    window.history.replaceState(null, "", buildPath(platform, "designs"));
   }
 
   async function handleSignOut() {
@@ -1252,9 +1356,8 @@ export default function App() {
   }
 
   // ── Marketplace-specific state ────────────────────────────────────────────
-  const marketplace = activeRoute === "teepublic" ? "teepublic" : "redbubble";
-  const activeDesigns = marketplace === "teepublic" ? teepublicDesigns : redbubbleDesigns;
-  const activeImages = deriveImagesFromDesigns(activeDesigns);
+  const redbubbleImages = deriveImagesFromDesigns(redbubbleDesigns);
+  const teepublicImages = deriveImagesFromDesigns(teepublicDesigns);
   const subscriptionFlags = getSubscriptionFlags(subscriptionSummary, subscriptionLoaded);
   const workspaceLocked = subscriptionFlags.isWorkspaceLocked;
   const activePlatformLocked = (
@@ -1264,6 +1367,8 @@ export default function App() {
     isPlatformRoute(activeRoute) &&
     !platformAccess?.[activeRoute]
   );
+  const redbubbleLocked = subscriptionLoaded && !subscriptionLoading && !isLoadingPlatformAccess && !platformAccess?.redbubble;
+  const teepublicLocked = subscriptionLoaded && !subscriptionLoading && !isLoadingPlatformAccess && !platformAccess?.teepublic;
   debugSubscriptionLog(`route decision route=${activeRoute} workspaceLocked=${workspaceLocked} platformLocked=${activePlatformLocked}`);
 
   return (
@@ -1332,85 +1437,101 @@ export default function App() {
         )}
 
         {/* Redbubble — direct to designs, import opens inline */}
-        {activeRoute === "redbubble" && (
-          <div className={`pp-marketplace-view${activePlatformLocked ? " is-workspace-locked" : ""}`}>
+        {(
+          <div hidden={activeRoute !== "redbubble"} className={`pp-marketplace-view${redbubbleLocked ? " is-workspace-locked" : ""}`}>
             {isLoadingPlatformAccess || isLoadingDesigns ? (
               <div className="pp-loading"><strong>Loading Redbubble access...</strong></div>
-            ) : activeTab === "import" ? (
+            ) : activeRoute === "redbubble" && activeTab === "import" ? (
               <ImportDesigns
                 onImportComplete={handleImportComplete}
                 onBackToDesigns={() => handleTabChange("designs")}
                 existingDesigns={redbubbleDesigns}
-                isWorkspaceLocked={activePlatformLocked}
+                isWorkspaceLocked={redbubbleLocked}
                 onLockedAction={openPricing}
               />
             ) : (
               <>
                 <DesignManager
                   designs={redbubbleDesigns}
-                  uploadedImages={activeImages}
+                  uploadedImages={redbubbleImages}
                   onDesignsChange={setRedbubbleDesignsCached}
-                  onImportClick={() => activePlatformLocked ? openPricing() : handleTabChange("import")}
-                  onUploadImagesClick={() => activePlatformLocked ? openPricing() : setShowImagesPanel((c) => !c)}
+                  onImportClick={() => redbubbleLocked ? openPricing() : handleTabChange("import")}
+                  onUploadImagesClick={() => redbubbleLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                   onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })}
                   onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "manual-refresh" })}
+                  editorMode={editorPlatform === "redbubble"}
+                  editorKind={editorKinds.redbubble}
+                  selectedDesignIndex={rbEditorIndex}
+                  onSelectedDesignIndexChange={(index) => { setRbEditorIndex(index); writeEditorIndex("redbubble", index); }}
+                  onEditorOpen={(kind, index) => handleOpenEditor("redbubble", kind, index)}
+                  onBackToDesigns={() => handleBackToDesigns("redbubble")}
+                  onEditorUnavailable={() => handleEditorUnavailable("redbubble")}
+                  designsLoaded={hasLoadedDesigns.current}
                   userId={user?.id || ""}
                   isLoading={isLoadingDesigns}
-                  isWorkspaceLocked={activePlatformLocked}
+                  isWorkspaceLocked={redbubbleLocked}
                   onLockedAction={openPricing}
                 />
-                {showImagesPanel && <ImageGrid designs={redbubbleDesigns} uploadedImages={activeImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={activePlatformLocked} onLockedAction={openPricing} />}
+                {editorPlatform !== "redbubble" && showImagesPanel && <ImageGrid designs={redbubbleDesigns} uploadedImages={redbubbleImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={redbubbleLocked} onLockedAction={openPricing} />}
               </>
             )}
           </div>
         )}
 
         {/* TeePublic — direct to designs, import opens inline */}
-        {activeRoute === "teepublic" && (
-          <div className={`pp-marketplace-view${activePlatformLocked ? " is-workspace-locked" : ""}`}>
+        {(
+          <div hidden={activeRoute !== "teepublic"} className={`pp-marketplace-view${teepublicLocked ? " is-workspace-locked" : ""}`}>
             {isLoadingPlatformAccess || isLoadingDesigns ? (
               <div className="pp-loading"><strong>Loading TeePublic access...</strong></div>
-            ) : activeTab === "import" ? (
+            ) : activeRoute === "teepublic" && activeTab === "import" ? (
               <TeePublicImport
                 onImportComplete={handleImportComplete}
                 onBackToDesigns={() => handleTabChange("designs")}
                 existingDesigns={teepublicDesigns}
-                isWorkspaceLocked={activePlatformLocked}
+                isWorkspaceLocked={teepublicLocked}
                 onLockedAction={openPricing}
               />
             ) : (
               <>
-                {tpEditorIndex >= 0 ? (
-                  <TeePublicEditor
+                {tpEditorIndex >= 0 && (
+                  <div hidden={editorPlatform !== "teepublic" || editorKinds.teepublic !== "design"}>
+                    <TeePublicEditor
                     designs={teepublicDesigns}
                     activeIndex={tpEditorIndex}
-                    onActiveIndexChange={setTpEditorIndex}
+                    onActiveIndexChange={(index) => { setTpEditorIndex(index); writeEditorIndex("teepublic", index); }}
                     onDesignsChange={setTeepublicDesignsCached}
-                    onBack={() => setTpEditorIndex(-1)}
-                    uploadedImages={activeImages}
+                    onBack={() => handleBackToDesigns("teepublic")}
+                    uploadedImages={teepublicImages}
                     userId={user?.id || ""}
-                    isWorkspaceLocked={activePlatformLocked}
+                    isWorkspaceLocked={teepublicLocked}
                     onLockedAction={openPricing}
                   />
-                ) : (
+                  </div>
+                )}
+                <div hidden={editorPlatform === "teepublic" && editorKinds.teepublic === "design"}>
                   <>
                     <TeePublicDesignManager
                       designs={teepublicDesigns}
-                      uploadedImages={activeImages}
+                      uploadedImages={teepublicImages}
                       onDesignsChange={setTeepublicDesignsCached}
-                      onImportClick={() => activePlatformLocked ? openPricing() : handleTabChange("import")}
-                      onUploadImagesClick={() => activePlatformLocked ? openPricing() : setShowImagesPanel((c) => !c)}
+                      onImportClick={() => teepublicLocked ? openPricing() : handleTabChange("import")}
+                      onUploadImagesClick={() => teepublicLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                       onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })}
                       onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "manual-refresh" })}
-                      onEditDesign={(index) => setTpEditorIndex(index)}
+                      onEditDesign={(index) => handleOpenEditor("teepublic", "design", index)}
+                      editorMode={editorPlatform === "teepublic"}
+                      editorKind={editorKinds.teepublic}
+                      onEditorOpen={(kind) => handleOpenEditor("teepublic", kind)}
+                      onBackToDesigns={() => handleBackToDesigns("teepublic")}
+                      designsLoaded={hasLoadedDesigns.current}
                       userId={user?.id || ""}
                       isLoading={isLoadingDesigns}
-                      isWorkspaceLocked={activePlatformLocked}
+                      isWorkspaceLocked={teepublicLocked}
                       onLockedAction={openPricing}
                     />
-                    {showImagesPanel && <ImageGrid designs={teepublicDesigns} uploadedImages={activeImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={activePlatformLocked} onLockedAction={openPricing} />}
+                    {editorPlatform !== "teepublic" && showImagesPanel && <ImageGrid designs={teepublicDesigns} uploadedImages={teepublicImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={teepublicLocked} onLockedAction={openPricing} />}
                   </>
-                )}
+                </div>
               </>
             )}
           </div>

@@ -169,6 +169,14 @@ export default function DesignManager({
   onUploadImagesClick,
   onImagesUploaded,
   onRefreshFromBackend,
+  editorMode = false,
+  editorKind = "",
+  selectedDesignIndex = 0,
+  onSelectedDesignIndexChange,
+  onEditorOpen,
+  onBackToDesigns,
+  onEditorUnavailable,
+  designsLoaded = false,
   autoOpenCreate = false,
   createSignal = 0,
   userId = "",
@@ -663,6 +671,7 @@ export default function DesignManager({
     setCreateImageIds([]);
     setActiveCreateIndex(0);
     setCreateDrafts({});
+    onEditorOpen?.("create", 0);
     console.log("[PodPilot] Add New opened for marketplace redbubble");
   }
 
@@ -910,6 +919,20 @@ export default function DesignManager({
     }
   }, [autoOpenCreate, createSignal]);
 
+  useEffect(() => {
+    if (!editorMode || editingId || isLoading || !designsLoaded) return;
+    if (editorKind === "create") {
+      startAdd();
+      return;
+    }
+    if (designs.length === 0) {
+      onEditorUnavailable?.();
+      return;
+    }
+    const safeIndex = Math.max(0, Math.min(selectedDesignIndex || 0, designs.length - 1));
+    startEdit(designs[safeIndex]);
+  }, [designs, designsLoaded, editingId, editorKind, editorMode, isLoading, selectedDesignIndex]);
+
   // ── Close 3-dot menu on outside click / scroll / Escape ─────────────────
   useEffect(() => {
     if (!openActionId) return undefined;
@@ -967,6 +990,9 @@ export default function DesignManager({
       sticker_color: design.sticker_color || "",
       stickers_color_enabled: design.stickers_color_enabled || "Off"
     });
+    const index = designs.findIndex((item) => item.id === design.id);
+    onSelectedDesignIndexChange?.(index >= 0 ? index : 0);
+    onEditorOpen?.("design", index >= 0 ? index : 0);
   }
 
   function cancelEdit(silent = false) {
@@ -994,6 +1020,7 @@ export default function DesignManager({
     resetImageReplacementState();
     setCreateImageReplacements({});
     setClearedCreateImageIds(new Set());
+    onBackToDesigns?.();
   }
 
   async function saveDesign(event) {
@@ -1915,13 +1942,13 @@ export default function DesignManager({
     }
   }
 
-  if (editingId === "new") {
+  if (editorMode && editingId === "new") {
     return (
       <section className="workflow-panel manager-panel create-page">
         <div className="create-page-header">
           <div>
             <h2>Create Redbubble Design</h2>
-            <button type="button" className="secondary-button" onClick={cancelEdit}>
+            <button type="button" className="secondary-button" onClick={onBackToDesigns}>
               <Icon name="chevronLeft" />
               <span>Back to Designs</span>
             </button>
@@ -2299,12 +2326,12 @@ export default function DesignManager({
     );
   }
 
-  if (editingId && editingId !== "new") {
+  if (editorMode && editingId && editingId !== "new") {
     return (
       <section className="workflow-panel manager-panel edit-page redbubble-edit-page">
         <div className="create-page-header">
           <div>
-            <button type="button" className="secondary-button" onClick={cancelEdit}>
+            <button type="button" className="secondary-button" onClick={onBackToDesigns}>
               <Icon name="chevronLeft" />
               <span>Back to Designs</span>
             </button>

@@ -1245,18 +1245,8 @@ export default function TeePublicEditor({
   }
 
   function handleBack() {
-    const hasLocalDrafts = designs.some((d) => isLocalId(d.id));
-    if (hasLocalDrafts) {
-      const ok = window.confirm("You have unsaved designs. Leave without saving?");
-      if (!ok) return;
-      designs.filter((d) => isLocalId(d.id)).forEach(revokeLocalDraftPreview);
-      onDesignsChange(designs.filter((d) => !isLocalId(d.id)));
-    }
-    resetImageReplacementState();
     setAiMenuOpen(false);
     setTrademarkMenuOpen(false);
-    setIsGeneratingAll(false);
-    setGeneratingAllError("");
     onBack();
   }
 
