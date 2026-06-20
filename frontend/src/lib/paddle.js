@@ -240,7 +240,7 @@ export function resolvePaddlePriceId(plan) {
 /**
  * Open Paddle checkout for the given plan id, including subscription plans
  * and AI credit packs resolved by the backend checkout endpoint.
- * Returns a promise that resolves once the checkout overlay is opened.
+ * Returns a promise that resolves once Paddle accepts the checkout open call.
  *
  * Optional callbacks fire later, asynchronously, when Paddle reports
  * lifecycle events:
@@ -310,6 +310,15 @@ export async function openPaddleCheckout({
 
   mode = mode || displayMode;
   priceId = resolvedPriceId;
+  if (mode === "inline") {
+    // Price IDs are public Paddle identifiers. Never log the client token.
+    // eslint-disable-next-line no-console
+    console.info("[Paddle Checkout] initializing inline checkout");
+    // eslint-disable-next-line no-console
+    console.info("[Paddle Checkout] price id", resolvedPriceId);
+    // eslint-disable-next-line no-console
+    console.info("[Paddle Checkout] environment", PADDLE_CONFIG.environment);
+  }
   if (PADDLE_DEBUG) {
     logPaddleDebug("openPaddleCheckout called", {
       mode,
@@ -335,9 +344,11 @@ export async function openPaddleCheckout({
     throw error;
   }
 
-  if (typeof onCheckoutComplete === "function" || typeof onCheckoutClosed === "function" || typeof onEvent === "function") {
-    PADDLE_LISTENERS.add({ onCheckoutComplete, onCheckoutClosed, onEvent });
-  }
+  const listener = { onCheckoutComplete, onCheckoutClosed, onEvent };
+  const hasListener = typeof onCheckoutComplete === "function"
+    || typeof onCheckoutClosed === "function"
+    || typeof onEvent === "function";
+  if (hasListener) PADDLE_LISTENERS.add(listener);
 
   // customData is round-tripped to Paddle webhooks, which is how the
   // backend maps a Paddle subscription back to the Supabase user_id.
@@ -389,7 +400,10 @@ export async function openPaddleCheckout({
         countryCode: checkoutCustomer?.address?.countryCode || "",
       });
     }
-    if (mode === "inline" && frameTarget) {
+    if (mode === "inline") {
+      if (!frameTarget) {
+        throw new Error("Inline checkout container target is missing.");
+      }
       if (PADDLE_DEBUG) {
         // eslint-disable-next-line no-console
         console.log("[Paddle] opening inline checkout");
@@ -397,7 +411,7 @@ export async function openPaddleCheckout({
       paddle.Checkout.open({
         settings: checkoutSettings({
           displayMode: "inline",
-          frameTarget: "paddle-checkout-frame",
+          frameTarget,
           frameInitialHeight: 450,
           frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
         }),
@@ -413,7 +427,11 @@ export async function openPaddleCheckout({
         settings: checkoutSettings()
       });
     }
+    return () => {
+      if (hasListener) PADDLE_LISTENERS.delete(listener);
+    };
   } catch (error) {
+    if (hasListener) PADDLE_LISTENERS.delete(listener);
     const checkoutPayload = {
       items: [{ priceId: resolvedPriceId, quantity: 1 }],
       customer: checkoutCustomer,
@@ -429,6 +447,18 @@ export async function openPaddleCheckout({
       itemKeys: Object.keys(checkoutPayload.items[0]),
     });
     throw normalizeCheckoutError(error);
+  }
+}
+
+export async function closePaddleCheckout() {
+  try {
+    const paddle = await getPaddle();
+    paddle.Checkout.close();
+  } catch (error) {
+    if (PADDLE_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.warn("[Paddle Checkout] could not close previous checkout", safeErrorMessage(error));
+    }
   }
 }
 

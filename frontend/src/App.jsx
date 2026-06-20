@@ -38,7 +38,6 @@ import {
   switchDevice,
   listDesigns,
 } from "./api/client";
-import { openPaddleCheckout, isPaddleConfigured } from "./lib/paddle";
 import { getPendingCheckoutPlan, clearPendingCheckoutPlan } from "./lib/pendingCheckout";
 import { debugSubscriptionLog, getSubscriptionFlags, openPricing } from "./lib/subscriptionAccess";
 import {
@@ -1204,12 +1203,7 @@ export default function App() {
   }, [isAuthenticated, userId, refreshSubscriptionAfterCheckout]);
 
   // Resume Paddle checkout right after login/signup if a plan was pending.
-  // Runs once when auth flips to authenticated; clears the pending state
-  // immediately so it never replays.
-  // Resume Paddle checkout right after login/signup if a plan was pending.
-  // Runs once when auth flips to authenticated; clears the pending state
-  // only after Paddle's overlay actually opens so a transient init failure
-  // doesn't lose the user's intent.
+  // Subscription checkout always returns to the dedicated inline page.
   useEffect(() => {
     if (!isAuthenticated) return;
     const pendingCheckout = getPendingCheckoutPlan();
@@ -1220,54 +1214,14 @@ export default function App() {
       clearPendingCheckoutPlan();
       return;
     }
-    if (!isPaddleConfigured()) {
-      clearPendingCheckoutPlan();
-      return;
-    }
-    const userId = user?.id || "";
-    const email = user?.email || "";
     if (CHECKOUT_DEBUG) {
       // eslint-disable-next-line no-console
       console.log(`[AuthFlow] pendingCheckoutPlan=${plan} billing=${billingCycle}`);
     }
-    setDashboardToast({
-      type: "success",
-      message: "Account ready. Opening secure Paddle checkout...",
-    });
-    Promise.resolve().then(() => {
-      if (CHECKOUT_DEBUG) {
-        // eslint-disable-next-line no-console
-        console.log(`[Paddle] opening checkout plan=${plan} user_id=${userId}`);
-      }
-      return openPaddleCheckout({
-      plan,
-      billingCycle,
-      email: email || undefined,
-      userId: userId || undefined,
-      onCheckoutComplete: () => {
-        setDashboardToast({
-          type: "success",
-          message: "Subscription started. Verifying your plan...",
-        });
-        void refreshSubscriptionAfterCheckout();
-      },
-      onCheckoutClosed: () => {
-        // No-op — user can click Manage from the dashboard if they want
-        // to retry.
-      },
-      });
-    }).then(() => {
-      // Only clear once Paddle's overlay has actually opened.
-      clearPendingCheckoutPlan();
-    }).catch((error) => {
-      // eslint-disable-next-line no-console
-      console.error("[Paddle] checkout error", error);
-      setDashboardToast({
-        type: "error",
-        message: error?.message || "Could not open checkout. Please try again from Pricing.",
-      });
-    });
-  }, [isAuthenticated, refreshSubscriptionAfterCheckout, user?.id, user?.email]);
+    clearPendingCheckoutPlan();
+    const urlPlan = plan === "all_platforms" ? "all-platforms" : plan;
+    window.location.assign(`/checkout?plan=${encodeURIComponent(urlPlan)}&billing=${encodeURIComponent(billingCycle)}`);
+  }, [isAuthenticated]);
 
   function handleImportComplete(persistedDesigns) {
     const marketplace = activeRoute === "teepublic" ? "teepublic" : "redbubble";

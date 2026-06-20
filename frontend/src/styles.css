@@ -13533,46 +13533,6 @@ button.copy-link-open .pp-spinner-on-button {
   border-color: rgba(139, 92, 246, 0.25);
 }
 
-.checkout-fallback-wrapper {
-  background: var(--pp-card-background, #ffffff);
-  border: 1px solid var(--pp-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 16px;
-  font-size: 13px;
-}
-
-[data-theme="dark"] .checkout-fallback-wrapper {
-  background: rgba(255, 255, 255, 0.02);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-.checkout-fallback-wrapper p {
-  margin: 0 0 8px 0;
-  font-weight: 600;
-  color: var(--pp-text-muted, #64748b);
-}
-
-.checkout-fallback-btn {
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--accent, #7c3aed);
-  cursor: pointer;
-  text-decoration: underline;
-  transition: color 0.15s ease;
-}
-
-.checkout-fallback-btn:hover {
-  color: var(--accent-hover, #8b5cf6);
-}
-
-.checkout-fallback-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 /* RIGHT COLUMN: PADDLE BOX */
 .checkout-right-column {
   width: 100%;

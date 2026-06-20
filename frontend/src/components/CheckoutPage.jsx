@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import {
   CHECKOUT_CONFIGURATION_ERROR_MESSAGE,
+  closePaddleCheckout,
   isCheckoutConfigurationError,
   openPaddleCheckout,
   isPaddleConfigured,
@@ -178,13 +179,13 @@ function getPaddleEventMessage(event) {
     || payload?.detail
     || payload?.error?.message
     || payload?.errors?.[0]?.message
+    || event?.detail
     || ""
   );
 }
 
-function isPaddleCheckoutErrorEvent(event) {
-  const name = getPaddleEventName(event);
-  return name.includes("error") || name.includes("failed");
+function isValidPaddlePriceId(value) {
+  return /^pri_[a-z0-9]+$/i.test(String(value || "").trim());
 }
 
 function normalizeCountryCode(value) {
@@ -241,7 +242,8 @@ export default function CheckoutPage({ theme, setTheme }) {
   const [checkoutConfig, setCheckoutConfig] = useState(null);
   const [checkoutConfigError, setCheckoutConfigError] = useState("");
   const [checkoutConfigLoading, setCheckoutConfigLoading] = useState(true);
-  const initializationAttempted = useRef(false);
+  const [inlineAttempt, setInlineAttempt] = useState(0);
+  const checkoutFrameRef = useRef(null);
   const fallbackTimerRef = useRef(null);
 
   useEffect(() => {
@@ -266,7 +268,7 @@ export default function CheckoutPage({ theme, setTheme }) {
   const billingInfo = planInfo[billing] || planInfo.annual;
   const isTrialEligible = !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
   const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
-  const checkoutButtonLabel = isTrialEligible ? "Start 7-day free trial" : "Subscribe now";
+  const hasValidSelectedPriceId = isValidPaddlePriceId(selectedPriceId);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
   if (CHECKOUT_DEBUG) {
     // eslint-disable-next-line no-console
@@ -318,13 +320,9 @@ export default function CheckoutPage({ theme, setTheme }) {
     };
   }, [billing, customerUserId, plan]);
 
-  useEffect(() => {
-    initializationAttempted.current = false;
-  }, [checkoutIntentId, selectedPriceId]);
-
   function getTrialDueDate() {
     const date = new Date();
-    date.setDate(date.getDate() + 3);
+    date.setDate(date.getDate() + DISPLAY_TRIAL_DAYS);
     return date.toLocaleDateString("en-US", {
       day: "numeric",
       month: "long",
@@ -332,125 +330,129 @@ export default function CheckoutPage({ theme, setTheme }) {
     });
   }
 
-  function handlePaddleEvent(event) {
-    if (!isPaddleCheckoutErrorEvent(event)) return;
-    const message = getPaddleEventMessage(event);
-    const error = new Error(message || "Paddle checkout error");
-    const cleanMessage = checkoutMessageForError(error, "Checkout is temporarily unavailable. Please try again.");
-    if (isCheckoutConfigurationError(error)) {
-      // eslint-disable-next-line no-console
-      console.error("[Paddle] checkout configuration event", {
-        plan,
-        billing,
-        trialEligible: isTrialEligible,
-        selectedPriceId,
-        payloadKeys: ["items", "customer", "customData"],
-        itemKeys: ["priceId", "quantity"],
-      });
-    }
+  const showInlineError = useCallback((error, fallback = "Checkout could not load. Please try again.") => {
+    const cleanMessage = checkoutMessageForError(error, fallback);
+    // eslint-disable-next-line no-console
+    console.error("[Paddle Checkout] inline checkout error", {
+      message: cleanMessage,
+      code: error?.code || "",
+      type: error?.type || error?.name || "Error",
+    });
+    setLoadingPaddle(false);
     setPaddleLoadError(true);
     setPaddleErrorMessage(cleanMessage);
-    setCheckoutNotice({
-      type: "error",
-      message: cleanMessage,
-    });
-  }
+  }, []);
 
-  // Run checkout opening
+  // Initialize only after authentication, backend plan resolution, Paddle
+  // configuration, and the inline target are all ready.
   useEffect(() => {
-    if (!selectedPriceId || !isAuthenticated || !customerUserId) return;
-    if (initializationAttempted.current) return;
+    if (checkoutConfigLoading || !hasValidSelectedPriceId || !isAuthenticated || !customerUserId || !paddleReady) return undefined;
 
-    const target = document.querySelector(".paddle-checkout-frame");
-    if (CHECKOUT_DEBUG) {
-      // eslint-disable-next-line no-console
-      console.log("[Checkout] inline useEffect running");
-      // eslint-disable-next-line no-console
-      console.log("[Checkout] selectedPriceId=", selectedPriceId);
-      // eslint-disable-next-line no-console
-      console.log("[Paddle] frame target found=", Boolean(target));
+    const target = checkoutFrameRef.current;
+    // eslint-disable-next-line no-console
+    console.info("[Paddle Checkout] inline container found", Boolean(target));
+    if (!target) {
+      showInlineError(new Error("Inline checkout container was not found."));
+      return undefined;
     }
 
-    if (!target) return;
-    initializationAttempted.current = true;
-    setPaddleLoadError(false);
-    setPaddleErrorMessage("");
-
-    openPaddleCheckout({
-      priceId: selectedPriceId,
-      checkoutConfig,
-      checkoutIntentId,
-      trialEligible: isTrialEligible,
-      plan,
-      email: userEmail,
-      countryCode: customerCountryCode,
-      userId: customerUserId,
-      billingCycle: billing,
-      mode: "inline",
-      frameTarget: "paddle-checkout-frame",
-      onCheckoutComplete: () => {
-        setCheckoutSuccess(true);
-      },
-      onCheckoutClosed: () => {
-        initializationAttempted.current = false;
-      },
-      onEvent: handlePaddleEvent,
-    }).catch((err) => {
-      console.error("[Paddle] Inline checkout failure", err);
-      initializationAttempted.current = false;
-      const cleanMessage = checkoutMessageForError(err, "Could not open checkout. Please try again.");
-      setPaddleLoadError(true);
-      setPaddleErrorMessage(cleanMessage);
-      setCheckoutNotice({
-        type: "error",
-        message: cleanMessage,
-      });
-    });
-  }, [billing, checkoutConfig, checkoutIntentId, customerCountryCode, customerUserId, isAuthenticated, isTrialEligible, plan, selectedPriceId, userEmail]);
-
-
-
-  // Handle overlay checkout fallback
-  const handleOverlayFallback = async () => {
-    if (loadingPaddle || !selectedPriceId) return;
+    let active = true;
+    let inlineLoaded = false;
+    let removePaddleListener = null;
+    target.replaceChildren();
     setLoadingPaddle(true);
     setPaddleLoadError(false);
     setPaddleErrorMessage("");
-    try {
-      setCheckoutNotice({
-        type: "info",
-        message: "Opening secure overlay checkout...",
-      });
-      await openPaddleCheckout({
+    if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
+    fallbackTimerRef.current = window.setTimeout(() => {
+      if (!active || inlineLoaded) return;
+      showInlineError(new Error("Paddle checkout did not finish loading."));
+    }, 20000);
+
+    const handleInlineEvent = (event) => {
+      if (!active) return;
+      const eventName = getPaddleEventName(event);
+      if (eventName === "checkout.loaded") {
+        inlineLoaded = true;
+        if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
+        setLoadingPaddle(false);
+        setPaddleLoadError(false);
+        // eslint-disable-next-line no-console
+        console.info("[Paddle Checkout] inline checkout loaded");
+        return;
+      }
+
+      const isCheckoutLoadError = eventName === "checkout.error" || eventName === "checkout.failed";
+      const isPaymentError = eventName === "checkout.payment.error" || eventName === "checkout.payment.failed";
+      if (!isCheckoutLoadError && !isPaymentError) return;
+
+      const message = getPaddleEventMessage(event);
+      const eventError = new Error(message || (isPaymentError ? "Payment could not be completed." : "Paddle checkout error"));
+      eventError.code = event?.code || "";
+      eventError.type = event?.type || "";
+      if (isPaymentError && inlineLoaded) {
+        // Paddle keeps the form usable after payment errors. Do not replace it.
+        setCheckoutNotice({ type: "error", message: eventError.message });
+        // eslint-disable-next-line no-console
+        console.error("[Paddle Checkout] inline checkout error", {
+          message: eventError.message,
+          code: eventError.code,
+          type: eventError.type,
+        });
+        return;
+      }
+      showInlineError(eventError);
+    };
+
+    // Deferring one task avoids React development StrictMode opening two
+    // checkouts during its setup-cleanup-setup verification cycle.
+    const openTimerId = window.setTimeout(() => {
+      void openPaddleCheckout({
         priceId: selectedPriceId,
         checkoutConfig,
         checkoutIntentId,
         trialEligible: isTrialEligible,
         plan,
-        email: customerEmail || undefined,
+        email: userEmail,
         countryCode: customerCountryCode,
-        userId: customerUserId || undefined,
+        userId: customerUserId,
         billingCycle: billing,
-        displayMode: "overlay",
+        mode: "inline",
+        frameTarget: "paddle-checkout-frame",
         onCheckoutComplete: () => {
           setCheckoutSuccess(true);
         },
         onCheckoutClosed: () => {
-          setLoadingPaddle(false);
+          if (active) setLoadingPaddle(false);
         },
-        onEvent: handlePaddleEvent,
+        onEvent: handleInlineEvent,
+      }).then((removeListener) => {
+        if (!active) {
+          removeListener?.();
+          return;
+        }
+        removePaddleListener = removeListener;
+      }).catch((error) => {
+        if (active) showInlineError(error, "Could not load checkout. Please try again.");
       });
-    } catch (err) {
-      console.error("[Paddle] Overlay fallback failure", err);
-      setLoadingPaddle(false);
-      const cleanMessage = checkoutMessageForError(err, "Could not open overlay checkout. Please try again.");
-      setPaddleLoadError(true);
-      setPaddleErrorMessage(cleanMessage);
-      setCheckoutNotice({
-        type: "error",
-        message: cleanMessage,
-      });
-    }
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(openTimerId);
+      if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
+      removePaddleListener?.();
+    };
+  }, [billing, checkoutConfig, checkoutConfigLoading, checkoutIntentId, customerCountryCode, customerUserId, hasValidSelectedPriceId, inlineAttempt, isAuthenticated, isTrialEligible, paddleReady, plan, selectedPriceId, showInlineError, userEmail]);
+
+  const handleInlineRetry = async () => {
+    if (loadingPaddle) return;
+    setLoadingPaddle(true);
+    setPaddleLoadError(false);
+    setPaddleErrorMessage("");
+    await closePaddleCheckout();
+    checkoutFrameRef.current?.replaceChildren();
+    setInlineAttempt((attempt) => attempt + 1);
   };
 
   return (
@@ -604,7 +606,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                 </div>
 
 
-                {/* Prefilled email & Fallbacks */}
+                {/* Prefilled email */}
                 <div className="checkout-footer-meta">
                   {customerEmail && (
                     <div className="checkout-email-badge">
@@ -612,27 +614,13 @@ export default function CheckoutPage({ theme, setTheme }) {
                       <span>Prefilled Customer: {customerEmail}</span>
                     </div>
                   )}
-
-                  <div className="checkout-fallback-wrapper">
-                    <p>Having trouble loading the checkout frame?</p>
-                    <button
-                      type="button"
-                      onClick={handleOverlayFallback}
-                      disabled={checkoutConfigLoading || loadingPaddle || !selectedPriceId}
-                      className="checkout-fallback-btn"
-                    >
-                      {checkoutConfigLoading || loadingPaddle
-                        ? "Preparing secure checkout..."
-                        : checkoutButtonLabel}
-                    </button>
-                  </div>
                 </div>
               </div>
 
               {/* RIGHT COLUMN: PADDLE FRAME */}
               <div className="checkout-right-column">
                 <div className="paddle-checkout-frame-wrapper" style={{ position: "relative" }}>
-                  <div className="paddle-checkout-frame" style={{ minHeight: 450, width: "100%" }} />
+                  <div ref={checkoutFrameRef} className="paddle-checkout-frame" style={{ minHeight: 450, width: "100%" }} />
 
 
                   {paddleLoadError && (
@@ -650,20 +638,20 @@ export default function CheckoutPage({ theme, setTheme }) {
                     >
                       <HelpCircle size={36} />
                       <h4>Checkout could not load</h4>
-                      <p>{paddleErrorMessage || "Try opening the secure overlay checkout instead if the payment form fails to appear."}</p>
+                      <p>{paddleErrorMessage || "The payment form did not load. Please try again."}</p>
                       <button
                         type="button"
-                        onClick={handleOverlayFallback}
+                        onClick={handleInlineRetry}
                         disabled={loadingPaddle || !selectedPriceId}
                         className="landing-btn landing-btn-primary"
                         style={{ marginTop: "12px", minHeight: "38px", padding: "0 16px" }}
                       >
-                        Open Secure Overlay Checkout
+                        Retry inline checkout
                       </button>
                     </div>
                   )}
 
-                  {checkoutConfigLoading && (
+                  {(checkoutConfigLoading || (loadingPaddle && !paddleLoadError)) && (
                     <div className="paddle-loading-skeleton" role="status" aria-live="polite">
                       <div className="paddle-skeleton-header">
                         <span className="skeleton-pill wide" />
@@ -679,15 +667,15 @@ export default function CheckoutPage({ theme, setTheme }) {
                     </div>
                   )}
 
-                  {!checkoutConfigLoading && !selectedPriceId && (
+                  {!checkoutConfigLoading && !hasValidSelectedPriceId && (
                     <div className="paddle-error-state">
                       <HelpCircle size={36} />
                       <h4>Checkout is temporarily unavailable.</h4>
-                      <p>{checkoutConfigError || "Paddle price ID is missing for this plan."}</p>
+                      <p>{checkoutConfigError || "The selected plan does not have a valid Paddle price ID."}</p>
                     </div>
                   )}
 
-                  {!checkoutConfigLoading && !paddleReady && selectedPriceId && (
+                  {!checkoutConfigLoading && !paddleReady && hasValidSelectedPriceId && (
                     <div className="paddle-error-state">
                       <HelpCircle size={36} />
                       <h4>Payment System Unavailable</h4>
