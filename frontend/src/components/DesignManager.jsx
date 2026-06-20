@@ -2151,7 +2151,7 @@ export default function DesignManager({
                 )}
               </div>
               <span className="create-command-spacer" />
-              <button type="button" className="secondary-button icon-only-button" onClick={cancelEdit} aria-label="Close editor">
+              <button type="button" className="secondary-button icon-only-button" onClick={onBackToDesigns} aria-label="Close editor">
                 <Icon name="x" />
               </button>
               <LoadingButton
@@ -2814,7 +2814,7 @@ export default function DesignManager({
         </article>
       </div>
 
-      {editingId === "new" && (
+      {editingId === "new" && typeof onEditorOpen !== "function" && (
         <form className="edit-panel create-panel" onSubmit={saveCreatedDesigns}>
           <div className="edit-panel-heading">
             <div>
