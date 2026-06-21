@@ -29,6 +29,10 @@ import ExtensionAuthSuccess from "./components/ExtensionAuthSuccess";
 import NotFoundPage from "./components/NotFoundPage";
 import ThankYouPage from "./components/ThankYouPage";
 import PreviewModeBanner from "./components/PreviewModeBanner";
+import DesignRetentionNotice, {
+  acknowledgeDesignRetentionNotice,
+  hasAcknowledgedDesignRetentionNotice,
+} from "./components/DesignRetentionNotice";
 import { EXTENSION_ID } from "./config";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
 import {
@@ -141,7 +145,7 @@ function canAccessRoute(route, platformAccess) {
   return Boolean(platformAccess?.[route]);
 }
 
-function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess, trialEligibility }) {
+function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess, trialEligibility, retentionNoticeUnread, onOpenRetentionNotice }) {
   const userLabel = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Account";
 
   return (
@@ -151,6 +155,20 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
           <img src="/brand/podpilot-logo.svg" alt="PodPilot" className="pp-sidebar-logo" />
           <span className="pp-sidebar-label pp-sidebar-brand-text">PodPilot</span>
         </div>
+
+        <button
+          type="button"
+          className="pp-sidebar-btn pp-sidebar-notice-btn"
+          onClick={onOpenRetentionNotice}
+          data-tooltip="Design retention notice"
+          aria-label={`Design retention notice${retentionNoticeUnread ? ", unread" : ""}`}
+        >
+          <span className="pp-sidebar-notice-icon">
+            <Icon name="bell" />
+            {retentionNoticeUnread ? <span className="pp-bell-dot" aria-hidden="true" /> : null}
+          </span>
+          <span className="pp-sidebar-label">Design retention notice</span>
+        </button>
 
         <nav className="pp-sidebar-nav">
           {NAV_ITEMS.map((item) => {
@@ -483,6 +501,16 @@ export default function App() {
     redbubble: initialRoute.editor && initialRoute.route === "redbubble" ? "design" : "",
     teepublic: initialRoute.editor && initialRoute.route === "teepublic" ? "design" : "",
   }));
+  const [retentionNoticeOpen, setRetentionNoticeOpen] = useState(false);
+  const [retentionNoticeUnread, setRetentionNoticeUnread] = useState(
+    () => !hasAcknowledgedDesignRetentionNotice(),
+  );
+
+  const acknowledgeRetentionNotice = useCallback(() => {
+    acknowledgeDesignRetentionNotice();
+    setRetentionNoticeUnread(false);
+    setRetentionNoticeOpen(false);
+  }, []);
 
   // Prevent crawlers from indexing private app and checkout routes.
   useEffect(() => {
@@ -1472,7 +1500,19 @@ export default function App() {
           setTheme={setTheme}
           platformAccess={platformAccess}
           trialEligibility={trialEligibility}
+          retentionNoticeUnread={retentionNoticeUnread}
+          onOpenRetentionNotice={() => setRetentionNoticeOpen(true)}
         />
+
+        <button
+          type="button"
+          className="pp-mobile-retention-bell"
+          onClick={() => setRetentionNoticeOpen(true)}
+          aria-label={`Design retention notice${retentionNoticeUnread ? ", unread" : ""}`}
+        >
+          <Icon name="bell" />
+          {retentionNoticeUnread ? <span className="pp-bell-dot" aria-hidden="true" /> : null}
+        </button>
 
       <main className="pp-main">
         {/* Toast */}
@@ -1640,6 +1680,7 @@ export default function App() {
         )}
       </main>
       </div>
+      <DesignRetentionNotice open={retentionNoticeOpen} onAcknowledge={acknowledgeRetentionNotice} />
     </>
   );
 }

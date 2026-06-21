@@ -81,6 +81,149 @@
   --landing-shadow: var(--shadow-card);
 }
 
+/* Manual design retention notice */
+.pp-sidebar-notice-btn { position: relative; margin-bottom: 8px; }
+.pp-sidebar-notice-icon { position: relative; display: inline-flex; flex: 0 0 auto; }
+.pp-sidebar-notice-icon .pp-bell-dot {
+  top: -4px;
+  right: -5px;
+  width: 9px;
+  height: 9px;
+  border-color: var(--bg-sidebar);
+  background: var(--accent, #7c3aed);
+}
+.pp-mobile-retention-bell { display: none; }
+.pp-retention-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.62);
+  animation: pp-retention-overlay-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.pp-retention-modal {
+  position: relative;
+  width: min(100%, 520px);
+  padding: 32px;
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 20px;
+  background: #fefeff;
+  color: #182033;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  animation: pp-retention-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.pp-retention-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: #f1edff;
+  color: #6d28d9;
+}
+.pp-retention-modal-icon svg { width: 22px; height: 22px; }
+.pp-retention-modal h2 {
+  margin: 0 42px 12px 0;
+  color: #171d2c;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.pp-retention-modal p {
+  max-width: 66ch;
+  margin: 0;
+  color: #526078;
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+.pp-retention-modal-policy {
+  display: inline-block;
+  margin-top: 18px;
+  color: #6d28d9;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.pp-retention-modal-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  min-height: 42px;
+  margin-top: 26px;
+  padding: 0 20px;
+  border-radius: 10px;
+  background: #7c3aed;
+  color: #fefcff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.22);
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.pp-retention-modal-confirm:hover {
+  background: #6d28d9;
+  box-shadow: 0 10px 22px rgba(124, 58, 237, 0.28);
+  transform: translateY(-1px);
+}
+.pp-retention-modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+.pp-retention-modal-close:hover { background: #f4f1fb; color: #5b21b6; }
+.pp-retention-modal-close:focus-visible,
+.pp-retention-modal-confirm:focus-visible,
+.pp-sidebar-notice-btn:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, 0.28);
+  outline-offset: 2px;
+}
+.pp-retention-modal-close .ui-icon { width: 18px; height: 18px; }
+@keyframes pp-retention-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pp-retention-modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 600px) {
+  .pp-mobile-retention-bell {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fefeff;
+    color: #334155;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    cursor: pointer;
+  }
+  .pp-mobile-retention-bell .ui-icon { width: 19px; height: 19px; }
+  .pp-mobile-retention-bell .pp-bell-dot { top: 4px; right: 4px; border-color: #fefeff; }
+  .pp-retention-modal-overlay { padding: 16px; }
+  .pp-retention-modal { padding: 26px 22px 22px; border-radius: 16px; }
+  .pp-retention-modal-icon { margin-bottom: 16px; }
+  .pp-retention-modal-confirm { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pp-retention-modal-overlay,
+  .pp-retention-modal { animation: none; }
+}
+
 [data-theme="dark"] {
   color-scheme: dark;
   --page-bg: #050505;
