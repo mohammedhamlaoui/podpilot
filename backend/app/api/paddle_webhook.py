@@ -679,6 +679,9 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
             email=custom_email,
             paddle_customer_id=paddle_customer_id,
             plan_key=plan,
+            device_id_hash=(intent or {}).get("device_id_hash") if valid_intent else None,
+            ip_hash=(intent or {}).get("ip_hash") if valid_intent else None,
+            user_agent_hash=(intent or {}).get("user_agent_hash") if valid_intent else None,
         )
         subscription_service.attach_paddle_customer_to_trial_usage(
             user_id=user_id,
@@ -913,6 +916,9 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                 email=custom_email,
                 paddle_customer_id=paddle_customer_id,
                 plan_key=subscription_plan,
+                device_id_hash=(intent or {}).get("device_id_hash") if valid_intent else None,
+                ip_hash=(intent or {}).get("ip_hash") if valid_intent else None,
+                user_agent_hash=(intent or {}).get("user_agent_hash") if valid_intent else None,
             )
             subscription_service.attach_paddle_customer_to_trial_usage(
                 user_id=user_id,

@@ -234,16 +234,20 @@ def get_trial_eligibility(
         
         eligible = res.get("eligible", False)
         internal_reason = res.get("reason", "unknown")
+        trial_used = internal_reason in {
+            subscription_service.TRIAL_ALREADY_USED,
+            subscription_service.DEVICE_TRIAL_USED,
+        }
         
         # Map internal reason to user-friendly response reasons
         if eligible:
-            reason = "new_user"
+            reason = "admin_override" if internal_reason == subscription_service.ADMIN_TRIAL_OVERRIDE else "new_user"
         else:
             if internal_reason == subscription_service.ACTIVE_SUBSCRIPTION_EXISTS:
                 reason = "active_subscription"
             elif internal_reason in (
                 subscription_service.TRIAL_ALREADY_USED,
-                subscription_service.DEVICE_OR_NETWORK_TRIAL_USED,
+                subscription_service.DEVICE_TRIAL_USED,
                 subscription_service.SUBSCRIPTION_HISTORY_EXISTS,
                 subscription_service.COMPLETED_TRANSACTION_EXISTS,
             ):
@@ -261,6 +265,9 @@ def get_trial_eligibility(
         )
         return {
             "eligible": eligible,
+            "trial_eligible": eligible,
+            "trial_used": trial_used,
+            "display_cta": "trial" if eligible else "subscribe",
             "reason": reason,
             "source": res.get("source") or "unknown",
         }
@@ -274,10 +281,13 @@ def get_trial_eligibility(
             str(ex.detail)[:200],
         )
         if ex.status_code >= 500:
-            # Internal Supabase/config failures should not block checkout UI.
+            # Trial eligibility failures must not accidentally grant a trial.
             return {
-                "eligible": True,
-                "reason": "new_user",
+                "eligible": False,
+                "trial_eligible": False,
+                "trial_used": False,
+                "display_cta": "subscribe",
+                "reason": "eligibility_unavailable",
                 "source": "fallback_optional_read_failure",
                 "fallback": True,
             }
@@ -291,8 +301,11 @@ def get_trial_eligibility(
             safe_error_type(ex),
         )
         return {
-            "eligible": True,
-            "reason": "new_user",
+            "eligible": False,
+            "trial_eligible": False,
+            "trial_used": False,
+            "display_cta": "subscribe",
+            "reason": "eligibility_unavailable",
             "source": "fallback_optional_read_failure",
             "fallback": True,
         }
@@ -304,8 +317,11 @@ def get_trial_eligibility(
             safe_error_type(ex),
         )
         return {
-            "eligible": True,
-            "reason": "new_user",
+            "eligible": False,
+            "trial_eligible": False,
+            "trial_used": False,
+            "display_cta": "subscribe",
+            "reason": "eligibility_unavailable",
             "source": "fallback_optional_read_failure",
             "fallback": True,
         }
@@ -653,8 +669,8 @@ def get_checkout_price_id(
             safe_error_type(error),
         )
         eligibility = {
-            "eligible": True,
-            "reason": subscription_service.TRIAL_ELIGIBLE,
+            "eligible": False,
+            "reason": "eligibility_unavailable",
             "source": "fallback_optional_read_failure",
             "fallback": True,
         }
@@ -697,6 +713,9 @@ def get_checkout_price_id(
         plan_key=plan,
         billing_interval=cycle,
         selected_price_id=resolved_id,
+        device_id=x_podpilot_device_id,
+        ip_address=_request_ip(request),
+        user_agent=request.headers.get("user-agent"),
     )
 
     button_label = "Start 7-day free trial" if trial_eligible else "Subscribe now"
@@ -706,6 +725,11 @@ def get_checkout_price_id(
         "billing_interval": cycle,
         "trial_eligible": trial_eligible,
         "eligible": trial_eligible,
+        "trial_used": eligibility.get("reason") in {
+            subscription_service.TRIAL_ALREADY_USED,
+            subscription_service.DEVICE_TRIAL_USED,
+        },
+        "display_cta": "trial" if trial_eligible else "subscribe",
         "eligibility_reason": eligibility.get("reason") or "unknown",
         "eligibility_source": eligibility.get("source") or "unknown",
         "selected_price_id": resolved_id,

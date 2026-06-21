@@ -15,10 +15,18 @@ create table if not exists public.paddle_checkout_intents (
   idempotency_key text not null,
   paddle_transaction_id text,
   paddle_subscription_id text,
+  device_id_hash text,
+  ip_hash text,
+  user_agent_hash text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, idempotency_key)
 );
+
+alter table public.paddle_checkout_intents
+  add column if not exists device_id_hash text,
+  add column if not exists ip_hash text,
+  add column if not exists user_agent_hash text;
 
 create index if not exists paddle_checkout_intents_user_created_idx
   on public.paddle_checkout_intents (user_id, created_at desc);

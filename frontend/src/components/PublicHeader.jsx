@@ -5,7 +5,7 @@ import ThemeToggle from "./ThemeToggle";
 
 const authHref = "/dashboard";
 
-export default function PublicHeader({ theme, setTheme }) {
+export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start Free Trial" }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const auth = useAuth();
   const isAuthenticated = Boolean(auth?.user);
@@ -48,7 +48,7 @@ export default function PublicHeader({ theme, setTheme }) {
           ) : (
             <>
               <a href={authHref} onClick={closeMobileMenu}>Login</a>
-              <LandingButton>Start Free Trial</LandingButton>
+              <LandingButton>{guestCtaLabel}</LandingButton>
             </>
           )}
         </nav>

@@ -183,10 +183,11 @@ PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_TRIA
 PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID", "")
 
-# Free-trial abuse prevention. TRIAL_HASH_SALT is required only on the
+# Free-trial abuse prevention. TRIAL_FINGERPRINT_SALT is the preferred name;
+# TRIAL_HASH_SALT remains a backwards-compatible deployment alias.
 # trial eligibility/start-trial code paths so the backend can boot while
 # operators add the migration and secret.
-TRIAL_HASH_SALT = _optional("TRIAL_HASH_SALT", "")
+TRIAL_HASH_SALT = _optional("TRIAL_FINGERPRINT_SALT", _optional("TRIAL_HASH_SALT", ""))
 TRIAL_IP_LOOKBACK_DAYS = int(_optional("TRIAL_IP_LOOKBACK_DAYS", "0"))
 
 def paddle_plan_for_price_id(price_id: str) -> str:

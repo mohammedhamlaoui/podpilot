@@ -458,7 +458,11 @@ export default function CheckoutPage({ theme, setTheme }) {
   return (
     <main className="landing-page checkout-page-main">
 
-      <PublicHeader theme={theme} setTheme={setTheme} />
+      <PublicHeader
+        theme={theme}
+        setTheme={setTheme}
+        guestCtaLabel={checkoutConfigLoading ? "Continue" : (isTrialEligible ? "Start your 7-day free trial" : "Subscribe now")}
+      />
 
       <section className="checkout-section">
         <div className="landing-container">
@@ -516,7 +520,9 @@ export default function CheckoutPage({ theme, setTheme }) {
                     </div>
                   )}
                   <p className="checkout-billing-note">
-                    {isTrialEligible
+                    {checkoutConfigLoading
+                      ? "Confirming your offer..."
+                      : isTrialEligible
                       ? `${DISPLAY_TRIAL_DAYS} days free, then ${billingInfo.total} ${billing === "annual" ? "annually" : "monthly"}.`
                       : `You will be charged ${billingInfo.total} today.`}
                   </p>
@@ -558,7 +564,12 @@ export default function CheckoutPage({ theme, setTheme }) {
                 <div className="checkout-summary-table-container">
                   <table className="checkout-summary-table">
                     <tbody>
-                      {isTrialEligible ? (
+                      {checkoutConfigLoading ? (
+                        <tr className="checkout-summary-total-row">
+                          <td>Offer</td>
+                          <td className="text-right">Loading...</td>
+                        </tr>
+                      ) : isTrialEligible ? (
                         <>
                           <tr>
                             <td>Subtotal</td>

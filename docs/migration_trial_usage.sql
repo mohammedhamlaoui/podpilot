@@ -11,10 +11,14 @@ create table if not exists public.trial_usage (
   ip_hash text,
   user_agent_hash text,
   trial_started_at timestamptz default now(),
+  trial_used_at timestamptz default now(),
   trial_ended_at timestamptz,
   plan_key text,
   created_at timestamptz default now()
 );
+
+alter table public.trial_usage
+  add column if not exists trial_used_at timestamptz default now();
 
 create index if not exists idx_trial_usage_user_id on public.trial_usage(user_id);
 create index if not exists idx_trial_usage_email_hash on public.trial_usage(email_hash);

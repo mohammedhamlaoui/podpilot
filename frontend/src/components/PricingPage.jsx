@@ -36,7 +36,6 @@ const pricingPlans = [
       "30 Daily AI Tokens",
       "Support when you need help",
     ],
-    button: "Start Free Trial",
   },
   {
     name: "Redbubble + TeePublic",
@@ -53,7 +52,6 @@ const pricingPlans = [
       "75 Daily AI Tokens",
       "Priority support for multi-platform workflows",
     ],
-    button: "Start Free Trial",
     featured: true,
   },
   {
@@ -69,7 +67,6 @@ const pricingPlans = [
       "30 Daily AI Tokens",
       "Support when you need help",
     ],
-    button: "Start Free Trial",
   },
 ];
 
@@ -95,33 +92,6 @@ const faqs = [
     answer: "Yes. If PodPilot is not a fit, contact support within 3 days of your purchase and we will refund your payment.",
   },
 ];
-
-const CONFIRMED_NO_TRIAL_REASONS = new Set([
-  "active_subscription",
-  "active_subscription_exists",
-  "already_used_trial",
-  "trial_already_used",
-  "confirmed_trial_used",
-  "completed_transaction",
-  "completed_transaction_exists",
-  "subscription_history_exists",
-  "device_or_network_trial_used",
-]);
-
-const CONFIRMED_NO_TRIAL_SOURCES = new Set([
-  "subscription",
-  "subscription_history",
-  "confirmed_trial_redemption",
-  "completed_transaction",
-  "device_or_network_trial_redemption",
-]);
-
-function hasConfirmedNoTrial(value) {
-  if (!value || value.eligible === true) return false;
-  const reason = String(value.reason || value.eligibility_reason || "").toLowerCase();
-  const source = String(value.source || value.eligibility_source || "").toLowerCase();
-  return CONFIRMED_NO_TRIAL_REASONS.has(reason) || CONFIRMED_NO_TRIAL_SOURCES.has(source);
-}
 
 function normalizeCountryCode(value) {
   const raw = String(value || "").trim();
@@ -357,11 +327,19 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
     }
   }
 
-  const showTrialOffer = isAuthenticated ? !hasConfirmedNoTrial(trialEligibility) : true;
+  // Never infer a trial while auth or eligibility is unresolved. The backend
+  // response is the only authority that can reveal trial messaging.
+  const eligibilityLoaded = isAuthenticated && !loadingSubscription && trialEligibility !== null;
+  const showTrialOffer = eligibilityLoaded
+    && (trialEligibility?.trial_eligible === true || trialEligibility?.eligible === true);
 
   return (
     <main className="landing-page pricing-page">
-      <PublicHeader theme={theme} setTheme={setTheme} />
+      <PublicHeader
+        theme={theme}
+        setTheme={setTheme}
+        guestCtaLabel={showTrialOffer ? "Start your 7-day free trial" : (eligibilityLoaded ? "Subscribe now" : "Continue")}
+      />
 
       {/* Hero Header Section */}
       <section className="pricing-hero">
@@ -429,11 +407,13 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
               const disabled = (Boolean(checkoutPlan) && !isLoading) || !isConfigured;
 
               const yearlyTotal = plan.planId === "all_platforms" ? "$69.90" : "$49.90";
-              const subscribeLabel = showTrialOffer ? "Start 7-day free trial" : "Subscribe now";
+              const subscribeLabel = !eligibilityLoaded
+                ? "Continue"
+                : (showTrialOffer ? "Start your 7-day free trial" : "Subscribe now");
               const buttonText = isAnnual
                 ? (!isAnnualPaddleConfigured(plan.planId)
                     ? "Coming soon"
-                    : (isLoading ? "Opening checkout..." : (showTrialOffer ? `Start trial - ${yearlyTotal}/year` : `Subscribe - ${yearlyTotal}/year`)))
+                    : (isLoading ? "Opening checkout..." : (!eligibilityLoaded ? "Continue" : (showTrialOffer ? `Start trial - ${yearlyTotal}/year` : `Subscribe - ${yearlyTotal}/year`))))
                 : (isLoading ? "Opening checkout..." : subscribeLabel);
 
               return (

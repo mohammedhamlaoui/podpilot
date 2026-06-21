@@ -73,7 +73,9 @@ TRIAL_ALREADY_USED_DETAIL = "Free trial already used. Please choose a paid plan 
 
 TRIAL_ELIGIBLE = "eligible"
 TRIAL_ALREADY_USED = "trial_already_used"
-DEVICE_OR_NETWORK_TRIAL_USED = "device_or_network_trial_used"
+DEVICE_TRIAL_USED = "device_trial_used"
+DEVICE_OR_NETWORK_TRIAL_USED = DEVICE_TRIAL_USED  # Backwards-compatible import alias.
+ADMIN_TRIAL_OVERRIDE = "admin_override"
 ACTIVE_SUBSCRIPTION_EXISTS = "active_subscription_exists"
 SUBSCRIPTION_HISTORY_EXISTS = "subscription_history_exists"
 COMPLETED_TRANSACTION_EXISTS = "completed_transaction_exists"
@@ -581,8 +583,10 @@ def _trial_response(eligible: bool, reason: str) -> dict[str, Any]:
         source = "completed_transaction"
     elif reason == TRIAL_ALREADY_USED:
         source = "confirmed_trial_redemption"
-    elif reason == DEVICE_OR_NETWORK_TRIAL_USED:
-        source = "device_or_network_trial_redemption"
+    elif reason == DEVICE_TRIAL_USED:
+        source = "device_trial_redemption"
+    elif reason == ADMIN_TRIAL_OVERRIDE:
+        source = "admin_override"
     return {
         "eligible": eligible,
         "reason": reason,
@@ -740,6 +744,9 @@ def create_or_reuse_checkout_intent(
     plan_key: Optional[str] = None,
     billing_interval: Optional[str] = None,
     credit_pack_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
 ) -> tuple[dict[str, Any], bool]:
     intent_type = str(intent_type or "").strip().lower()
     selected_price_id = str(selected_price_id or "").strip()
@@ -796,6 +803,18 @@ def create_or_reuse_checkout_intent(
         "created_at": now,
         "updated_at": now,
     }
+    if intent_type == "subscription":
+        signal_hashes = _trial_hashes(
+            email=None,
+            device_id=device_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        payload.update({
+            "device_id_hash": signal_hashes["device_id_hash"],
+            "ip_hash": signal_hashes["ip_hash"],
+            "user_agent_hash": signal_hashes["user_agent_hash"],
+        })
     try:
         response = (
             supabase_service.admin_client()
@@ -917,6 +936,12 @@ def check_trial_eligibility(
     if subscription and _is_subscription_current(status, current_period_ends_at):
         return decide(False, ACTIVE_SUBSCRIPTION_EXISTS)
 
+    # This override belongs to the authenticated user's billing record. It may
+    # bypass that user's prior trial history, including a device match, but it
+    # never grants another user an override.
+    if _subscription_allow_trial_again(subscription):
+        return decide(True, ADMIN_TRIAL_OVERRIDE)
+
     if _first_trial_usage_match("user_id", user_id):
         return decide(False, TRIAL_ALREADY_USED)
     if _first_trial_usage_match("email_hash", hashes["email_hash"]):
@@ -947,9 +972,11 @@ def check_trial_eligibility(
             return decide(False, TRIAL_ALREADY_USED)
 
     if _first_trial_usage_match("device_id_hash", hashes["device_id_hash"]):
-        return decide(False, DEVICE_OR_NETWORK_TRIAL_USED)
-    if _first_ip_trial_usage_match(hashes["ip_hash"]):
-        return decide(False, DEVICE_OR_NETWORK_TRIAL_USED)
+        return decide(False, DEVICE_TRIAL_USED)
+
+    # IP hashes are retained for security/audit correlation, but an IP match
+    # alone is intentionally not a denial signal: households and public Wi-Fi
+    # commonly share one public address.
 
     return decide(True, TRIAL_ELIGIBLE)
 
@@ -1061,6 +1088,9 @@ def mark_trial_usage_from_paddle(
     email: Optional[str],
     paddle_customer_id: Optional[str],
     plan_key: Optional[str] = None,
+    device_id_hash: Optional[str] = None,
+    ip_hash: Optional[str] = None,
+    user_agent_hash: Optional[str] = None,
 ) -> None:
     """Best-effort webhook marker for trials created directly by Paddle.
 
@@ -1090,14 +1120,24 @@ def mark_trial_usage_from_paddle(
             existing = _first_trial_usage_match("email_hash", email_hash)
 
         if existing:
+            updates = {}
             if customer and not existing.get("paddle_customer_id"):
+                updates["paddle_customer_id"] = customer
+            if device_id_hash and not existing.get("device_id_hash"):
+                updates["device_id_hash"] = device_id_hash
+            if ip_hash and not existing.get("ip_hash"):
+                updates["ip_hash"] = ip_hash
+            if user_agent_hash and not existing.get("user_agent_hash"):
+                updates["user_agent_hash"] = user_agent_hash
+            if updates:
                 (
                     supabase_service.admin_client()
                     .table(TRIAL_USAGE_TABLE)
-                    .update({"paddle_customer_id": customer})
+                    .update(updates)
                     .eq("id", existing.get("id"))
                     .execute()
                 )
+            _consume_trial_override(user_id)
             return
 
         if not (user_id or customer or email_hash):
@@ -1107,7 +1147,11 @@ def mark_trial_usage_from_paddle(
             "user_id": user_id,
             "email_hash": email_hash,
             "paddle_customer_id": customer,
+            "device_id_hash": device_id_hash,
+            "ip_hash": ip_hash,
+            "user_agent_hash": user_agent_hash,
             "plan_key": (plan_key or "").strip().lower() or None,
+            "trial_used_at": _utc_now_iso(),
         }
         (
             supabase_service.admin_client()
@@ -1115,12 +1159,33 @@ def mark_trial_usage_from_paddle(
             .insert({k: v for k, v in payload.items() if v is not None})
             .execute()
         )
+        _consume_trial_override(user_id)
     except Exception as error:
         if _trial_usage_table_missing(error):
             logger.warning("[Billing] trial_usage table missing; cannot mark Paddle trial usage")
             return
         logger.warning(
             "[Billing] failed to mark Paddle trial usage user=%s error_type=%s",
+            short_user_id(user_id),
+            safe_error_type(error),
+        )
+
+
+def _consume_trial_override(user_id: Optional[str]) -> None:
+    """Make the per-user admin exception one-time after Paddle confirms a trial."""
+    if not user_id:
+        return
+    try:
+        (
+            supabase_service.admin_client()
+            .table(SUBSCRIPTION_TABLE)
+            .update({"allow_trial_again": False})
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as error:
+        logger.warning(
+            "[Billing] failed to consume trial override user=%s error_type=%s",
             short_user_id(user_id),
             safe_error_type(error),
         )

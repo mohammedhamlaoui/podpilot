@@ -1,4 +1,5 @@
-const DEVICE_ID_KEY = "podpilot_device_id";
+const DEVICE_ID_KEY = "podpilot_trial_device_id";
+const LEGACY_DEVICE_ID_KEY = "podpilot_device_id";
 
 function makeRandomId() {
   if (typeof crypto !== "undefined") {
@@ -17,8 +18,13 @@ function makeRandomId() {
 export function getTrialDeviceId() {
   if (typeof window === "undefined") return "";
   try {
-    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
-    if (existing && existing.trim()) return existing.trim();
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY)
+      || window.localStorage.getItem(LEGACY_DEVICE_ID_KEY);
+    if (existing && existing.trim()) {
+      const normalized = existing.trim();
+      window.localStorage.setItem(DEVICE_ID_KEY, normalized);
+      return normalized;
+    }
     const next = makeRandomId();
     window.localStorage.setItem(DEVICE_ID_KEY, next);
     return next;

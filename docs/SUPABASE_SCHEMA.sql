@@ -137,6 +137,9 @@ create table if not exists public.subscriptions (
     )),
   paddle_customer_id text,
   paddle_subscription_id text,
+  device_id_hash text,
+  ip_hash text,
+  user_agent_hash text,
   paddle_price_id text,
   trial_starts_at timestamptz,
   trial_ends_at timestamptz,
@@ -274,6 +277,7 @@ create table if not exists public.trial_usage (
   ip_hash text,
   user_agent_hash text,
   trial_started_at timestamptz default now(),
+  trial_used_at timestamptz default now(),
   trial_ended_at timestamptz,
   plan_key text,
   created_at timestamptz default now()
