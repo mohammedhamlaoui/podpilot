@@ -88,7 +88,8 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&
 
 - **Endpoint**: `POST /api/admin/cleanup-orphan-r2-objects`
 - **Purpose**: Cleans up files and folder leftovers in Cloudflare R2 that are no longer referenced in `public.designs`.
-- **Scope**: Scans and deletes orphan keys under the `users/` prefix that do not match any row's `image_r2_key`, `thumbnail_r2_key`, `excel_r2_key`, or `ai_preview_r2_key`. It **never** touches anything outside `users/` and acts with absolute safety.
+- **Scope**: Scans and deletes orphan keys under the `users/` prefix that do not match any row's `image_r2_key`, `thumbnail_r2_key`, `excel_r2_key`, or `ai_preview_r2_key`. It never touches anything outside `users/`.
+- **Grace-period requirement**: The current endpoint does not filter candidates by object age. Treat 48 hours as the minimum operational grace period before live deletion. Run a dry-run first and independently verify that every candidate is at least 48 hours old. The GitHub workflow intentionally exposes only the dry-run orphan scan.
 
 ### Security
 Matches the same configuration, header, and live cleanup confirmation requirements (`X-Cleanup-Secret` plus `confirm=true` when `dry_run=false`).
@@ -149,55 +150,24 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=
 
 ---
 
-## 3. Nightly Scheduled Automation
+## 3. Production Scheduling
 
-To automate maintenance without manual triggers, configure one of the scheduling systems below.
+Production cleanup is handled by the VPS systemd units `podpilot-cleanup.timer` and `podpilot-cleanup.service`. The timer runs every 30 minutes and the cleanup retention window is 24 hours. Deadlines are based on the original `created_at`; edits and saves do not extend retention.
 
-### Option A: GitHub Actions (Recommended for Cloud Deployments)
+The GitHub Actions workflow `.github/workflows/cleanup.yml` is manual-only. Its scheduled cron was removed to avoid duplicate production cleanup and repeated failures when GitHub maintenance secrets are intentionally absent.
 
-A workflow file is pre-configured at `.github/workflows/cleanup.yml`. It runs every night at midnight UTC.
+Manual workflow defaults are deliberately conservative:
 
-#### Setup Instructions:
-1. Navigate to your GitHub repository -> **Settings** -> **Secrets and variables** -> **Actions**.
-2. Add the following **Repository Secrets**:
-   - `PODPILOT_API_URL`: Your hosted production backend base URL (e.g. `https://api.podpilot.com`). Do not append a trailing slash.
-   - `ADMIN_CLEANUP_SECRET`: Your own long random secret matching the `ADMIN_CLEANUP_SECRET` configured in your backend `.env` file.
-3. Enable Actions under the **Actions** tab of your repository if they are not already enabled.
+- `dry_run=true`
+- `confirm=false`
+- `cutoff_hours=24`
+- orphan R2 scan disabled
 
-*Note: You can also manually trigger this action at any time from your GitHub repository under the **Actions** tab (select **Nightly Storage Cleanup** -> **Run workflow**), which allows custom parameters for testing.*
+`PODPILOT_API_URL` and `ADMIN_CLEANUP_SECRET` are needed only when an operator manually starts the workflow. The optional orphan operation is scan-only and always calls the endpoint with `dry_run=true`; it does not delete R2 objects.
 
----
+Monitor the production timer and recent cleanup runs with:
 
-### Option B: Local Linux / macOS Cron Task
-
-For local servers or self-hosted deployments inside private networks:
-
-1. Open your system's crontab editor:
-   ```bash
-   crontab -e
-   ```
-2. Append the following entry to trigger the cleanup every night at midnight local time:
-   ```text
-   0 0 * * * curl -s -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" && curl -s -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>" >> /var/log/podpilot-cleanup.log 2>&1
-   ```
-
----
-
-### Option C: Local Windows Task Scheduler (PowerShell)
-
-For Windows local development environments:
-
-1. Create a script file called `cleanup.ps1`:
-   ```powershell
-   $headers = @{
-       "X-Cleanup-Secret" = "<ADMIN_CLEANUP_SECRET>"
-   }
-   # 1. Clean old design workspaces
-   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=24" -Method Post -Headers $headers
-   # 2. Clean orphaned R2 assets
-   Invoke-RestMethod -Uri "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=false&confirm=true" -Method Post -Headers $headers
-   ```
-2. Register a task using Windows Task Scheduler to run daily, pointing to:
-   ```text
-   powershell.exe -ExecutionPolicy Bypass -File "C:\path\to\cleanup.ps1"
-   ```
+```bash
+systemctl status podpilot-cleanup.timer
+journalctl -u podpilot-cleanup.service --since "24 hours ago"
+```

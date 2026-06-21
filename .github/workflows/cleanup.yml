@@ -1,25 +1,38 @@
 name: Nightly Storage Cleanup
 
 on:
-  schedule:
-    # Run every night at midnight UTC (00:00)
-    - cron: '0 0 * * *'
   workflow_dispatch:
-    # Allows manual trigger from the GitHub Actions UI for testing
+    # Manual maintenance only. Production cleanup runs on the VPS systemd timer.
     inputs:
       dry_run:
         description: 'Run in Dry Run mode (simulate only)'
         required: true
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'true'
           - 'false'
+      confirm:
+        description: 'Confirm live expired-design deletion (required when dry_run=false)'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
       cutoff_hours:
         description: 'Cutoff hours for designs'
         required: true
         default: '24'
         type: string
+      scan_orphan_r2:
+        description: 'Run an opt-in dry-run scan for orphaned R2 objects'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   cleanup:
@@ -40,18 +53,20 @@ jobs:
 
       - name: Clean Expired Design Workspaces
         run: |
-          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          CUTOFF="${{ github.event.inputs.cutoff_hours || '24' }}"
-          CONFIRM_PARAM=""
-          if [ "$DRY_RUN" = "false" ]; then
-            CONFIRM_PARAM="&confirm=true"
+          DRY_RUN="${{ inputs.dry_run }}"
+          CONFIRM="${{ inputs.confirm }}"
+          CUTOFF="${{ inputs.cutoff_hours }}"
+
+          if [ "$DRY_RUN" = "false" ] && [ "$CONFIRM" != "true" ]; then
+            echo "::error::Live cleanup requires confirm=true. No cleanup request was sent."
+            exit 1
           fi
           
-          echo "Triggering design cleanup... (dry_run=$DRY_RUN, cutoff_hours=$CUTOFF)"
+          echo "Triggering design cleanup... (dry_run=$DRY_RUN, confirm=$CONFIRM, cutoff_hours=$CUTOFF)"
           
           # Perform POST request and fetch HTTP response code and body
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-old-designs?dry_run=$DRY_RUN&cutoff_hours=$CUTOFF$CONFIRM_PARAM" \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-old-designs?dry_run=$DRY_RUN&confirm=$CONFIRM&cutoff_hours=$CUTOFF" \
             -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
             -H "Content-Type: application/json")
           
@@ -68,18 +83,15 @@ jobs:
             exit 1
           fi
 
-      - name: Clean Orphaned R2 Storage Objects
+      - name: Scan Orphaned R2 Storage Objects (Dry Run Only)
+        if: ${{ inputs.scan_orphan_r2 == 'true' }}
         run: |
-          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          CONFIRM_PARAM=""
-          if [ "$DRY_RUN" = "false" ]; then
-            CONFIRM_PARAM="&confirm=true"
-          fi
-          
-          echo "Triggering orphan R2 assets cleanup... (dry_run=$DRY_RUN)"
+          # The endpoint has no object-age filter. Keep workflow use scan-only;
+          # live orphan deletion requires separate review and a 48-hour grace period.
+          echo "Scanning orphan R2 assets... (dry_run=true; no objects will be deleted)"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-orphan-r2-objects?dry_run=$DRY_RUN$CONFIRM_PARAM" \
+            "${{ secrets.PODPILOT_API_URL }}/api/admin/cleanup-orphan-r2-objects?dry_run=true&confirm=false" \
             -H "X-Cleanup-Secret: ${{ secrets.ADMIN_CLEANUP_SECRET }}" \
             -H "Content-Type: application/json")
           
@@ -91,6 +103,6 @@ jobs:
           echo "$HTTP_BODY"
           
           if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "::error::Orphan R2 assets cleanup failed with status code $HTTP_STATUS"
+            echo "::error::Orphan R2 assets scan failed with status code $HTTP_STATUS"
             exit 1
           fi

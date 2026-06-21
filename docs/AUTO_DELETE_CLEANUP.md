@@ -27,10 +27,10 @@ Example: if a user imports a design at 10:00, the design's `cleanup_at` deadline
 
 ## What Was Missing Or Risky
 
-- Runtime defaults, deployment examples, the GitHub Actions workflow, and documentation now consistently use a 24-hour retention window.
+- Runtime defaults, deployment examples, the manual GitHub Actions workflow, and documentation use a 24-hour retention window.
 - The admin endpoint is request-triggered. It is useful, but it is not a VPS-native scheduled cleanup by itself.
 - FastAPI `BackgroundTasks` are not used for periodic cleanup and would not be reliable for this job anyway.
-- No APScheduler, FastAPI startup loop, systemd timer, cron entry, Cloudflare Worker, or R2 lifecycle rule is configured in the deployment files.
+- No APScheduler, FastAPI startup loop, cron entry, Cloudflare Worker, or R2 lifecycle rule performs production cleanup. Production scheduling is provided by the VPS systemd timer.
 - Existing design cleanup now deletes `image_r2_key`, `thumbnail_r2_key`, `excel_r2_key`, and `ai_preview_r2_key` when present.
 - Supabase Storage is not used by the current backend storage path. If Supabase Storage is added later, deletion must use the Supabase Storage API, not SQL-only row deletion.
 - Queue/job data is not fully deleted by the current cleanup. `upload_logs` are deleted by design ID; `upload_jobs` are job summaries and are not per-design cleanup records.
@@ -48,6 +48,14 @@ This keeps cleanup close to the backend runtime, uses the same `/etc/podpilot/ba
 The timer example runs every 30 minutes. Timer frequency does not change the retention rule: rows are eligible only when `cleanup_at <= now()`, so a 10:00 import becomes eligible at 10:00 the next day and is deleted on the first cleanup run after that time.
 
 R2 lifecycle rules can be added later as a second safety net, but lifecycle rules alone cannot delete Supabase database rows.
+
+## GitHub Actions Maintenance
+
+`.github/workflows/cleanup.yml` is manual-only. Its scheduled cron is disabled to avoid duplicating the production VPS systemd cleanup.
+
+Manual runs default to `dry_run=true`, `confirm=false`, and `cutoff_hours=24`. The workflow does not require GitHub cleanup secrets until an operator actually starts a run.
+
+Orphan R2 scanning is opt-in and dry-run only. The current orphan endpoint has no object-age filter, so the workflow never invokes live orphan deletion. Before any separate manual deletion, review a dry-run and allow at least a 48-hour grace period for every candidate.
 
 ## Cleanup Script
 
@@ -126,6 +134,12 @@ View cleanup logs:
 
 ```bash
 sudo journalctl -u podpilot-cleanup.service --since "24 hours ago"
+```
+
+Check timer status:
+
+```bash
+systemctl status podpilot-cleanup.timer
 ```
 
 ## Affected Tables And Buckets
