@@ -46,7 +46,7 @@ function AiCreditsHeaderPill({ summary }) {
   );
 }
 
-export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false, trialEligibility = null }) {
+export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, onOpenRetentionNotice, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false, trialEligibility = null }) {
   const pricingUrl = getPricingUrl();
   const canUseRedbubble = Boolean(platformAccess?.redbubble);
   const canUseTeePublic = Boolean(platformAccess?.teepublic);
@@ -88,6 +88,17 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
         </div>
         <div className="pp-dash-header-right">
           <AiCreditsHeaderPill summary={subscriptionSummary} />
+
+          <button
+            type="button"
+            className="pp-header-bell-btn"
+            onClick={onOpenRetentionNotice}
+            aria-label="Design retention notice"
+            title="Design retention notice"
+          >
+            <Icon name="bell" strokeWidth="2.2" />
+            <span className="pp-bell-dot" aria-hidden="true" />
+          </button>
           
           <a
             href={pricingUrl}
