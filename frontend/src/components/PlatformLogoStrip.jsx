@@ -24,7 +24,7 @@ export default function PlatformLogoStrip() {
               <img
                 src={logo.src}
                 alt={logo.alt}
-                className="landing-platform-logo-img"
+                className={`landing-platform-logo-img landing-platform-logo-img--${logo.name.toLowerCase()}`}
                 draggable="false"
               />
             </div>
