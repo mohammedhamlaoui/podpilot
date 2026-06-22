@@ -502,7 +502,7 @@ export default function CheckoutPage({ theme, setTheme }) {
 
                 <div className="checkout-price-hero">
                   <span className="checkout-price-amount">
-                    {billing === "annual" ? billingInfo.price : planInfo.monthly.price}
+                    {billingInfo?.price || "—"}
                     <span className="checkout-price-vat"> inc. VAT</span>
                   </span>
                   <span className="checkout-price-period">
@@ -545,7 +545,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     <div className="checkout-plan-title-group">
                       <h3>{planInfo.name}</h3>
                       <span>
-                        {billing === "annual" ? `${billingInfo.price} / month` : `${planInfo.monthly.price} / month`}
+                        {`${billingInfo?.price || "—"} / month`}
                       </span>
                     </div>
                   </div>
