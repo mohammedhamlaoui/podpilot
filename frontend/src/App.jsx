@@ -787,16 +787,23 @@ export default function App() {
     setMarketplaceDesigns("teepublic", value);
   }, [setMarketplaceDesigns]);
 
-  const fetchFreshDesigns = useCallback((marketplace, { preserveCurrent = false } = {}) => {
+  const fetchFreshDesigns = useCallback((marketplace, { preserveCurrent = false, dedupe = true } = {}) => {
     if (!isAuthenticated || !userId) return Promise.resolve(null);
     const requestKey = `${userId}:${marketplace}:${preserveCurrent ? "preserve" : "replace"}`;
-    const existing = designRefreshRequestsRef.current.get(requestKey);
+    const existing = dedupe ? designRefreshRequestsRef.current.get(requestKey) : null;
     if (existing) return existing;
 
     cacheDebugLog(`background refresh started marketplace=${marketplace}`);
     const request = listDesigns(marketplace)
       .then(async (data) => {
         const freshDesigns = Array.isArray(data?.designs) ? data.designs : [];
+        if (marketplace === "redbubble") {
+          freshDesigns.forEach((design) => {
+            console.info(
+              `[PodPilot][Redbubble] fetched design id=${design.id || design.design_id || ""} backendStatus=${design.status || ""} uploadedAt=${design.uploaded_at || ""}`,
+            );
+          });
+        }
         if (preserveCurrent) {
           setMarketplaceDesigns(marketplace, (current) => mergeDesignCollections(current, freshDesigns, marketplace));
           await mergeCachedDesigns(userId, marketplace, freshDesigns);
@@ -814,10 +821,10 @@ export default function App() {
         return { marketplace, designs: freshDesigns, fromBackend: true };
       })
       .finally(() => {
-        designRefreshRequestsRef.current.delete(requestKey);
+        if (dedupe) designRefreshRequestsRef.current.delete(requestKey);
       });
 
-    designRefreshRequestsRef.current.set(requestKey, request);
+    if (dedupe) designRefreshRequestsRef.current.set(requestKey, request);
     return request;
   }, [isAuthenticated, setMarketplaceDesigns, userId]);
 
@@ -826,6 +833,7 @@ export default function App() {
     invalidate = true,
     marketplaces = DESIGN_MARKETPLACES,
     preserveCurrent = false,
+    dedupe = true,
     reason = "auto",
   } = {}) => {
     if (!isAuthenticated || !userId) return;
@@ -878,7 +886,9 @@ export default function App() {
       setIsRefreshingDesigns(true);
     }
 
-    const results = await Promise.allSettled(needsBackend.map((marketplace) => fetchFreshDesigns(marketplace, { preserveCurrent })));
+    const results = await Promise.allSettled(
+      needsBackend.map((marketplace) => fetchFreshDesigns(marketplace, { preserveCurrent, dedupe })),
+    );
     const failed = results.filter((result) => result.status === "rejected");
     if (failed.length > 0) {
       console.warn("[PodPilot] design refresh failed:", failed[0].reason?.message || failed[0].reason);
@@ -933,10 +943,12 @@ export default function App() {
       console.info(`[PodPilot Upload Status] updating platform=${cleanPlatform} designId=${cleanDesignId} status=${cleanStatus}`);
       setMarketplaceDesigns(cleanPlatform, (current) => {
         let changed = false;
-        const next = current.map((design) => {
-          const rowId = String(design.id || design.design_id || "").trim();
-          if (rowId !== cleanDesignId) return design;
-          const nextError = cleanStatus === "failed" ? (errorMessage || design.error_message || "") : "";
+          const next = current.map((design) => {
+            const rowId = String(design.id || design.design_id || "").trim();
+            if (rowId !== cleanDesignId) return design;
+            const backendAlreadyUploaded = String(design.status || "").toLowerCase() === "uploaded" || Boolean(design.uploaded_at);
+            if (backendAlreadyUploaded && cleanStatus !== "uploaded") return design;
+            const nextError = cleanStatus === "failed" ? (errorMessage || design.error_message || "") : "";
           if (design.status === cleanStatus && (design.error_message || "") === nextError) return design;
           changed = true;
           return { ...design, status: cleanStatus, error_message: nextError };
@@ -971,6 +983,7 @@ export default function App() {
           force: true,
           marketplaces: ["redbubble"],
           preserveCurrent: true,
+          dedupe: false,
           reason: "redbubble-status-reconciled",
         });
       } catch (error) {
@@ -1613,7 +1626,12 @@ export default function App() {
                   onImportClick={() => redbubbleLocked ? openPricing() : handleTabChange("import")}
                   onUploadImagesClick={() => redbubbleLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                   onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })}
-                  onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "manual-refresh" })}
+                  onRefreshFromBackend={() => refreshDesigns({
+                    force: true,
+                    marketplaces: ["redbubble"],
+                    dedupe: false,
+                    reason: "manual-refresh",
+                  })}
                   editorMode={editorPlatform === "redbubble"}
                   editorKind={editorKinds.redbubble}
                   selectedDesignIndex={rbEditorIndex}

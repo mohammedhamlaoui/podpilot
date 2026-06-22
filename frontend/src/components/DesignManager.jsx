@@ -3148,9 +3148,10 @@ export default function DesignManager({
                         // Fall back to "pending" → "Not uploaded" so legacy
                         // local-only rows still render the same as before.
                         const raw = String(design.status || "pending").toLowerCase();
+                        const backendUploaded = raw === "uploaded" || Boolean(design.uploaded_at);
                         let label = "Not uploaded";
                         let cls = "status-pending";
-                        if (raw === "done") {
+                        if (backendUploaded || raw === "done") {
                           label = "Uploaded";
                           cls = "status-done";
                         } else if (raw === "error" || raw === "failed") {
@@ -3160,9 +3161,16 @@ export default function DesignManager({
                           label = "Uploading...";
                           cls = "status-running";
                         }
+                        console.info(
+                          `[PodPilot][Redbubble] rendered design id=${design.id || design.design_id || ""} displayedStatus=${label}`,
+                        );
                         return <span className={`status-badge ${cls}`}>{label}</span>;
                       })()}
-                      <small>{formatToday()}</small>
+                      <small>
+                        {design.uploaded_at
+                          ? new Date(design.uploaded_at).toLocaleDateString()
+                          : formatToday()}
+                      </small>
                     </div>
                   </td>
                   <td>
