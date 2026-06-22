@@ -1826,8 +1826,21 @@ def update_design_status_endpoint(
 ) -> dict:
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
+        logger.warning(
+            "[PodPilot][Redbubble] status update skipped with reason=design_not_found design_id=%s user_id=%s",
+            short_id(design_id),
+            short_user_id(user.id),
+        )
         raise HTTPException(status_code=404, detail="Design not found.")
-    _require_marketplace_access(user.id, design.get("marketplace") or "redbubble")
+    marketplace = str(design.get("marketplace") or "redbubble").strip().lower()
+    if marketplace == "redbubble":
+        logger.info(
+            "[PodPilot][Redbubble] status update requested design_id=%s user_id=%s status=%s",
+            short_id(design_id),
+            short_user_id(user.id),
+            payload.status,
+        )
+    _require_marketplace_access(user.id, marketplace)
 
     extra: dict = {}
     if payload.error_message is not None:
@@ -1841,6 +1854,22 @@ def update_design_status_endpoint(
         status=payload.status,
         extra=extra,
     )
+    if updated is None:
+        if marketplace == "redbubble":
+            logger.warning(
+                "[PodPilot][Redbubble] status update skipped with reason=database_update_returned_no_row design_id=%s user_id=%s",
+                short_id(design_id),
+                short_user_id(user.id),
+            )
+        raise HTTPException(status_code=404, detail="Design not found.")
+
+    if marketplace == "redbubble":
+        logger.info(
+            "[PodPilot][Redbubble] status update applied design_id=%s user_id=%s status=%s",
+            short_id(design_id),
+            short_user_id(user.id),
+            updated.get("status") or payload.status,
+        )
 
     # Append a log line so the user can see history. The DB column is
     # `level` + `message`; we encode stage / redbubble_work_id into the
@@ -1859,7 +1888,7 @@ def update_design_status_endpoint(
         message=log_message,
     )
 
-    return _design_with_file_urls(updated or design)
+    return _design_with_file_urls(updated)
 
 
 # Ã¢â€â‚¬Ã¢â€â‚¬ Upload jobs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬

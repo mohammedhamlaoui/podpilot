@@ -32,6 +32,7 @@ from app.core.config import (
     SUPABASE_URL,
 )
 from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
+from app.services.design_status import build_status_timestamp_patch
 
 
 logger = logging.getLogger("podpilot.supabase")
@@ -144,6 +145,7 @@ _DESIGN_WRITABLE = {
     "adult_content",
     "uploaded_at",
     "cleanup_at",
+    "updated_at",
     "color_settings",
     "product_settings",
 }
@@ -448,15 +450,22 @@ def update_design_status(
     excel_r2_key: Optional[str] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
-    patch: dict[str, Any] = {"status": status}
+    now = _now()
+    existing_uploaded_at = None
+    if status == "uploaded":
+        existing = get_design_for_user(design_id, user_id)
+        existing_uploaded_at = existing.get("uploaded_at") if existing else None
+    patch = build_status_timestamp_patch(
+        status,
+        now=now,
+        existing_uploaded_at=existing_uploaded_at,
+    )
     if error_message is not None:
         patch["error_message"] = error_message
     if image_r2_key is not None:
         patch["image_r2_key"] = image_r2_key
     if excel_r2_key is not None:
         patch["excel_r2_key"] = excel_r2_key
-    if status in {"uploaded", "failed"}:
-        patch["uploaded_at"] = _now()
     if extra:
         patch.update(extra)
     updated = update_design(design_id, user_id, patch)

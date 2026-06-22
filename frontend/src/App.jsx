@@ -40,6 +40,7 @@ import {
   getTrialEligibility,
   switchDevice,
   listDesigns,
+  updateDesignStatus,
 } from "./api/client";
 import { getPendingCheckoutPlan, clearPendingCheckoutPlan } from "./lib/pendingCheckout";
 import { debugSubscriptionLog, getSubscriptionFlags, openPricing } from "./lib/subscriptionAccess";
@@ -569,6 +570,8 @@ export default function App() {
   const uploadStatusRowSignaturesRef = useRef(new Map());
   const uploadStatusEventSignaturesRef = useRef(new Map());
   const uploadStatusFailedSyncRef = useRef(new Set());
+  const redbubbleStatusReconcileInFlightRef = useRef(new Set());
+  const redbubbleStatusReconciledRef = useRef(new Set());
   const subscriptionRequestRef = useRef(0);
   const subscriptionSnapshotRef = useRef({
     loaded: false,
@@ -609,6 +612,8 @@ export default function App() {
     uploadStatusRowSignaturesRef.current.clear();
     uploadStatusEventSignaturesRef.current.clear();
     uploadStatusFailedSyncRef.current.clear();
+    redbubbleStatusReconcileInFlightRef.current.clear();
+    redbubbleStatusReconciledRef.current.clear();
     setRedbubbleDesigns([]);
     setTeepublicDesigns([]);
     setIsLoadingDesigns(false);
@@ -633,6 +638,8 @@ export default function App() {
       uploadStatusRowSignaturesRef.current.clear();
       uploadStatusEventSignaturesRef.current.clear();
       uploadStatusFailedSyncRef.current.clear();
+      redbubbleStatusReconcileInFlightRef.current.clear();
+      redbubbleStatusReconciledRef.current.clear();
       setRedbubbleDesigns([]);
       setTeepublicDesigns([]);
       setPlatformAccess(DEFAULT_PLATFORM_ACCESS);
@@ -938,6 +945,47 @@ export default function App() {
       });
     };
 
+    const reconcileConfirmedRedbubbleUpload = async (designId) => {
+      const cleanDesignId = String(designId || "").trim();
+      const eventKey = `redbubble:${cleanDesignId}`;
+      if (
+        !cleanDesignId ||
+        redbubbleStatusReconciledRef.current.has(eventKey) ||
+        redbubbleStatusReconcileInFlightRef.current.has(eventKey)
+      ) return;
+
+      redbubbleStatusReconcileInFlightRef.current.add(eventKey);
+      try {
+        const updated = await updateDesignStatus(cleanDesignId, {
+          status: "uploaded",
+          stage: "website_extension_reconcile",
+        });
+        if (cancelled) return;
+        if (normalizeUploadPlatform(updated?.marketplace) !== "redbubble" || updated?.status !== "uploaded") {
+          throw new Error("Backend did not confirm the Redbubble upload status.");
+        }
+        redbubbleStatusReconciledRef.current.add(eventKey);
+        uploadStatusFailedSyncRef.current.delete(eventKey);
+        updateDesignRow("redbubble", cleanDesignId, "uploaded", "");
+        void refreshDesigns({
+          force: true,
+          marketplaces: ["redbubble"],
+          preserveCurrent: true,
+          reason: "redbubble-status-reconciled",
+        });
+      } catch (error) {
+        if (cancelled) return;
+        uploadStatusFailedSyncRef.current.add(eventKey);
+        console.error("[PodPilot][Redbubble] website status reconciliation failed", error?.message || error);
+        setDashboardToast({
+          type: "error",
+          message: "Redbubble upload succeeded, but its dashboard status could not be saved. Please try Refresh.",
+        });
+      } finally {
+        redbubbleStatusReconcileInFlightRef.current.delete(eventKey);
+      }
+    };
+
     const scheduleNext = (delay) => {
       if (cancelled) return;
       if (timerId) window.clearTimeout(timerId);
@@ -972,6 +1020,10 @@ export default function App() {
             itemStatus,
             item.error_message || item.error || "",
           );
+          const itemPlatform = normalizeUploadPlatform(item.marketplace || queuePlatform);
+          if (itemPlatform === "redbubble" && itemStatus === "uploaded") {
+            void reconcileConfirmedRedbubbleUpload(item.id || item.design_id);
+          }
         });
 
         const syncEvents = Object.values(extensionState.statusSyncEvents || {});
@@ -991,10 +1043,14 @@ export default function App() {
           } else if (event.backend_state === "failed") {
             uploadStatusFailedSyncRef.current.add(eventKey);
             console.error("[PodPilot Upload Status] backend update failed");
-            setDashboardToast({
-              type: "error",
-              message: event.backend_error || "Upload status changed, but it could not be saved. Please try Refresh.",
-            });
+            if (platform === "redbubble" && normalizeExtensionUploadStatus(event.status) === "uploaded") {
+              void reconcileConfirmedRedbubbleUpload(designId);
+            } else {
+              setDashboardToast({
+                type: "error",
+                message: event.backend_error || "Upload status changed, but it could not be saved. Please try Refresh.",
+              });
+            }
           }
         });
 
