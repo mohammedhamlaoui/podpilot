@@ -25,12 +25,12 @@ const seoAliasMeta = {
   "/redbubble-upload-automation": {
     title: "Redbubble Upload Automation Tool for POD Sellers",
     description:
-      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing drafts, and run browser-based upload queues.",
+      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing Content, and run browser-based upload queues.",
   },
   "/teepublic-upload-automation": {
     title: "TeePublic Upload Automation Tool for POD Sellers",
     description:
-      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing drafts, product settings, and browser-based upload queues from one dashboard.",
+      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing Content, product settings, and browser-based upload queues from one dashboard.",
   },
 };
 
@@ -220,7 +220,7 @@ function BlogArticle({ post, theme, setTheme, canonicalPath }) {
       "Browser-based Redbubble upload automation",
       "Browser-based TeePublic upload automation",
       "Bulk design import and metadata matching",
-      "AI listing drafts",
+      "AI listing Content",
       "Informational trademark and safety review",
       "Upload queue and status tracking",
     ],

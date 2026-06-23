@@ -30,7 +30,7 @@ const pricingPlans = [
     details: [
       "Unlimited Redbubble upload automation",
       "Fast Redbubble upload workflow",
-      "AI listing drafts for titles, tags, and descriptions",
+      "AI listing Content for titles, tags, and descriptions",
       "AI copyright review",
       "Trademark Check",
       "30 Daily AI Tokens",
@@ -46,7 +46,7 @@ const pricingPlans = [
     details: [
       "Unlimited Redbubble and TeePublic upload automation",
       "Priority fast upload workflow for bulk sellers",
-      "AI listing drafts for both platforms",
+      "AI listing Content for both platforms",
       "AI copyright review",
       "Trademark Check",
       "75 Daily AI Tokens",
@@ -61,7 +61,7 @@ const pricingPlans = [
     details: [
       "Unlimited TeePublic upload automation",
       "Fast TeePublic upload workflow",
-      "AI listing drafts for titles, tags, and descriptions",
+      "AI listing Content for titles, tags, and descriptions",
       "AI copyright review",
       "Trademark Check",
       "30 Daily AI Tokens",
@@ -131,7 +131,7 @@ const aiCreditPacks = [
     credits: 250,
     label: "250 AI Listing Credits",
     price: "$1.99",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
   {
     id: "ai_credits_500",
@@ -139,7 +139,7 @@ const aiCreditPacks = [
     label: "500 AI Listing Credits",
     price: "$2.99",
     badge: "Starter",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
   {
     id: "ai_credits_1000",
@@ -147,21 +147,21 @@ const aiCreditPacks = [
     label: "1,000 AI Listing Credits",
     price: "$4.99",
     badge: "Popular",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
   {
     id: "ai_credits_2500",
     credits: 2500,
     label: "2,500 AI Listing Credits",
     price: "$11.99",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
   {
     id: "ai_credits_5000",
     credits: 5000,
     label: "5,000 AI Listing Credits",
     price: "$21.99",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
   {
     id: "ai_credits_10000",
@@ -169,7 +169,7 @@ const aiCreditPacks = [
     label: "10,000 AI Listing Credits",
     price: "$39.99",
     badge: "Best Value",
-    description: "Extra credits for AI listing drafts",
+    description: "Extra credits for AI listing Content",
   },
 ];
 

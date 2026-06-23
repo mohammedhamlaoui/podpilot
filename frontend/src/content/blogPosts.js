@@ -682,7 +682,7 @@ export const blogPosts = [
     image: "/blog/redbubble-bulk-upload.png",
     imageAlt: "Redbubble bulk upload automation dashboard with queued designs",
     metaDescription:
-      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing drafts, and run browser-based upload queues.",
+      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing Content, and run browser-based upload queues.",
     targetKeyword: "Redbubble upload automation",
     secondaryKeywords: [
       "redbubble automation",
@@ -694,7 +694,7 @@ export const blogPosts = [
       "print on demand automation",
     ],
     intro:
-      "Redbubble upload automation helps print-on-demand sellers reduce the repeated copy-paste work involved in preparing designs, metadata, product settings, and browser uploads. PodPilot focuses on a controlled browser-based workflow: import your artwork, match each file to listing metadata, generate AI listing drafts when needed, review trademark and safety signals as informational checks, and then start the Redbubble upload queue from your own browser session. The goal is not blind automation. The goal is a practical Redbubble automation tool that keeps the seller in control before anything is published.",
+      "Redbubble upload automation helps print-on-demand sellers reduce the repeated copy-paste work involved in preparing designs, metadata, product settings, and browser uploads. PodPilot focuses on a controlled browser-based workflow: import your artwork, match each file to listing metadata, generate AI listing Content when needed, review trademark and safety signals as informational checks, and then start the Redbubble upload queue from your own browser session. The goal is not blind automation. The goal is a practical Redbubble automation tool that keeps the seller in control before anything is published.",
     sections: [
       {
         heading: "What is Redbubble upload automation?",
@@ -715,7 +715,7 @@ export const blogPosts = [
         points: [
           "Bulk design import keeps image files and listing data together",
           "Metadata matching helps connect filenames to the correct titles, descriptions, and tags",
-          "AI listing drafts can speed up the first pass for titles and keyword ideas",
+          "AI listing Content can speed up the first pass for titles and keyword ideas",
           "Trademark and safety checks are shown as informational review signals",
           "Queue views make it easier to see what is ready, running, or needs attention"
         ],
@@ -747,7 +747,7 @@ export const blogPosts = [
       {
         heading: "AI titles, descriptions, and tags",
         body:
-          "PodPilot includes AI listing drafts for sellers who do not want to write every Redbubble title, description, and tag block from scratch. The AI listing generator can create a first pass based on the design idea or batch context, then you can edit the fields before upload. This is especially helpful for sellers managing many similar designs because it reduces blank-page work while keeping final review in the seller's hands. For deeper metadata guidance, visit the [AI listing generator](/ai-listing-generator) page.",
+          "PodPilot includes AI listing Content for sellers who do not want to write every Redbubble title, description, and tag block from scratch. The AI listing generator can create a first pass based on the design idea or batch context, then you can edit the fields before upload. This is especially helpful for sellers managing many similar designs because it reduces blank-page work while keeping final review in the seller's hands. For deeper metadata guidance, visit the [AI listing generator](/ai-listing-generator) page.",
         points: [
           "Generate title and description drafts for Redbubble listings",
           "Create tag ideas that can be reviewed and edited",
@@ -821,7 +821,7 @@ export const blogPosts = [
     image: "/blog/teepublic-bulk-upload.png",
     imageAlt: "TeePublic upload automation workflow showing product settings in PodPilot",
     metaDescription:
-      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing drafts, product settings, and browser-based upload queues from one dashboard.",
+      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing Content, product settings, and browser-based upload queues from one dashboard.",
     targetKeyword: "TeePublic upload automation",
     secondaryKeywords: [
       "teepublic automation",
@@ -850,7 +850,7 @@ export const blogPosts = [
       {
         heading: "How PodPilot helps TeePublic sellers",
         body:
-          "PodPilot helps TeePublic sellers turn upload work into a repeatable batch process. You can import design images, connect them to metadata, use AI listing drafts for titles and descriptions, and organize primary and supporting tags in a way that fits TeePublic's workflow. Before upload, sellers can review product settings and informational trademark checks. When the queue is ready, the browser extension applies the prepared data through your logged-in browser session.",
+          "PodPilot helps TeePublic sellers turn upload work into a repeatable batch process. You can import design images, connect them to metadata, use AI listing Content for titles and descriptions, and organize primary and supporting tags in a way that fits TeePublic's workflow. Before upload, sellers can review product settings and informational trademark checks. When the queue is ready, the browser extension applies the prepared data through your logged-in browser session.",
         points: [
           "Bulk import TeePublic design files and spreadsheet metadata",
           "Draft titles, descriptions, and tags with AI assistance",
@@ -884,9 +884,9 @@ export const blogPosts = [
         ],
       },
       {
-        heading: "AI listing drafts for TeePublic",
+        heading: "AI listing Content for TeePublic",
         body:
-          "AI listing drafts can speed up TeePublic metadata preparation when sellers have many designs to publish. PodPilot can help create draft titles, descriptions, primary tags, and supporting tags, then sellers can edit the result before uploading. The AI workflow is most useful when it is paired with human review: remove irrelevant keywords, keep the description accurate, and avoid protected phrases or misleading tags. For more detail, read the [AI listing generator](/ai-listing-generator) page.",
+          "AI listing Content can speed up TeePublic metadata preparation when sellers have many designs to publish. PodPilot can help create draft titles, descriptions, primary tags, and supporting tags, then sellers can edit the result before uploading. The AI workflow is most useful when it is paired with human review: remove irrelevant keywords, keep the description accurate, and avoid protected phrases or misleading tags. For more detail, read the [AI listing generator](/ai-listing-generator) page.",
         points: [
           "Draft TeePublic titles and descriptions faster",
           "Create primary tag and supporting tag ideas",
