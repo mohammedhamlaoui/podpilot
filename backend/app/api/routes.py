@@ -2229,7 +2229,7 @@ async def trademark_check_design(
 @router.post("/api/admin/cleanup-old-designs")
 def cleanup_old_designs(
     dry_run: bool = Query(default=True),
-    cutoff_hours: int = Query(default=168),
+    cutoff_hours: int = Query(default=480),
     confirm: bool = Query(default=False),
     x_cleanup_secret: Optional[str] = Header(default=None, alias="X-Cleanup-Secret"),
 ) -> dict:
@@ -2476,7 +2476,7 @@ async def trademark_check_design(
 @router.post("/api/admin/cleanup-old-designs")
 def cleanup_old_designs(
     dry_run: bool = Query(default=True),
-    cutoff_hours: int = Query(default=168),
+    cutoff_hours: int = Query(default=480),
     confirm: bool = Query(default=False),
     x_cleanup_secret: Optional[str] = Header(default=None, alias="X-Cleanup-Secret"),
 ) -> dict:

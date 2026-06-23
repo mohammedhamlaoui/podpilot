@@ -74,7 +74,7 @@ const faqs = [
   {
     question: "How long are uploaded designs stored?",
     answer:
-      "Uploaded design files are kept for 7 days, then automatically deleted. Designs you manually delete are also removed from active storage.",
+      "Uploaded design files are kept for 20 days, then automatically deleted. Designs you manually delete are also removed from active storage.",
   },
   {
     question: "Does PodPilot guarantee marketplace approval or sales?",

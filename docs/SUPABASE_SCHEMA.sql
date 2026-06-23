@@ -297,7 +297,7 @@ create index if not exists trial_usage_paddle_customer_idx
 -- Cleanup -----------------------------------------------------------------
 -- The current backend does not use a cleanup_records / cleanup_jobs table.
 -- Storage cleanup reads public.designs rows by cleanup_at.
--- The backend sets cleanup_at to created_at + interval '7 days' once after
+-- The backend sets cleanup_at to created_at + interval '20 days' once after
 -- row creation. Do not update cleanup_at on metadata/editor/status changes.
 -- Cleanup deletes referenced R2 keys from image_r2_key, thumbnail_r2_key,
 -- excel_r2_key, and ai_preview_r2_key when present.

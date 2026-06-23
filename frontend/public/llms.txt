@@ -20,7 +20,7 @@ Uploads run from the user's own browser session through the PodPilot Chrome exte
 * Supports Redbubble and TeePublic upload workflows.
 * Uses browser-based automation for repeated form-filling and upload queue management.
 * Provides trademark and safety checks as informational review tools.
-* Stores uploaded designs temporarily for 7 days before automatic deletion.
+* Stores uploaded designs temporarily for 20 days before automatic deletion.
 
 ## What PodPilot Does Not Do
 

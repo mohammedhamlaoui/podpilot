@@ -124,7 +124,7 @@ def _canonicalize_settings(settings: Any) -> dict[str, Any]:
 # ── designs ────────────────────────────────────────────────────────────────
 
 DESIGN_TABLE = "designs"
-DESIGN_RETENTION_HOURS = 168
+DESIGN_RETENTION_HOURS = 480
 
 # Columns the API may write. Anything else from the user is dropped to keep
 # us schema-safe even if the React layer sends extra keys.
@@ -349,7 +349,7 @@ def _cleanup_at_for_row(row: dict[str, Any]) -> str:
 
 
 def _ensure_cleanup_at_for_designs(rows: list[dict[str, Any]]) -> None:
-    """Set the fixed 7-day cleanup deadline once for new/legacy rows.
+    """Set the fixed 20-day cleanup deadline once for new/legacy rows.
 
     The deadline is derived from the row's original created_at/import time.
     Normal metadata/image/status updates must not recalculate it, because
@@ -502,7 +502,7 @@ def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
     """List designs eligible for cleanup.
 
     Rows are eligible only when cleanup_at is set and has passed. updated_at is
-    never used for retention, so normal edits do not extend the 7-day window.
+    never used for retention, so normal edits do not extend the 20-day window.
     """
     cols = _select_cleanup_columns()
     if _probe_cleanup_at_column():

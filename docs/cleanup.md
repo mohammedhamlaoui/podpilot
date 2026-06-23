@@ -9,7 +9,7 @@ PodPilot features two protected admin endpoints to safely purge old temporary wo
 - **Endpoint**: `POST /api/admin/cleanup-old-designs`
 - **Purpose**: Periodically clean up old temporary uploaded designs and workspaces.
 - **Scope**: Deletes expired records from `public.designs` (and related `upload_logs` & Cloudflare R2 objects like the original high-resolution design image, thumbnail image, parsed Excel file, and AI preview image when present). It **never** touches user credentials, user profiles, AI token balances, ai_usage analytics, or subscriptions.
-- **Retention rule**: Designs are kept for 7 days, then automatically deleted. Editing a design does not extend retention. Actual deletion may happen shortly after the 7-day deadline depending on the cleanup timer.
+- **Retention rule**: Designs are kept for 20 days, then automatically deleted. Editing a design does not extend retention. Actual deletion may happen shortly after the 20-day deadline depending on the cleanup timer.
 
 ### Security
 This endpoint is protected against unauthorized access:
@@ -28,7 +28,7 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `dry_run` | `boolean` | `true` | When `true`, reports eligible files without actual deletion. Set to `false` for live deletion. |
-| `cutoff_hours` | `integer` | `168` | Reporting cutoff in hours. Deletion eligibility uses `cleanup_at <= now()`. |
+| `cutoff_hours` | `integer` | `480` | Reporting cutoff in hours. Deletion eligibility uses `cleanup_at <= now()`. |
 | `confirm` | `boolean` | `false` | Required as `true` only when `dry_run=false`; otherwise live cleanup returns `400 Bad Request`. |
 
 ### Behavior and Responses
@@ -36,14 +36,14 @@ Use your own long random secret for `ADMIN_CLEANUP_SECRET`. Do not use example s
 #### Dry Run Mode (`dry_run=true`)
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=168" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=true&cutoff_hours=480" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 **Example Response**:
 ```json
 {
   "dry_run": true,
-  "cutoff_hours": 168,
+  "cutoff_hours": 480,
   "eligible_count": 1,
   "designs": [
     {
@@ -64,7 +64,7 @@ Deletes R2 images, thumbnails, excel sheets, AI preview images, related `upload_
 
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=168" \
+curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&confirm=true&cutoff_hours=480" \
   -H "X-Cleanup-Secret: <ADMIN_CLEANUP_SECRET>"
 ```
 
@@ -72,7 +72,7 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-old-designs?dry_run=false&
 ```json
 {
   "dry_run": false,
-  "cutoff_hours": 168,
+  "cutoff_hours": 480,
   "eligible_count": 1,
   "deleted_count": 1,
   "failed_count": 0,
@@ -152,7 +152,7 @@ curl -X POST "http://localhost:8000/api/admin/cleanup-orphan-r2-objects?dry_run=
 
 ## 3. Production Scheduling
 
-Production cleanup is handled by the VPS systemd units `podpilot-cleanup.timer` and `podpilot-cleanup.service`. The timer runs every 30 minutes and the cleanup retention window is 7 days. Deadlines are based on the original `created_at`; edits and saves do not extend retention.
+Production cleanup is handled by the VPS systemd units `podpilot-cleanup.timer` and `podpilot-cleanup.service`. The timer runs every 30 minutes and the cleanup retention window is 20 days. Deadlines are based on the original `created_at`; edits and saves do not extend retention.
 
 The GitHub Actions workflow `.github/workflows/cleanup.yml` is manual-only. Its scheduled cron was removed to avoid duplicate production cleanup and repeated failures when GitHub maintenance secrets are intentionally absent.
 
@@ -160,7 +160,7 @@ Manual workflow defaults are deliberately conservative:
 
 - `dry_run=true`
 - `confirm=false`
-- `cutoff_hours=168`
+- `cutoff_hours=480`
 - orphan R2 scan disabled
 
 `PODPILOT_API_URL` and `ADMIN_CLEANUP_SECRET` are needed only when an operator manually starts the workflow. The optional orphan operation is scan-only and always calls the endpoint with `dry_run=true`; it does not delete R2 objects.
