@@ -52,55 +52,90 @@ const testimonials = [
 
 const faqs = [
   {
-    question: "How does PodPilot work?",
+    question: "What is PodPilot?",
     answer:
-      "PodPilot gives you a dashboard to import design files, prepare listing metadata, review platform settings, and then send the ready queue to the browser extension for Redbubble and TeePublic upload automation.",
+      "PodPilot is a browser-based upload automation and listing workflow tool for print-on-demand sellers who use Redbubble and TeePublic.",
   },
   {
-    question: "Which platforms are supported?",
-    answer: "Redbubble and TeePublic are supported now.",
+    question: "Does PodPilot work with Redbubble?",
+    answer:
+      "Yes. PodPilot helps sellers prepare Redbubble listings, organize metadata, and run browser-based upload queues through the PodPilot extension.",
+  },
+  {
+    question: "Does PodPilot work with TeePublic?",
+    answer:
+      "Yes. PodPilot helps sellers prepare TeePublic listings, review settings, and manage browser-based upload queues.",
+  },
+  {
+    question: "Is PodPilot affiliated with Redbubble or TeePublic?",
+    answer:
+      "No. PodPilot is independent software and is not affiliated with, endorsed by, or partnered with Redbubble or TeePublic.",
+  },
+  {
+    question: "How long are uploaded designs stored?",
+    answer:
+      "Uploaded design files are kept for 7 days, then automatically deleted. Designs you manually delete are also removed from active storage.",
+  },
+  {
+    question: "Does PodPilot guarantee marketplace approval or sales?",
+    answer:
+      "No. Sellers remain responsible for reviewing content, designs, trademarks, and marketplace rules before publishing.",
   },
   {
     question: "Do I need to give PodPilot my marketplace password?",
     answer:
       "No. Uploads run through your own browser session, so PodPilot does not need to store marketplace passwords.",
   },
-  {
-    question: "Can I upload designs in bulk?",
-    answer:
-      "Yes. You can bulk upload print on demand designs into PodPilot, match them with spreadsheet metadata, review the batch, and prepare it for Redbubble or TeePublic uploads.",
-  },
-  {
-    question: "Can I edit colors and products for TeePublic?",
-    answer:
-      "Yes. You can review TeePublic product and color settings before starting the extension upload workflow.",
-  },
-  {
-    question: "What happens to my designs?",
-    answer:
-      "Your designs remain yours. PodPilot organizes your files and listing data so you can prepare uploads from your own workspace.",
-  },
-  {
-    question: "Can I cancel anytime?",
-    answer: "Yes. You can upgrade, downgrade, or cancel anytime.",
-  },
 ];
 
 const landingSeoDescription =
-  "Redbubble and TeePublic upload automation for POD sellers. Bulk upload print on demand designs, generate listing drafts, and publish from your browser.";
+  "Automate Redbubble and TeePublic upload workflows, prepare listings, organize metadata, and generate AI-assisted listing drafts for print-on-demand sellers.";
 
 const landingJsonLd = [
+  {
+    "@type": "Organization",
+    "@id": "https://podpilot.space/#organization",
+    name: "PodPilot",
+    url: "https://podpilot.space/",
+    logo: "https://podpilot.space/brand/pod-pilot-logo.svg",
+    contactPoint: {
+      "@type": "ContactPoint",
+      email: "support@podpilot.space",
+      contactType: "customer support",
+    },
+  },
+  {
+    "@type": "SoftwareApplication",
+    "@id": "https://podpilot.space/#software",
+    name: "PodPilot",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web, Chrome Extension",
+    url: "https://podpilot.space/",
+    description:
+      "Browser-based upload automation and listing workflow tool for Redbubble and TeePublic sellers.",
+    publisher: {
+      "@id": "https://podpilot.space/#organization",
+    },
+  },
+  {
+    "@type": "WebSite",
+    "@id": "https://podpilot.space/#website",
+    name: "PodPilot",
+    url: "https://podpilot.space/",
+    publisher: {
+      "@id": "https://podpilot.space/#organization",
+    },
+  },
   {
     "@type": "WebPage",
     "@id": "https://podpilot.space/#webpage",
     url: "https://podpilot.space/",
-    name: "Redbubble & TeePublic Upload Automation for POD Sellers",
+    name: "PodPilot - Redbubble & TeePublic Upload Automation",
     description: landingSeoDescription,
     isPartOf: { "@id": "https://podpilot.space/#website" },
     about: { "@id": "https://podpilot.space/#software" },
   },
   {
-    "@context": "https://schema.org",
     "@type": "FAQPage",
     "@id": "https://podpilot.space/#landing-faq",
     mainEntity: faqs.map((faq) => ({
@@ -337,7 +372,7 @@ export default function LandingPage({ theme, setTheme }) {
   const signOut = auth?.signOut;
 
   useSeo({
-    title: "Redbubble & TeePublic Upload Automation",
+    title: "PodPilot - Redbubble & TeePublic Upload Automation",
     description: landingSeoDescription,
     canonical: "/",
     jsonLd: landingJsonLd,

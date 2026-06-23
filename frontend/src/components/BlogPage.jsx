@@ -20,17 +20,17 @@ const seoAliasMeta = {
   "/ai-listing-generator": {
     title: "AI Listing Generator for Redbubble & TeePublic",
     description:
-      "Generate product titles, descriptions, main tags, and supporting tags for Redbubble and TeePublic listings with PodPilot.",
+      "Generate AI-assisted titles, descriptions, and tags for Redbubble and TeePublic listings, then review and organize them before upload.",
   },
   "/redbubble-upload-automation": {
-    title: "Redbubble Upload Automation Tool for POD Sellers",
+    title: "Redbubble Upload Automation Tool",
     description:
-      "Automate Redbubble listing preparation and upload workflows with PodPilot. Import designs, organize metadata, generate AI listing Content, and run browser-based upload queues.",
+      "Prepare Redbubble listings, organize design metadata, and run browser-based upload queues with PodPilot.",
   },
   "/teepublic-upload-automation": {
-    title: "TeePublic Upload Automation Tool for POD Sellers",
+    title: "TeePublic Upload Automation Tool",
     description:
-      "Prepare and automate TeePublic upload workflows with PodPilot. Manage design metadata, AI listing Content, product settings, and browser-based upload queues from one dashboard.",
+      "Prepare TeePublic listings, organize design metadata, and run browser-based upload queues with PodPilot.",
   },
 };
 
