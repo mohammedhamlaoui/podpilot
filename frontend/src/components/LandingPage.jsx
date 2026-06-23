@@ -362,7 +362,7 @@ export default function LandingPage({ theme, setTheme }) {
           <div className="landing-hero-copy">
             <h1>Redbubble & TeePublic Upload Automation for POD Sellers</h1>
             <p>
-              Bulk upload print on demand designs, edit listing metadata, generate AI listing drafts, check trademarks, and publish through the PodPilot browser extension.
+              Bulk upload print on demand designs, edit listing metadata, generate AI listing Content, check trademarks, and publish through the PodPilot browser extension.
             </p>
             <div className="landing-hero-actions">
               <LandingButton>Start Free Trial</LandingButton>
