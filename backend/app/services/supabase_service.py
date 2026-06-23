@@ -124,6 +124,7 @@ def _canonicalize_settings(settings: Any) -> dict[str, Any]:
 # ── designs ────────────────────────────────────────────────────────────────
 
 DESIGN_TABLE = "designs"
+DESIGN_RETENTION_HOURS = 168
 
 # Columns the API may write. Anything else from the user is dropped to keep
 # us schema-safe even if the React layer sends extra keys.
@@ -228,7 +229,7 @@ def _probe_cleanup_at_column() -> bool:
         logger.warning(
             "designs.cleanup_at is MISSING. "
             "Run docs/migration_schema_hardening.sql in the Supabase SQL "
-            "editor. Cleanup will fall back to created_at cutoff behavior. "
+            "editor. Design cleanup will be skipped until this column exists. "
             "Underlying error: %s",
             exc,
         )
@@ -344,11 +345,11 @@ def _parse_db_datetime(value: Any) -> Optional[datetime]:
 
 def _cleanup_at_for_row(row: dict[str, Any]) -> str:
     created_at = _parse_db_datetime(row.get("created_at")) or datetime.now(timezone.utc)
-    return (created_at + timedelta(hours=24)).isoformat()
+    return (created_at + timedelta(hours=DESIGN_RETENTION_HOURS)).isoformat()
 
 
 def _ensure_cleanup_at_for_designs(rows: list[dict[str, Any]]) -> None:
-    """Set the fixed 24-hour cleanup deadline once for new/legacy rows.
+    """Set the fixed 7-day cleanup deadline once for new/legacy rows.
 
     The deadline is derived from the row's original created_at/import time.
     Normal metadata/image/status updates must not recalculate it, because
@@ -500,41 +501,22 @@ def _select_cleanup_columns() -> str:
 def list_old_designs(cutoff_time: datetime) -> list[dict[str, Any]]:
     """List designs eligible for cleanup.
 
-    New rows use cleanup_at as their fixed retention deadline. Older rows
-    without cleanup_at use created_at <= cutoff_time. updated_at is never used
-    for retention, so normal edits do not extend the 24-hour window.
+    Rows are eligible only when cleanup_at is set and has passed. updated_at is
+    never used for retention, so normal edits do not extend the 7-day window.
     """
-    iso_cutoff = cutoff_time.isoformat()
     cols = _select_cleanup_columns()
     if _probe_cleanup_at_column():
         now_iso = datetime.now(timezone.utc).isoformat()
-        by_cleanup_at = (
+        response = (
             _admin.table(DESIGN_TABLE)
             .select(cols)
             .lte("cleanup_at", now_iso)
             .execute()
         )
-        legacy_null_cleanup_at = (
-            _admin.table(DESIGN_TABLE)
-            .select(cols)
-            .is_("cleanup_at", "null")
-            .lte("created_at", iso_cutoff)
-            .execute()
-        )
-        rows_by_id: dict[str, dict[str, Any]] = {}
-        for row in list(by_cleanup_at.data or []) + list(legacy_null_cleanup_at.data or []):
-            row_id = str(row.get("id") or "")
-            if row_id:
-                rows_by_id[row_id] = dict(row)
-        return list(rows_by_id.values())
+        return list(response.data or [])
 
-    response = (
-        _admin.table(DESIGN_TABLE)
-        .select(cols)
-        .lte("created_at", iso_cutoff)
-        .execute()
-    )
-    return list(response.data or [])
+    logger.warning("design cleanup skipped because designs.cleanup_at is missing")
+    return []
 
 
 def insert_cleanup_run_summary(

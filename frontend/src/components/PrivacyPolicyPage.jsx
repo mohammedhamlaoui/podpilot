@@ -49,7 +49,7 @@ const policySections = [
     title: "5. Data Storage and Image Retention Policy",
     body: [
       "User-uploaded designs and metadata are securely stored using cloud storage services (including Cloudflare R2). Images are securely linked directly to your authenticated user account.",
-      "To optimize storage and security, we enforce an automatic image retention policy: uploaded design files are kept temporarily in active workflow storage and automatically purged from our servers when designs are deleted or after workflows are fully processed, based on your retention settings.",
+      "To optimize storage and security, we enforce an automatic image retention policy: uploaded design files are kept for 7 days, then automatically deleted. Designs you manually delete are also removed from active storage.",
     ],
   },
   {

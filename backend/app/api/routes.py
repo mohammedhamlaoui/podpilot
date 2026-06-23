@@ -2229,7 +2229,7 @@ async def trademark_check_design(
 @router.post("/api/admin/cleanup-old-designs")
 def cleanup_old_designs(
     dry_run: bool = Query(default=True),
-    cutoff_hours: int = Query(default=24),
+    cutoff_hours: int = Query(default=168),
     confirm: bool = Query(default=False),
     x_cleanup_secret: Optional[str] = Header(default=None, alias="X-Cleanup-Secret"),
 ) -> dict:
@@ -2251,10 +2251,10 @@ def cleanup_old_designs(
     # Log started
     logger.info("[Cleanup] started dry_run=%s confirm=%s cutoff_hours=%d", dry_run, confirm, cutoff_hours)
 
-    # Calculate cutoff time
+    # Calculate reporting cutoff time. Eligibility is based on cleanup_at <= now().
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=cutoff_hours)
 
-    # Retrieve designs older than cutoff
+    # Retrieve designs whose cleanup_at deadline has passed
     eligible_designs = supabase_service.list_old_designs(cutoff_time)
     eligible_count = len(eligible_designs)
 
@@ -2476,7 +2476,7 @@ async def trademark_check_design(
 @router.post("/api/admin/cleanup-old-designs")
 def cleanup_old_designs(
     dry_run: bool = Query(default=True),
-    cutoff_hours: int = Query(default=24),
+    cutoff_hours: int = Query(default=168),
     confirm: bool = Query(default=False),
     x_cleanup_secret: Optional[str] = Header(default=None, alias="X-Cleanup-Secret"),
 ) -> dict:
@@ -2498,10 +2498,10 @@ def cleanup_old_designs(
     # Log started
     logger.info("[Cleanup] started dry_run=%s confirm=%s cutoff_hours=%d", dry_run, confirm, cutoff_hours)
 
-    # Calculate cutoff time
+    # Calculate reporting cutoff time. Eligibility is based on cleanup_at <= now().
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=cutoff_hours)
 
-    # Retrieve designs older than cutoff
+    # Retrieve designs whose cleanup_at deadline has passed
     eligible_designs = supabase_service.list_old_designs(cutoff_time)
     eligible_count = len(eligible_designs)
 
