@@ -28,7 +28,7 @@ const refundSections = [
   {
     title: "4. Money-Back Guarantee SLA",
     body: [
-      "For added peace of mind, refund requests may be submitted and reviewed within 3 days of your first payment.",
+      "For added peace of mind, refund requests may be submitted and reviewed within 7 days of your first payment.",
       "We want to ensure that every POD seller has an exceptional experience. If you encounter setup blockers or software errors, please let us know immediately so we can assist you.",
     ],
   },
@@ -72,7 +72,7 @@ const refundSections = [
 export default function RefundPolicyPage() {
   useSeo({
     title: "Refund Policy - PodPilot",
-    description: "PodPilot offers a 3-day money-back guarantee on all subscription plans. Learn about our refund criteria, cancellation terms, and how to request a refund.",
+    description: "PodPilot offers a 7-day money-back guarantee on all subscription plans. Learn about our refund criteria, cancellation terms, and how to request a refund.",
     canonical: "/refund-policy",
   });
   return (
@@ -100,7 +100,7 @@ export default function RefundPolicyPage() {
             <CreditCard size={22} strokeWidth={2.1} style={{ color: "#7C3AED" }} />
             <h2>Refund Commitments</h2>
             <p>
-              Refund requests may be submitted and reviewed within 3 days of first payment. You can cancel your subscription at any time to prevent renewals.
+              Refund requests may be submitted and reviewed within 7 days of first payment. You can cancel your subscription at any time to prevent renewals.
             </p>
             <a href="mailto:support@podpilot.space" style={{ color: "#7C3AED", fontWeight: 600 }}>support@podpilot.space</a>
           </aside>
