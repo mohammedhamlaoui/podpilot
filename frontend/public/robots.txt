@@ -1,5 +1,16 @@
 User-agent: *
 Allow: /
+Allow: /pricing
+Allow: /blog
+Allow: /ai-listing-generator
+Allow: /redbubble-upload-automation
+Allow: /teepublic-upload-automation
+Allow: /contact
+Allow: /terms
+Allow: /privacy
+Allow: /help
+Allow: /refund-policy
+Allow: /security
 
 Disallow: /dashboard
 Disallow: /dashboard/
@@ -15,5 +26,11 @@ Disallow: /queue
 Disallow: /queue/
 Disallow: /settings
 Disallow: /settings/
+Disallow: /billing
+Disallow: /billing/
+Disallow: /reset-password
+Disallow: /email-confirmed
+Disallow: /extension-auth-success
+Disallow: /thank-you
 
 Sitemap: https://podpilot.space/sitemap.xml

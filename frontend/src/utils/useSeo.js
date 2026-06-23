@@ -8,7 +8,7 @@ const SITE_NAME = "PodPilot";
  * useSeo — sets per-page SEO metadata in the document <head>.
  *
  * @param {object} options
- * @param {string}  options.title          - Page title (appended with " | PodPilot")
+ * @param {string}  options.title          - Page title (appended with " | PodPilot" unless already branded)
  * @param {string}  options.description    - Meta description (max ~160 chars)
  * @param {string}  options.canonical      - Canonical URL path e.g. "/pricing"
  * @param {string}  [options.ogImage]      - Full OG image URL (default: OG logo)
@@ -18,7 +18,11 @@ const SITE_NAME = "PodPilot";
  */
 export function useSeo({ title, description, canonical, ogImage, ogType = "website", noindex = false, jsonLd } = {}) {
   useEffect(() => {
-    const fullTitle = title ? `${title} | ${SITE_NAME}` : SITE_NAME;
+    const fullTitle = title
+      ? title.toLowerCase().includes(SITE_NAME.toLowerCase())
+        ? title
+        : `${title} | ${SITE_NAME}`
+      : SITE_NAME;
     const canonicalUrl = canonical ? `${BASE_URL}${canonical}` : BASE_URL;
     const image = ogImage || DEFAULT_IMAGE;
     const robotsContent = noindex ? "noindex, nofollow" : "index, follow";
