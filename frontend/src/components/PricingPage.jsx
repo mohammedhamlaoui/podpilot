@@ -88,7 +88,7 @@ const faqs = [
   },
   {
     question: "Do you offer a money-back guarantee?",
-    answer: "Yes. If PodPilot is not a fit, contact support within 3 days of your purchase and we will refund your payment.",
+    answer: "Yes. If PodPilot is not a fit, contact support within 7 days of your purchase and we will refund your payment.",
   },
 ];
 
@@ -610,21 +610,21 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
           </div>
         </div>
       </section>
-      {/* 3-Day Money-Back Guarantee Section */}
+      {/* 7-Day Money-Back Guarantee Section */}
       <section className="pricing-guarantee-container">
         <div className="pricing-guarantee-card">
           <div className="pricing-guarantee-icon-wrapper">
             <ShieldCheck size={28} strokeWidth={2} />
           </div>
           <div className="pricing-guarantee-content">
-            <h2>3-Day Money-Back Guarantee</h2>
+            <h2>7-Day Money-Back Guarantee</h2>
             <p>
-              Try PodPilot with your own upload workflow. If it is not a fit, contact support within 3 days of your initial payment for a full refund.
+              Try PodPilot with your own upload workflow. If it is not a fit, contact support within 7 days of your initial payment for a full refund.
             </p>
             <div className="pricing-guarantee-checkmarks">
               <div className="pricing-guarantee-check-item">
                 <CheckCircle2 size={16} />
-                <span>Full refund within 3 days</span>
+                <span>Full refund within 7 days</span>
               </div>
               <div className="pricing-guarantee-check-item">
                 <CheckCircle2 size={16} />
