@@ -1,8 +1,8 @@
 # PodPilot Auto-Delete Cleanup
 
-PodPilot design uploads are temporary. Files are eligible for deletion exactly 12 hours after import/upload creation time. Cleanup must run on the backend or server infrastructure, not in the frontend or Chrome extension.
+PodPilot design uploads are temporary. Designs are kept for 7 days, then automatically deleted. Cleanup must run on the backend or server infrastructure, not in the frontend or Chrome extension.
 
-Example: if a user imports a design at 10:00, the design's `cleanup_at` deadline is 22:00. Actual deletion may happen shortly after 22:00 depending on the cleanup timer. Editing metadata, saving listings, changing colors/products, opening the editor, or updating upload status does not extend retention.
+Example: if a user imports a design at 10:00 on Monday, the design's `cleanup_at` deadline is 10:00 the following Monday. Actual deletion may happen shortly after that depending on the cleanup timer. Editing metadata, saving listings, changing colors/products, opening the editor, or updating upload status does not extend retention.
 
 ## What Exists Now
 
@@ -16,8 +16,8 @@ Example: if a user imports a design at 10:00, the design's `cleanup_at` deadline
   - `users/{user_id}/{marketplace}/{design_id}/{filename}`
   - `users/{user_id}/{marketplace}/{design_id}/thumbnails/{filename}.webp`
   - `users/{user_id}/imports/{import_id}/{filename}`
-- The backend writes `cleanup_at = created_at + 12 hours` once for new design rows when `designs.cleanup_at` exists.
-- Older rows without `cleanup_at` fall back to `created_at <= now() - 12 hours`.
+- The backend writes `cleanup_at = created_at + interval '7 days'` once for new design rows when `designs.cleanup_at` exists.
+- Cleanup only deletes design rows where `cleanup_at <= now()`.
 - `updated_at` is not used for retention.
 - Existing admin endpoints are protected by `ADMIN_CLEANUP_SECRET`:
   - `POST /api/admin/cleanup-old-designs`
@@ -27,7 +27,7 @@ Example: if a user imports a design at 10:00, the design's `cleanup_at` deadline
 
 ## What Was Missing Or Risky
 
-- Before this change, existing cleanup docs and the GitHub Actions workflow defaulted to `cutoff_hours=24`, which conflicted with the 12-hour product goal for legacy rows. They now use 12-hour examples/defaults.
+- Before this change, existing cleanup docs and scheduled examples used shorter retention windows. They now use 7-day examples/defaults.
 - The admin endpoint is request-triggered. It is useful, but it is not a VPS-native scheduled cleanup by itself.
 - FastAPI `BackgroundTasks` are not used for periodic cleanup and would not be reliable for this job anyway.
 - No APScheduler, FastAPI startup loop, systemd timer, cron entry, Cloudflare Worker, or R2 lifecycle rule is configured in the deployment files.
@@ -45,7 +45,7 @@ Use Option A: backend cleanup script plus a systemd timer on the Hetzner VPS.
 
 This keeps cleanup close to the backend runtime, uses the same `/etc/podpilot/backend.env` secrets already used by the backend service, avoids public scheduled endpoints, and can be inspected with `journalctl`.
 
-The timer example runs every 30 minutes. Timer frequency does not change the retention rule: rows are eligible only when `cleanup_at <= now()`, so a 10:00 import becomes eligible at 22:00 and is deleted on the first cleanup run after that time.
+The timer example runs every 30 minutes. Timer frequency does not change the retention rule: rows are eligible only when `cleanup_at <= now()`, so a Monday 10:00 import becomes eligible the following Monday at 10:00 and is deleted on the first cleanup run after that time.
 
 R2 lifecycle rules can be added later as a second safety net, but lifecycle rules alone cannot delete Supabase database rows.
 
@@ -77,7 +77,7 @@ Execute cleanup:
 
 ```bash
 cd /opt/podpilot/current
-backend/.venv/bin/python backend/scripts/cleanup_expired_designs.py --execute --retention-hours 12 --batch-size 200
+backend/.venv/bin/python backend/scripts/cleanup_expired_designs.py --execute --retention-hours 168 --batch-size 200
 ```
 
 The script reports:
@@ -143,7 +143,7 @@ ALTER TABLE public.designs
 ADD COLUMN IF NOT EXISTS cleanup_at timestamptz;
 
 UPDATE public.designs
-SET cleanup_at = created_at + interval '12 hours'
+SET cleanup_at = created_at + interval '7 days'
 WHERE cleanup_at IS NULL
   AND created_at IS NOT NULL;
 
@@ -151,7 +151,7 @@ CREATE INDEX IF NOT EXISTS designs_cleanup_at_idx
 ON public.designs (cleanup_at);
 ```
 
-The same SQL is available in `docs/migration_design_cleanup_at_12h.sql`.
+The current retention migration is available in `docs/migration_design_cleanup_at_7d.sql`.
 
 R2 bucket:
 

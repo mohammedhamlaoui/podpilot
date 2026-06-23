@@ -11,7 +11,7 @@ ALTER TABLE public.designs
 ADD COLUMN IF NOT EXISTS cleanup_at timestamptz;
 
 UPDATE public.designs
-SET cleanup_at = created_at + interval '12 hours'
+SET cleanup_at = created_at + interval '7 days'
 WHERE cleanup_at IS NULL
   AND created_at IS NOT NULL;
 

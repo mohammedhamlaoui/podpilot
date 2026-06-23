@@ -1,4 +1,4 @@
--- PodPilot migration: fixed 12-hour design auto-delete deadlines.
+-- PodPilot migration: fixed 7-day design auto-delete deadlines.
 -- Run this in the Supabase SQL Editor when ready.
 --
 -- This is idempotent and non-destructive. It adds cleanup_at, backfills old
@@ -6,7 +6,7 @@
 -- periodic cleanup scans.
 --
 -- Auto-delete rule:
---   cleanup_at = created_at + interval '12 hours'
+--   cleanup_at = created_at + interval '7 days'
 --
 -- Do not update cleanup_at on normal metadata/editor/status changes.
 
@@ -14,7 +14,7 @@ ALTER TABLE public.designs
 ADD COLUMN IF NOT EXISTS cleanup_at timestamptz;
 
 UPDATE public.designs
-SET cleanup_at = created_at + interval '12 hours'
+SET cleanup_at = created_at + interval '7 days'
 WHERE cleanup_at IS NULL
   AND created_at IS NOT NULL;
 

@@ -94,8 +94,7 @@ export default function StorageNoticeBell() {
 
           <div className="pp-bell-dropdown-body">
             <p>
-              To keep PodPilot fast and affordable, uploaded design images and
-              import files are automatically deleted after 12 hours.
+              Designs are kept for 7 days, then automatically deleted.
             </p>
             <p>
               Your design metadata, upload status, logs, and account data
@@ -104,8 +103,8 @@ export default function StorageNoticeBell() {
           </div>
 
           <div className="pp-bell-dropdown-recommendation">
-            <strong>Recommendation:</strong> Please start your upload queue within 12
-            hours after importing your files.
+            <strong>Recommendation:</strong> Please start your upload queue within 7
+            days after importing your files.
           </div>
 
           <button

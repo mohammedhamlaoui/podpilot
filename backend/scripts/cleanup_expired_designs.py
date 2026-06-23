@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover - dependency exists in normal backend env
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SERVER_ENV = Path("/etc/podpilot/backend.env")
-DEFAULT_RETENTION_HOURS = 12
+DEFAULT_RETENTION_HOURS = 168
 R2_COLUMNS = ("image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key")
 REQUIRED_ENV = (
     "SUPABASE_URL",
@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
         "--retention-hours",
         type=int,
         default=DEFAULT_RETENTION_HOURS,
-        help="Legacy created_at cutoff for rows without cleanup_at. Default: 12.",
+        help="Retention window in hours for reporting. Default: 168.",
     )
     parser.add_argument("--batch-size", type=int, default=200, help="Maximum expired designs to process.")
     parser.add_argument("--env-file", default="", help="Optional env file path to load before backend config.")
@@ -227,8 +227,7 @@ def main() -> int:
         keys = collect_r2_keys(design)
         created_at = parse_datetime(design.get("created_at"))
         cleanup_at = parse_datetime(design.get("cleanup_at"))
-        expires_at = cleanup_at or (created_at + timedelta(hours=retention_hours) if created_at else None)
-        is_expired = bool(expires_at and expires_at <= now)
+        is_expired = bool(cleanup_at and cleanup_at <= now)
         base_summary["expired_designs"].append(
             {
                 "id": safe_id(design_id),

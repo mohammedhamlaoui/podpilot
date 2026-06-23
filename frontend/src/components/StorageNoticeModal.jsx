@@ -68,9 +68,7 @@ export default function StorageNoticeModal() {
 
         <div className="pp-storage-notice-body">
           <p>
-            To keep PodPilot running fast and affordable, uploaded design
-            workspaces and temporary image files may be cleared periodically
-            during scheduled maintenance.
+            Designs are kept for 7 days, then automatically deleted.
           </p>
           <p className="pp-storage-notice-safe">
             Your account, subscription, billing status, AI tokens, and saved
@@ -83,8 +81,8 @@ export default function StorageNoticeModal() {
             What this means for you
           </span>
           <ul>
-            <li>Uploaded design workspaces may be cleaned periodically</li>
-            <li>Temporary image files may be removed from storage</li>
+            <li>Uploaded design workspaces are kept for 7 days</li>
+            <li>Temporary image files are automatically deleted after 7 days</li>
             <li>Your account and subscription stay safe</li>
             <li>Your AI tokens stay safe</li>
             <li>You can upload fresh files again whenever needed</li>
