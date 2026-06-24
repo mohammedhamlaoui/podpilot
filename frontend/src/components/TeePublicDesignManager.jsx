@@ -2358,8 +2358,10 @@ export default function DesignManager({
         (() => {
           // Redirect to the full TeePublicEditor instead of inline edit
           const idx = designs.findIndex((d) => d.id === editingId);
+          const design = idx >= 0 ? designs[idx] : null;
           if (idx >= 0) {
-            setTimeout(() => { cancelEdit(true, false); onEditDesign(idx); }, 0);
+            console.info(`[PodPilot][TeePublic Edit] open requested designId=${design?.id || ""} filename=${design?.filename || ""}`);
+            setTimeout(() => { cancelEdit(true, false); onEditDesign(idx, design?.id || ""); }, 0);
           }
           return null;
         })()
@@ -2513,7 +2515,8 @@ export default function DesignManager({
                             setOpenActionId(null);
                             if (onEditDesign) {
                               const idx = designs.findIndex((d) => d.id === design.id);
-                              onEditDesign(idx >= 0 ? idx : 0);
+                              console.info(`[PodPilot][TeePublic Edit] open requested designId=${design.id || ""} filename=${design.filename || ""}`);
+                              onEditDesign(idx >= 0 ? idx : 0, design.id);
                             }
                           }} role="menuitem">
                             <Icon name="edit" />

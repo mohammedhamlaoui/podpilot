@@ -78,7 +78,9 @@ function mergeProductSettings(saved) {
 export default function TeePublicEditor({
   designs,
   activeIndex: activeIndexProp,
+  activeDesignId: activeDesignIdProp = "",
   onActiveIndexChange,
+  onActiveDesignIdChange,
   onDesignsChange,
   onBack,
   uploadedImages,
@@ -139,16 +141,27 @@ export default function TeePublicEditor({
   const [riskResult, setRiskResult] = useState(null);
 
   const visibleDesigns = useMemo(() => [...(designs || [])], [designs]);
-  const [activeDesignId, setActiveDesignId] = useState(() => visibleDesigns[activeIndexProp]?.id || visibleDesigns[0]?.id || "");
-  const activeDesignIndex = visibleDesigns.findIndex((item) => item.id === activeDesignId);
+  const [activeDesignId, setActiveDesignId] = useState(() => activeDesignIdProp || visibleDesigns[activeIndexProp]?.id || visibleDesigns[0]?.id || "");
+  const resolvedActiveDesignId = activeDesignIdProp || activeDesignId;
+  const activeDesignIndex = visibleDesigns.findIndex((item) => item.id === resolvedActiveDesignId);
   const activeIndex = activeDesignIndex >= 0
     ? activeDesignIndex
-    : Math.max(0, Math.min(activeIndexProp || 0, visibleDesigns.length - 1));
-  const design = visibleDesigns[activeIndex] || visibleDesigns[0];
+    : (resolvedActiveDesignId ? -1 : Math.max(0, Math.min(activeIndexProp || 0, visibleDesigns.length - 1)));
+  const design = activeIndex >= 0 ? (visibleDesigns[activeIndex] || null) : null;
   const designId = design?.id;
   useEffect(() => {
     activeAiDesignIdRef.current = designId || "";
   }, [designId]);
+  useEffect(() => {
+    const nextId = String(activeDesignIdProp || "").trim();
+    if (nextId && nextId !== activeDesignId) {
+      setActiveDesignId(nextId);
+    }
+  }, [activeDesignId, activeDesignIdProp]);
+  useEffect(() => {
+    if (!design) return;
+    console.info(`[PodPilot][TeePublic Edit] editor resolved designId=${design.id || ""} filename=${design.filename || ""}`);
+  }, [design?.id, design?.filename]);
 
   // Local editable state for current design
   const [form, setForm] = useState(() => buildForm(design));
@@ -156,16 +169,19 @@ export default function TeePublicEditor({
   useEffect(() => {
     if (visibleDesigns.length === 0) {
       setActiveDesignId("");
+      onActiveDesignIdChange?.("");
       return;
     }
-    if (activeDesignId && visibleDesigns.some((item) => item.id === activeDesignId)) return;
+    if (resolvedActiveDesignId && visibleDesigns.some((item) => item.id === resolvedActiveDesignId)) return;
+    if (resolvedActiveDesignId) return;
     const fallbackIndex = Math.max(0, Math.min(activeIndexProp || 0, visibleDesigns.length - 1));
     const fallback = visibleDesigns[fallbackIndex] || visibleDesigns[visibleDesigns.length - 1];
     if (fallback?.id) {
       setActiveDesignId(fallback.id);
+      onActiveDesignIdChange?.(fallback.id);
       onActiveIndexChange(fallbackIndex);
     }
-  }, [activeDesignId, activeIndexProp, onActiveIndexChange, visibleDesigns]);
+  }, [activeIndexProp, onActiveDesignIdChange, onActiveIndexChange, resolvedActiveDesignId, visibleDesigns]);
 
   useEffect(() => () => {
     if (replacementPreviewUrlRef.current) {
@@ -878,6 +894,8 @@ export default function TeePublicEditor({
       if (isLocalId(design.id)) {
         revokeLocalDraftPreview(design);
         onDesignsChange((current) => [savedDesign, ...current.filter((item) => item.id !== design.id && item.id !== savedDesign.id)]);
+        setActiveDesignId(savedDesign.id || "");
+        onActiveDesignIdChange?.(savedDesign.id || "");
         onActiveIndexChange(0);
       } else {
         onDesignsChange((current) => current.map((item) => (item.id === design.id ? savedDesign : item)));
@@ -1277,6 +1295,8 @@ export default function TeePublicEditor({
   function handleBack() {
     setAiMenuOpen(false);
     setTrademarkMenuOpen(false);
+    setActiveDesignId("");
+    onActiveDesignIdChange?.("");
     onBack();
   }
 
@@ -1309,6 +1329,7 @@ export default function TeePublicEditor({
       )),
     ]);
     setActiveDesignId(newId);
+    onActiveDesignIdChange?.(newId);
     onActiveIndexChange(0);
   }
 
@@ -1346,9 +1367,11 @@ export default function TeePublicEditor({
     resetImageReplacementState();
     if (nextDesign && nextDesign.id !== design.id) {
       setActiveDesignId(nextDesign.id);
+      onActiveDesignIdChange?.(nextDesign.id);
       onActiveIndexChange(Math.max(0, visibleDesigns.findIndex((item) => item.id === nextDesign.id)));
     } else {
       setActiveDesignId("");
+      onActiveDesignIdChange?.("");
       onActiveIndexChange(-1);
       onBack();
     }
@@ -1361,6 +1384,7 @@ export default function TeePublicEditor({
     if (!target?.id) return;
     persistActiveForm();
     setActiveDesignId(target.id);
+    onActiveDesignIdChange?.(target.id);
     onActiveIndexChange(nextIndex);
   }
 
@@ -1414,7 +1438,7 @@ export default function TeePublicEditor({
           <button type="button" className="tp-nav-btn" onClick={goPrev} disabled={activeIndex <= 0}>‹</button>
           <div className="tp-dots">
             {visibleDesigns.map((item, i) => (
-              <span key={item.id} className={`tp-dot${item.id === activeDesignId ? " active" : ""}`} onClick={() => switchToIndex(i)} />
+              <span key={item.id} className={`tp-dot${item.id === resolvedActiveDesignId ? " active" : ""}`} onClick={() => switchToIndex(i)} />
             ))}
           </div>
           <button type="button" className="tp-nav-btn" onClick={goNext} disabled={activeIndex >= visibleDesigns.length - 1}>›</button>

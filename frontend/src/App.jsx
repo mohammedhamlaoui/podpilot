@@ -215,6 +215,10 @@ const EDITOR_INDEX_KEYS = {
   redbubble: "podpilot:redbubble:selectedDesignIndex",
   teepublic: "podpilot:teepublic:selectedDesignIndex",
 };
+const EDITOR_DESIGN_ID_KEYS = {
+  redbubble: "podpilot:redbubble:selectedDesignId",
+  teepublic: "podpilot:teepublic:selectedDesignId",
+};
 const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
@@ -282,6 +286,25 @@ function writeEditorIndex(marketplace, index) {
     sessionStorage.setItem(EDITOR_INDEX_KEYS[marketplace], String(Math.max(0, Number(index) || 0)));
   } catch {
     // Draft navigation still works in memory if session storage is unavailable.
+  }
+}
+
+function readEditorDesignId(marketplace) {
+  try {
+    return sessionStorage.getItem(EDITOR_DESIGN_ID_KEYS[marketplace]) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeEditorDesignId(marketplace, designId) {
+  try {
+    const key = EDITOR_DESIGN_ID_KEYS[marketplace];
+    const value = String(designId || "").trim();
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  } catch {
+    // Editor selection still works in memory if session storage is unavailable.
   }
 }
 
@@ -555,6 +578,9 @@ export default function App() {
   const [isLoadingPlatformAccess, setIsLoadingPlatformAccess] = useState(true);
   const [rbEditorIndex, setRbEditorIndex] = useState(() => readEditorIndex("redbubble"));
   const [tpEditorIndex, setTpEditorIndex] = useState(() => initialRoute.editor && initialRoute.route === "teepublic" ? readEditorIndex("teepublic") : -1);
+  const [tpEditorDesignId, setTpEditorDesignId] = useState(() => (
+    initialRoute.editor && initialRoute.route === "teepublic" ? readEditorDesignId("teepublic") : ""
+  ));
   const [dashboardToast, setDashboardToast] = useState(null);
   const [uploadControlPrompt, setUploadControlPrompt] = useState({
     visible: false,
@@ -1183,9 +1209,13 @@ export default function App() {
       if (next.editor) {
         const historyKind = event.state?.editorKind;
         const historyIndex = Number(event.state?.selectedDesignIndex);
+        const historyDesignId = String(event.state?.selectedDesignId || "").trim();
         if (Number.isInteger(historyIndex) && historyIndex >= 0) {
           if (next.route === "teepublic") setTpEditorIndex(historyIndex);
           else setRbEditorIndex(historyIndex);
+        }
+        if (next.route === "teepublic") {
+          setTpEditorDesignId(historyDesignId || readEditorDesignId("teepublic"));
         }
         setEditorKinds((current) => ({
           ...current,
@@ -1206,9 +1236,17 @@ export default function App() {
       handleEditorUnavailable("teepublic");
       return;
     }
+    if (tpEditorDesignId) {
+      const idIndex = teepublicDesigns.findIndex((design) => design.id === tpEditorDesignId);
+      if (idIndex >= 0 && idIndex !== tpEditorIndex) {
+        setTpEditorIndex(idIndex);
+        writeEditorIndex("teepublic", idIndex);
+      }
+      return;
+    }
     const safeIndex = Math.max(0, Math.min(tpEditorIndex, teepublicDesigns.length - 1));
     if (safeIndex !== tpEditorIndex) setTpEditorIndex(safeIndex);
-  }, [editorKinds.teepublic, editorPlatform, isLoadingDesigns, teepublicDesigns.length, tpEditorIndex]);
+  }, [editorKinds.teepublic, editorPlatform, isLoadingDesigns, teepublicDesigns, tpEditorDesignId, tpEditorIndex]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1341,22 +1379,40 @@ export default function App() {
     }
   }
 
-  function handleOpenEditor(platform, kind = "design", index = null) {
+  function handleOpenEditor(platform, kind = "design", index = null, designId = "") {
     if (!isPlatformRoute(platform)) return;
+    const selectedDesignId = String(designId || "").trim();
     if (Number.isInteger(index) && index >= 0) {
       writeEditorIndex(platform, index);
       if (platform === "teepublic") setTpEditorIndex(index);
       else setRbEditorIndex(index);
+    }
+    if (platform === "teepublic") {
+      const designFromId = selectedDesignId ? teepublicDesigns.find((design) => design.id === selectedDesignId) : null;
+      const designFromIndex = Number.isInteger(index) && index >= 0 ? teepublicDesigns[index] : null;
+      const requestedDesign = designFromId || designFromIndex || null;
+      const nextDesignId = selectedDesignId || requestedDesign?.id || "";
+      setTpEditorDesignId(nextDesignId);
+      writeEditorDesignId("teepublic", nextDesignId);
+      console.info(
+        `[PodPilot][TeePublic Edit] open requested designId=${nextDesignId || ""} filename=${requestedDesign?.filename || ""}`
+      );
     }
     setEditorKinds((current) => ({ ...current, [platform]: kind }));
     setActiveRoute(platform);
     setActiveTab("designs");
     setEditorPlatform(platform);
     const target = buildPath(platform, "designs", platform);
+    const historyState = {
+      editorPlatform: platform,
+      editorKind: kind,
+      selectedDesignIndex: Number.isInteger(index) ? index : 0,
+      selectedDesignId: platform === "teepublic" ? (selectedDesignId || teepublicDesigns[index]?.id || "") : "",
+    };
     if (window.location.pathname !== target) {
-      window.history.pushState({ editorPlatform: platform, editorKind: kind, selectedDesignIndex: Number.isInteger(index) ? index : 0 }, "", target);
+      window.history.pushState(historyState, "", target);
     } else {
-      window.history.replaceState({ editorPlatform: platform, editorKind: kind, selectedDesignIndex: Number.isInteger(index) ? index : 0 }, "", target);
+      window.history.replaceState(historyState, "", target);
     }
   }
 
@@ -1364,6 +1420,11 @@ export default function App() {
     setActiveRoute(platform);
     setActiveTab("designs");
     setEditorPlatform("");
+    if (platform === "teepublic") {
+      setTpEditorDesignId("");
+      writeEditorDesignId("teepublic", "");
+      console.info("[PodPilot][TeePublic Edit] back to list clear active design");
+    }
     const target = buildPath(platform, "designs");
     if (window.location.pathname !== target) window.history.pushState({ editorPlatform: "", editorKind: "" }, "", target);
   }
@@ -1671,7 +1732,9 @@ export default function App() {
                     <TeePublicEditor
                     designs={teepublicDesigns}
                     activeIndex={tpEditorIndex}
+                    activeDesignId={tpEditorDesignId}
                     onActiveIndexChange={(index) => { setTpEditorIndex(index); writeEditorIndex("teepublic", index); }}
+                    onActiveDesignIdChange={(designId) => { setTpEditorDesignId(designId); writeEditorDesignId("teepublic", designId); }}
                     onDesignsChange={setTeepublicDesignsCached}
                     onBack={() => handleBackToDesigns("teepublic")}
                     uploadedImages={teepublicImages}
@@ -1691,7 +1754,7 @@ export default function App() {
                       onUploadImagesClick={() => teepublicLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                       onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })}
                       onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "manual-refresh" })}
-                      onEditDesign={(index) => handleOpenEditor("teepublic", "design", index)}
+                      onEditDesign={(index, designId) => handleOpenEditor("teepublic", "design", index, designId)}
                       editorMode={editorPlatform === "teepublic"}
                       editorKind={editorKinds.teepublic}
                       onEditorOpen={(kind) => handleOpenEditor("teepublic", kind)}
