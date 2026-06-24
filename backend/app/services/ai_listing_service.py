@@ -15,12 +15,7 @@ from app.services.logging_utils import error_type as safe_error_type, short_id
 
 from app.core.config import (
     AI_LISTING_PROVIDER,
-    AI_MODEL,
-    AI_PROVIDER,
-    ENABLE_OPENROUTER_FREE_FALLBACK,
-    GEMINI_API_KEY,
     OPENROUTER_API_KEY,
-    OPENROUTER_FREE_FALLBACK_MODEL,
     OPENROUTER_MODEL,
 )
 
@@ -315,121 +310,6 @@ def _clean_and_normalize_metadata(
     }
 
 
-async def _generate_listing_gemini(
-    *,
-    design: dict[str, Any],
-    platform: str,
-    current_metadata: Optional[dict[str, Any]] = None,
-    image_url: str = "",
-    image_bytes: Optional[bytes] = None,
-    image_mime_type: str = "",
-) -> dict[str, str]:
-    import logging
-    logger = logging.getLogger("podpilot.ai")
-    design_id = short_id(design.get("id"))
-    if not GEMINI_API_KEY:
-        raise AIListingError("Gemini AI is not configured. Add GEMINI_API_KEY to backend/.env.")
-
-    metadata = _metadata_snapshot(design, current_metadata)
-    image_payload = None
-    if image_bytes:
-        if len(image_bytes) > MAX_INLINE_IMAGE_BYTES:
-            raise AIListingError("Image is too large for AI generation.")
-        mime_type = (image_mime_type or "").split(";", 1)[0].strip()
-        if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
-            guessed, _ = mimetypes.guess_type(metadata.get("filename", ""))
-            mime_type = guessed if guessed in {"image/png", "image/jpeg", "image/webp"} else "image/png"
-        image_payload = (image_bytes, mime_type)
-    elif image_url:
-        image_payload = await _download_image(image_url, metadata.get("filename", ""))
-
-    prompt_str = _build_prompt(platform, metadata, bool(image_payload))
-    parts: list[dict[str, Any]] = [{"text": prompt_str}]
-    if image_payload:
-        image_bytes, mime_type = image_payload
-        parts.append(
-            {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": base64.b64encode(image_bytes).decode("ascii"),
-                }
-            }
-        )
-
-    model = quote(AI_MODEL or "gemini-2.5-flash", safe="")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    payload = {
-        "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "topP": 0.9,
-            "response_mime_type": "application/json",
-        },
-    }
-
-    if DEBUG:
-        logger.debug("gemini_request model=%s has_image=%s", model, bool(image_payload))
-
-    try:
-        # First Attempt
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, params={"key": GEMINI_API_KEY}, json=payload)
-            if response.status_code >= 400:
-                raise AIListingError(f"Gemini API returned status code {response.status_code}")
-            data = response.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            if DEBUG:
-                logger.debug("gemini_response_received chars=%d", len(text or ""))
-            parsed = _parse_json_response(text)
-            normalized = _clean_and_normalize_metadata(parsed, platform)
-        except Exception as first_error:
-            # Correction Retry (Once)
-            logger.warning(
-                "ai_generate_retry provider=gemini design_id=%s error_type=%s",
-                design_id,
-                safe_error_type(first_error),
-            )
-            
-            correction_text = f"\n\nYour previous response was invalid. Please correct it to strictly follow the JSON schema and requirements.\nError details: {first_error}\nOriginal prompt instructions must still be followed."
-            retry_prompt_str = prompt_str + correction_text
-            
-            retry_parts: list[dict[str, Any]] = [{"text": retry_prompt_str}]
-            if image_payload:
-                retry_parts.append(
-                    {
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": base64.b64encode(image_bytes).decode("ascii"),
-                        }
-                    }
-                )
-            
-            retry_payload = {
-                "contents": [{"role": "user", "parts": retry_parts}],
-                "generationConfig": {
-                    "temperature": 0.2,
-                    "topP": 0.9,
-                    "response_mime_type": "application/json",
-                },
-            }
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, params={"key": GEMINI_API_KEY}, json=retry_payload)
-            if response.status_code >= 400:
-                raise AIListingError(f"Gemini retry API returned status code {response.status_code}")
-            data = response.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            if DEBUG:
-                logger.debug("gemini_retry_response_received chars=%d", len(text or ""))
-            parsed = _parse_json_response(text)
-            normalized = _clean_and_normalize_metadata(parsed, platform)
-    except Exception as final_error:
-        raise AIListingError(f"Gemini generation failed: {final_error}") from final_error
-
-    return normalized
-
-
 async def generate_listing_content(
     *,
     design: dict[str, Any],
@@ -439,7 +319,6 @@ async def generate_listing_content(
     image_bytes: Optional[bytes] = None,
     image_mime_type: str = "",
 ) -> dict[str, str]:
-    import asyncio
     import logging
     import time
 
@@ -447,7 +326,6 @@ async def generate_listing_content(
 
     logger = logging.getLogger("podpilot.ai")
     design_id = short_id(design.get("id"))
-    failures: list[tuple[str, Exception]] = []
 
     logger.info(
         "ai_generate_started design_id=%s platform=%s configured_provider=%s has_image=%s",
@@ -457,115 +335,45 @@ async def generate_listing_content(
         bool(image_url or image_bytes),
     )
 
-    async def try_openrouter(
-        *,
-        provider_label: str,
-        model: str,
-        timeout_seconds: float,
-        structured_output: bool,
-        require_tags_array: bool,
-    ) -> Optional[dict[str, str]]:
-        started_at = time.perf_counter()
-        try:
-            generation = generate_listing_openrouter(
-                design=design,
-                platform=platform,
-                current_metadata=current_metadata,
-                image_url=image_url,
-                image_bytes=image_bytes,
-                image_mime_type=image_mime_type,
-                model=model,
-                timeout_seconds=timeout_seconds,
-                structured_output=structured_output,
-                require_tags_array=require_tags_array,
-                provider_label=provider_label,
-            )
-            result = (
-                await asyncio.wait_for(generation, timeout=timeout_seconds)
-                if provider_label == "openrouter_free"
-                else await generation
-            )
-            logger.info(
-                "ai_generate_succeeded design_id=%s ai_listing_provider=%s ai_listing_model=%s duration_ms=%d",
-                design_id,
-                provider_label,
-                model,
-                int((time.perf_counter() - started_at) * 1000),
-            )
-            return {
-                "title": result["title"],
-                "description": result["description"],
-                "main_tag": result["main_tag"],
-                "supporting_tags": result["supporting_tags"],
-            }
-        except Exception as error:
-            failures.append((provider_label, error))
-            logger.warning(
-                "ai_generate_provider_failed design_id=%s ai_listing_provider=%s ai_listing_model=%s duration_ms=%d error_type=%s",
-                design_id,
-                provider_label,
-                model,
-                int((time.perf_counter() - started_at) * 1000),
-                safe_error_type(error),
-            )
-            return None
+    if AI_LISTING_PROVIDER != "openrouter":
+        raise AIListingError("AI Listing is configured to use OpenRouter/Edge only.")
+    if not OPENROUTER_API_KEY:
+        raise AIListingError("OpenRouter AI is not configured. Add OPENROUTER_API_KEY to backend/.env.")
 
-    # Preserve the existing paid OpenRouter -> Gemini provider order.
-    if AI_LISTING_PROVIDER == "openrouter" and OPENROUTER_API_KEY:
-        result = await try_openrouter(
-            provider_label="openrouter",
+    started_at = time.perf_counter()
+    try:
+        result = await generate_listing_openrouter(
+            design=design,
+            platform=platform,
+            current_metadata=current_metadata,
+            image_url=image_url,
+            image_bytes=image_bytes,
+            image_mime_type=image_mime_type,
             model=OPENROUTER_MODEL,
             timeout_seconds=60.0,
             structured_output=False,
             require_tags_array=False,
+            provider_label="openrouter",
         )
-        if result is not None:
-            return result
-
-    if GEMINI_API_KEY:
-        started_at = time.perf_counter()
-        try:
-            result = await _generate_listing_gemini(
-                design=design,
-                platform=platform,
-                current_metadata=current_metadata,
-                image_url=image_url,
-                image_bytes=image_bytes,
-                image_mime_type=image_mime_type,
-            )
-            logger.info(
-                "ai_generate_succeeded design_id=%s ai_listing_provider=gemini ai_listing_model=%s duration_ms=%d",
-                design_id,
-                AI_MODEL,
-                int((time.perf_counter() - started_at) * 1000),
-            )
-            return result
-        except Exception as error:
-            failures.append(("gemini", error))
-            logger.warning(
-                "ai_generate_provider_failed design_id=%s ai_listing_provider=gemini ai_listing_model=%s duration_ms=%d error_type=%s",
-                design_id,
-                AI_MODEL,
-                int((time.perf_counter() - started_at) * 1000),
-                safe_error_type(error),
-            )
-
-    # Emergency-only final fallback. It is never used for image generation or
-    # as the primary listing model, and is skipped unless explicitly enabled.
-    if ENABLE_OPENROUTER_FREE_FALLBACK and OPENROUTER_API_KEY:
-        result = await try_openrouter(
-            provider_label="openrouter_free",
-            model=OPENROUTER_FREE_FALLBACK_MODEL,
-            timeout_seconds=20.0,
-            structured_output=True,
-            require_tags_array=True,
+    except Exception as error:
+        logger.warning(
+            "ai_generate_failed design_id=%s ai_listing_provider=openrouter ai_listing_model=%s duration_ms=%d error_type=%s",
+            design_id,
+            OPENROUTER_MODEL,
+            int((time.perf_counter() - started_at) * 1000),
+            safe_error_type(error),
         )
-        if result is not None:
-            return result
+        raise AIListingError(f"AI listing generation failed. Error: {error}") from error
 
-    logger.warning(
-        "ai_generate_failed design_id=%s providers_attempted=%s",
+    logger.info(
+        "ai_generate_succeeded design_id=%s ai_listing_provider=openrouter ai_listing_model=%s duration_ms=%d",
         design_id,
-        ",".join(provider for provider, _ in failures) or "none",
+        OPENROUTER_MODEL,
+        int((time.perf_counter() - started_at) * 1000),
     )
-    raise AIListingError("AI listing generation is temporarily unavailable. Please try again.")
+    return {
+        "title": result["title"],
+        "description": result["description"],
+        "main_tag": result["main_tag"],
+        "supporting_tags": result["supporting_tags"],
+    }

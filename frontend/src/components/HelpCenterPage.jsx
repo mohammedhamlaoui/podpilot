@@ -47,7 +47,7 @@ const faqItems = [
   {
     id: "ai-listing",
     question: "How does the AI listing content generator work?",
-    answer: "PodPilot integrates high-speed generative AI (powered securely on our backend using Google Gemini) to analyze your design filename, niche description, or raw ideas and automatically draft highly optimized, search-friendly listing titles, descriptions, and tags. This saves you hours of brainstorming and copy-pasting."
+    answer: "PodPilot integrates high-speed generative AI powered securely on our backend to analyze your design image, filename, niche description, or raw ideas and draft search-friendly listing titles, descriptions, and tags. This saves you hours of brainstorming and copy-pasting."
   },
   {
     id: "trademark-check",

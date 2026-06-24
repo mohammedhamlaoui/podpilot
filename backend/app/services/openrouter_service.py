@@ -1,16 +1,34 @@
 """OpenRouter AI listing content generation using Reka Edge."""
 import base64
+import hashlib
+import io
 import json
 import mimetypes
+import re
 from typing import Any, Optional
 import httpx
+from PIL import Image, ImageOps
 
 import app.core.config as config
-from app.services.logging_utils import error_type as safe_error_type
+from app.services.logging_utils import error_type as safe_error_type, short_id
 
 
 class OpenRouterListingError(Exception):
     """Exception raised when OpenRouter listing generation fails."""
+
+
+MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024
+AI_IMAGE_MAX_SIDE = 768
+AI_IMAGE_JPEG_QUALITY = 80
+REJECTION_PHRASES = [
+    "abstract geometric",
+    "geometric shapes",
+    "seedling",
+    "seeds",
+    "growth",
+    "vase",
+    "minimalist line art",
+]
 
 
 LISTING_JSON_SCHEMA = {
@@ -57,117 +75,73 @@ def _metadata_snapshot(design: dict[str, Any], current_metadata: Optional[dict[s
     }
 
 
-def _build_prompt(platform: str, metadata: dict[str, str], has_image: bool) -> str:
+def _build_prompt(
+    platform: str,
+    metadata: dict[str, str],
+    has_image: bool,
+    correction_instruction: str = "",
+) -> str:
     context = "\n".join(f"- {key}: {value or '(blank)'}" for key, value in metadata.items())
     image_line = (
-        "Use the attached design image as the primary source of truth."
+        "Use the attached compressed design image as the primary source of truth."
         if has_image
         else "No image is available, so infer cautiously from filename and current metadata."
     )
+    correction = f"\n\nCorrection request: {correction_instruction}" if correction_instruction else ""
     return f"""
-SYSTEM INSTRUCTIONS:
-You are an expert print-on-demand listing writer for Redbubble and TeePublic.
-Your job is to analyze the image and create accurate, safe, human-written marketplace metadata.
-Describe only what is actually visible in the image.
-Do not invent brands, characters, celebrities, locations, styles, cultures, movies, games, or copyrighted names.
-Do not use trademarked terms.
-Do not use generic filler like "beautiful design", "perfect for everyone", or "unique design" unless the image clearly supports it.
-Write natural metadata that sounds like a real human seller.
-If the design is black and white line art, mention "line art" naturally.
-If the background is transparent or contains a checkerboard grid, do not describe the checkerboard as part of the design.
-Never use filename numbers (like "27"), "Untitled", "Image 1", or random uploaded file names in the title/tags. Describe the visible design, not the filename.
+You are analyzing a print-on-demand design image and writing listing metadata.
 
-USER REQUEST:
-Analyze this design image and return marketplace metadata.
+Look carefully at the actual visible image.
+Describe ONLY what is clearly visible.
+Do not invent themes, objects, styles, or meanings.
+Do not use generic filler such as abstract geometric, minimalist, seedling, growth, modern line art, or vase unless those exact elements are clearly visible.
+If the design contains ghosts, skulls, potion bottles, witches, Halloween, cute spooky elements, animals, food, quotes, or characters, mention the visible subject accurately.
+If unsure, choose a broad but safe description based on visible objects only.
+
 Platform: {platform}
 {image_line}
 
 Current design context:
 {context}
+{correction}
 
 Return ONLY valid JSON with this exact shape:
 {{
-  "title": "short natural title, max 60 characters",
-  "description": "one natural sentence, max 160 characters",
-  "main_tag": "one broad searchable keyword",
-  "supporting_tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8"]
+  "title": "...",
+  "description": "...",
+  "tags": "...",
+  "main_keyword": "..."
 }}
 
 Rules:
-- Title must describe the main subject clearly.
-- Description must mention visible elements only.
-- Main tag must be one simple buyer-search keyword.
-- Supporting tags must be relevant buyer-search terms.
-- No duplicate tags.
-- No made-up words.
-- No copyrighted names.
-- No celebrity/brand/team/movie/game references.
-- Avoid vague words like "art", "design", "cool", "awesome" unless useful.
-- If the image is abstract, describe shapes, colors, mood, and style accurately.
-- If unsure, stay simple and literal.
+- Title: short, natural, 3 to 8 words.
+- Description: one short sentence.
+- Tags: comma-separated, 8 to 12 relevant tags.
+- Main keyword: 2 to 4 words.
+- Avoid spammy repetition.
+- Avoid copyrighted character names, brand names, celebrity names, or trademarked terms.
+- Do not mention Redbubble or TeePublic in the listing fields.
+- Do not say "geometric", "abstract", "seedling", "vase", "growth", or "minimalist" unless clearly visible.
+- Use simple POD seller-friendly wording.
+- Prefer concrete visible nouns over vague aesthetics.
 
-Examples of highly relevant listings:
-
-Example 1: Black and white line art cup image
+Example:
+If the image shows a cute potion bottle with ghosts and skulls, a good output is:
 {{
-  "title": "Floral Teacup Line Art",
-  "description": "A simple black line drawing of a patterned teacup and saucer.",
-  "main_tag": "teacup",
-  "supporting_tags": ["line art", "tea cup", "saucer", "floral pattern", "black and white", "minimal", "cozy", "drinkware"]
-}}
-
-Example 2: Cute animal line art
-{{
-  "title": "Cute Sleeping Fox Line Art",
-  "description": "A minimalist black and white line drawing of a sleeping fox curled up in a circle.",
-  "main_tag": "fox",
-  "supporting_tags": ["sleeping fox", "line art", "minimalist fox", "woodland creature", "cute animal", "black and white", "minimal", "nursery art"]
-}}
-
-Example 3: Abstract pattern
-{{
-  "title": "Retro Teal and Mustard Waves",
-  "description": "An abstract mid-century modern pattern featuring flowing wavy lines in teal, mustard yellow, and cream.",
-  "main_tag": "abstract pattern",
-  "supporting_tags": ["mid century modern", "wavy lines", "retro pattern", "teal and mustard", "geometric", "seamless pattern", "70s aesthetic", "groovy waves"]
-}}
-
-Example 4: Flower/bouquet
-{{
-  "title": "Wildflower Bouquet Watercolor",
-  "description": "A vibrant watercolor painting of a wildflower bouquet with lavender, daisies, and eucalyptus stems.",
-  "main_tag": "wildflowers",
-  "supporting_tags": ["watercolor bouquet", "floral art", "lavender", "daisies", "eucalyptus", "flower painting", "botanical art", "colorful flowers"]
-}}
-
-Example 5: Text-only design
-{{
-  "title": "Inspirational Keep Going Quote",
-  "description": "A bold typography design featuring the motivational quote Keep Going in clean black lettering.",
-  "main_tag": "inspirational quote",
-  "supporting_tags": ["motivational quote", "typography", "keep going", "bold text", "minimalist quote", "black lettering", "positive vibes", "encouragement"]
+  "title": "Cute Ghost Potion Bottle",
+  "description": "A cute spooky potion bottle design filled with ghosts, skulls, stars, and pastel Halloween magic.",
+  "tags": "spooky potion bottle, cute ghost, halloween potion, ghost bottle, skulls, witchy design, pastel spooky, kawaii halloween, magic bottle, cute spooky",
+  "main_keyword": "spooky potion bottle"
 }}
 """.strip()
 
 
 def _parse_json_response(text: str) -> dict[str, Any]:
     raw = (text or "").strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").strip()
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
-
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise OpenRouterListingError("AI returned an unreadable response.")
-        try:
-            data = json.loads(raw[start : end + 1])
-        except json.JSONDecodeError as error:
-            raise OpenRouterListingError("AI returned invalid JSON.") from error
+    except json.JSONDecodeError as error:
+        raise OpenRouterListingError("AI returned invalid JSON.") from error
 
     if not isinstance(data, dict):
         raise OpenRouterListingError("AI returned an unexpected response.")
@@ -210,13 +184,65 @@ def _is_forbidden_tag(tag: str) -> bool:
     return False
 
 
+def _contains_rejected_generic_terms(
+    data: dict[str, Any],
+    metadata: dict[str, str],
+) -> Optional[str]:
+    response_text = " ".join(
+        _stringify(data.get(field))
+        for field in ("title", "description", "tags", "main_keyword", "main_tag", "supporting_tags")
+    ).lower()
+    context_text = " ".join(metadata.values()).lower()
+    for phrase in REJECTION_PHRASES:
+        phrase_words = [word for word in phrase.split() if len(word) > 2]
+        supported_by_context = phrase in context_text or all(word in context_text for word in phrase_words)
+        if phrase in response_text and not supported_by_context:
+            return phrase
+    return None
+
+
+def _clean_filename_words(filename: str) -> list[str]:
+    stem = re.sub(r"\.[a-z0-9]{2,5}$", "", filename.strip(), flags=re.IGNORECASE)
+    stem = re.sub(r"[_\-]+", " ", stem)
+    words = re.findall(r"[a-zA-Z]{3,}", stem)
+    blocked = {"image", "design", "file", "upload", "untitled", "copy", "final", "print"}
+    return [word.lower() for word in words if word.lower() not in blocked][:8]
+
+
+def _fallback_listing(metadata: dict[str, str]) -> dict[str, Any]:
+    words = _clean_filename_words(metadata.get("filename", ""))
+    if words:
+        title_words = words[:6]
+        title = " ".join(word.capitalize() for word in title_words)
+        main_keyword = " ".join(words[: min(4, len(words))])
+        tags = list(dict.fromkeys(words + [main_keyword]))
+    else:
+        title = "Uploaded Artwork Design"
+        main_keyword = "uploaded artwork"
+        tags = ["uploaded artwork", "print on demand", "clean design", "seller artwork"]
+
+    return {
+        "title": title,
+        "description": "A clean print-on-demand design based on the uploaded artwork.",
+        "main_tag": main_keyword,
+        "tags": tags[:12],
+        "supporting_tags": ", ".join(tags[:12]),
+        "fallback_used": True,
+    }
+
+
 def _clean_and_normalize_metadata(
-    data: dict[str, Any], platform: str, *, require_tags_array: bool = False
+    data: dict[str, Any], platform: str, *, metadata: Optional[dict[str, str]] = None, require_tags_array: bool = False
 ) -> dict[str, Any]:
     """Normalize and validate all fields, raising OpenRouterListingError on failure."""
+    metadata = metadata or {}
+    rejected_phrase = _contains_rejected_generic_terms(data, metadata)
+    if rejected_phrase:
+        raise OpenRouterListingError(f"AI listing used unsupported generic wording: {rejected_phrase}.")
+
     title = _stringify(data.get("title"))
     description = _stringify(data.get("description"))
-    main_tag = _stringify(data.get("main_tag") or data.get("primary_tag"))
+    main_tag = _stringify(data.get("main_keyword") or data.get("main_tag") or data.get("primary_tag"))
     
     # Extract raw supporting tags list
     tags_val = data.get("supporting_tags")
@@ -293,6 +319,48 @@ def _clean_and_normalize_metadata(
     }
 
 
+async def _download_image(image_url: str, filename: str) -> Optional[bytes]:
+    if not image_url:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(image_url)
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code >= 400:
+        return None
+
+    content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip()
+    guessed, _ = mimetypes.guess_type(filename or "")
+    if not content_type.startswith("image/") and not (guessed or "").startswith("image/"):
+        return None
+
+    content = response.content or b""
+    if not content or len(content) > MAX_SOURCE_IMAGE_BYTES:
+        return None
+    return content
+
+
+def _compress_image_for_ai(image_bytes: bytes) -> bytes:
+    with Image.open(io.BytesIO(image_bytes)) as source:
+        source.seek(0)
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail((AI_IMAGE_MAX_SIDE, AI_IMAGE_MAX_SIDE), Image.Resampling.LANCZOS)
+
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            flattened = Image.alpha_composite(background, rgba).convert("RGB")
+        else:
+            flattened = image.convert("RGB")
+
+        output = io.BytesIO()
+        flattened.save(output, format="JPEG", quality=AI_IMAGE_JPEG_QUALITY, optimize=True)
+        return output.getvalue()
+
+
 async def generate_listing_openrouter(
     *,
     design: dict[str, Any],
@@ -314,16 +382,38 @@ async def generate_listing_openrouter(
     logger = logging.getLogger("podpilot.ai")
     metadata = _metadata_snapshot(design, current_metadata)
     image_payload_base64 = ""
-    mime_type = ""
+    image_source_bytes: Optional[bytes] = None
 
     if image_bytes:
-        mime_type = (image_mime_type or "").split(";", 1)[0].strip()
-        if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
-            guessed, _ = mimetypes.guess_type(metadata.get("filename", ""))
-            mime_type = guessed if guessed in {"image/png", "image/jpeg", "image/webp"} else "image/png"
-        image_payload_base64 = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        if len(image_bytes) <= MAX_SOURCE_IMAGE_BYTES:
+            image_source_bytes = image_bytes
     elif image_url:
-        image_payload_base64 = image_url
+        image_source_bytes = await _download_image(image_url, metadata.get("filename", ""))
+
+    if image_source_bytes:
+        try:
+            ai_image_bytes = _compress_image_for_ai(image_source_bytes)
+            image_hash_prefix = hashlib.sha256(ai_image_bytes).hexdigest()[:12]
+            image_payload_base64 = f"data:image/jpeg;base64,{base64.b64encode(ai_image_bytes).decode('ascii')}"
+            logger.info(
+                "[PodPilot][AI Listing] received designId=%s filename=%s imageBytes=%d imageHashPrefix=%s",
+                short_id(design.get("id")),
+                metadata.get("filename", ""),
+                len(ai_image_bytes),
+                image_hash_prefix,
+            )
+        except Exception as image_error:
+            logger.warning(
+                "openrouter_ai_image_prepare_failed design_id=%s error_type=%s",
+                short_id(design.get("id")),
+                safe_error_type(image_error),
+            )
+    else:
+        logger.info(
+            "[PodPilot][AI Listing] received designId=%s filename=%s imageBytes=0 imageHashPrefix=",
+            short_id(design.get("id")),
+            metadata.get("filename", ""),
+        )
 
     prompt_str = _build_prompt(platform, metadata, bool(image_payload_base64))
 
@@ -386,6 +476,7 @@ async def generate_listing_openrouter(
             normalized = _clean_and_normalize_metadata(
                 parsed,
                 platform,
+                metadata=metadata,
                 require_tags_array=require_tags_array,
             )
             logger.info(
@@ -402,8 +493,12 @@ async def generate_listing_openrouter(
                 safe_error_type(first_error),
             )
             
-            correction_text = f"\n\nYour previous response was invalid. Please correct it to strictly follow the JSON schema and requirements.\nError details: {first_error}\nOriginal prompt instructions must still be followed."
-            retry_prompt_str = prompt_str + correction_text
+            retry_prompt_str = _build_prompt(
+                platform,
+                metadata,
+                bool(image_payload_base64),
+                "Your previous listing did not match the visible image. Re-analyze the image and describe only visible objects.",
+            )
             
             retry_content_list: list[dict[str, Any]] = [{"type": "text", "text": retry_prompt_str}]
             if image_payload_base64:
@@ -445,6 +540,7 @@ async def generate_listing_openrouter(
             normalized = _clean_and_normalize_metadata(
                 parsed,
                 platform,
+                metadata=metadata,
                 require_tags_array=require_tags_array,
             )
             logger.info(
@@ -453,8 +549,11 @@ async def generate_listing_openrouter(
                 data.get("model") or selected_model,
             )
     except Exception as final_error:
-        if isinstance(final_error, OpenRouterListingError):
-            raise final_error
-        raise OpenRouterListingError(f"OpenRouter generation failed: {final_error}") from final_error
+        logger.warning(
+            "openrouter_fallback_listing design_id=%s error_type=%s",
+            short_id(design.get("id")),
+            safe_error_type(final_error),
+        )
+        normalized = _fallback_listing(metadata)
 
     return normalized

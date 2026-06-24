@@ -292,6 +292,7 @@ export default function DesignManager({
   const [generatingAllTotal, setGeneratingAllTotal] = useState(0);
   const [generatingAllError, setGeneratingAllError] = useState("");
   const stopGeneratingAllRef = useRef(false);
+  const activeCreateAiDesignIdRef = useRef("");
   const [showBatchProgressModal, setShowBatchProgressModal] = useState(false);
   const [batchItems, setBatchItems] = useState([]);
 
@@ -1050,6 +1051,9 @@ export default function DesignManager({
   const activeCreateDraft = activeCreateImage
     ? createDrafts[activeCreateImage.id] || makeCreateDraft(activeCreateImage)
     : makeCreateDraft(null);
+  useEffect(() => {
+    activeCreateAiDesignIdRef.current = activeCreateImage?.id || "";
+  }, [activeCreateImage?.id]);
   const activeStickerEnabled = activeCreateDraft.stickers_color_enabled === "On";
   const activeStickerColor = validHexColor(activeCreateDraft.sticker_color);
   const completedCreateCount = selectedCreateImages.filter((image) => {
@@ -1064,15 +1068,30 @@ export default function DesignManager({
     setAiResult(null);
     setIsAiGenerating(true);
 
+    const requestDesignId = activeCreateImage.id;
+    const replacement = createImageReplacements[requestDesignId];
+    const requestFile = replacement?.file || activeCreateImage.file || null;
+    logAiListingRequest({
+      designIndex: activeCreateIndex,
+      designId: requestDesignId,
+      filename: requestFile?.name || activeCreateImage.name || "",
+      hasLocalFile: Boolean(requestFile),
+      imageSource: requestFile ? "local-file" : (activeCreateImage.previewDataUrl ? "local-preview" : "none"),
+    });
+
     try {
       const tags = parseTags(activeCreateDraft.tags);
       const result = await generateDraftListingContent("teepublic", {
-        filename: activeCreateImage.name || "",
+        filename: requestFile?.name || activeCreateImage.name || "",
         title: activeCreateDraft.title,
         description: activeCreateDraft.description,
         primary_tag: tags[0] || "",
         supporting_tags: tags.slice(1).join(", "),
-      }, activeCreateImage.file || null);
+      }, requestFile);
+      if (activeCreateAiDesignIdRef.current !== requestDesignId) {
+        showToast("AI result ignored because the selected design changed.", "warning");
+        return;
+      }
       applyCreateAiListingResult(result);
       setAiError("");
     } catch (error) {
@@ -1096,6 +1115,12 @@ export default function DesignManager({
     showToast("AI listing applied.", "success");
   }
 
+  function logAiListingRequest({ designIndex, designId, filename, hasLocalFile, imageSource }) {
+    console.info(
+      `[PodPilot][AI Listing] request designIndex=${designIndex} designId=${designId || ""} filename=${filename || ""} hasLocalFile=${Boolean(hasLocalFile)} imageSource=${imageSource || "none"}`
+    );
+  }
+
   async function handleRetryDesignCreate(item) {
     if (!requireUnlocked()) return;
     
@@ -1106,13 +1131,22 @@ export default function DesignManager({
     const tags = parseTags(draft.tags);
     
     try {
+      const replacement = createImageReplacements[image.id];
+      const requestFile = replacement?.file || image.file || null;
+      logAiListingRequest({
+        designIndex: createImageIds.indexOf(image.id),
+        designId: image.id,
+        filename: requestFile?.name || image.name || "",
+        hasLocalFile: Boolean(requestFile),
+        imageSource: requestFile ? "local-file" : (image.previewDataUrl ? "local-preview" : "none"),
+      });
       const result = await generateDraftListingContent("teepublic", {
-        filename: image.name || "",
+        filename: requestFile?.name || image.name || "",
         title: draft.title,
         description: draft.description,
         primary_tag: tags[0] || "",
         supporting_tags: tags.slice(1).join(", "),
-      }, image.file || null);
+      }, requestFile);
       
       setCreateDrafts((currentDrafts) => ({
         ...currentDrafts,
@@ -1175,13 +1209,22 @@ export default function DesignManager({
       const tags = parseTags(draft.tags);
 
       try {
+        const replacement = createImageReplacements[image.id];
+        const requestFile = replacement?.file || image.file || null;
+        logAiListingRequest({
+          designIndex: i,
+          designId: image.id,
+          filename: requestFile?.name || image.name || "",
+          hasLocalFile: Boolean(requestFile),
+          imageSource: requestFile ? "local-file" : (image.previewDataUrl ? "local-preview" : "none"),
+        });
         const result = await generateDraftListingContent("teepublic", {
-          filename: image.name || "",
+          filename: requestFile?.name || image.name || "",
           title: draft.title,
           description: draft.description,
           primary_tag: tags[0] || "",
           supporting_tags: tags.slice(1).join(", "),
-        }, image.file || null);
+        }, requestFile);
 
         if (stopGeneratingAllRef.current) {
           break;

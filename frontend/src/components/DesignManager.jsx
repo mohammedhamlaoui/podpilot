@@ -259,6 +259,8 @@ export default function DesignManager({
   const [generatingAllTotal, setGeneratingAllTotal] = useState(0);
   const [generatingAllError, setGeneratingAllError] = useState("");
   const stopGeneratingAllRef = useRef(false);
+  const activeCreateAiDesignIdRef = useRef("");
+  const activeEditAiDesignIdRef = useRef("");
   const [showBatchProgressModal, setShowBatchProgressModal] = useState(false);
   const [batchItems, setBatchItems] = useState([]);
 
@@ -1280,6 +1282,12 @@ export default function DesignManager({
     };
   }
 
+  function logAiListingRequest({ designIndex, designId, filename, hasLocalFile, imageSource }) {
+    console.info(
+      `[PodPilot][AI Listing] request designIndex=${designIndex} designId=${designId || ""} filename=${filename || ""} hasLocalFile=${Boolean(hasLocalFile)} imageSource=${imageSource || "none"}`
+    );
+  }
+
   async function handleCreateAiGenerate() {
     if (!requireUnlocked()) return;
     if (!activeCreateImage || isAiGenerating) return;
@@ -1290,18 +1298,27 @@ export default function DesignManager({
     setIsAiGenerating(true);
 
     const requestDesignId = activeCreateImage.id;
+    const replacement = createImageReplacements[requestDesignId];
+    const requestFile = replacement?.file || activeCreateImage.file || null;
+    logAiListingRequest({
+      designIndex: activeCreateIndex,
+      designId: requestDesignId,
+      filename: requestFile?.name || activeCreateImage.name || "",
+      hasLocalFile: Boolean(requestFile),
+      imageSource: requestFile ? "local-file" : (activeCreateImage.previewDataUrl ? "local-preview" : "none"),
+    });
 
     try {
       const tags = parseTags(activeCreateDraft.tags);
       const result = await generateDraftListingContent("redbubble", {
-        filename: activeCreateImage.name || "",
+        filename: requestFile?.name || activeCreateImage.name || "",
         title: activeCreateDraft.title,
         description: activeCreateDraft.description,
         primary_tag: tags[0] || "",
         supporting_tags: tags.slice(1).join(", "),
-      }, activeCreateImage.file || null);
+      }, requestFile);
 
-      if (activeCreateImage?.id !== requestDesignId) {
+      if (activeCreateAiDesignIdRef.current !== requestDesignId) {
         showToast("AI result ignored because the selected design changed.", "warning");
         return;
       }
@@ -1340,17 +1357,28 @@ export default function DesignManager({
     setIsAiGenerating(true);
 
     const requestDesignId = editingDesign.id;
+    const requestFile = pendingReplacementFile || (isLocalId(editingDesign.id) ? getLocalDraftFile(editingDesign) : null);
+    logAiListingRequest({
+      designIndex: activeEditIndex,
+      designId: requestDesignId,
+      filename: requestFile?.name || editingDesign.filename || form.filename || "",
+      hasLocalFile: Boolean(requestFile),
+      imageSource: requestFile ? "local-file" : (editingDesign.ai_preview_r2_key ? "ai-preview" : (editingDesign.image_r2_key ? "saved-r2" : "none")),
+    });
 
     try {
-      const result = await generateListingContent(editingDesign.id, "redbubble", {
+      const currentMetadata = {
         filename: editingDesign.filename || "",
         title: form.title,
         description: form.description,
         primary_tag: form.main_tag,
         supporting_tags: form.supporting_tags,
-      });
+      };
+      const result = requestFile
+        ? await generateDraftListingContent("redbubble", { ...currentMetadata, filename: requestFile.name || currentMetadata.filename }, requestFile)
+        : await generateListingContent(editingDesign.id, "redbubble", currentMetadata);
 
-      if (editingDesign?.id !== requestDesignId) {
+      if (activeEditAiDesignIdRef.current !== requestDesignId) {
         showToast("AI result ignored because the selected design changed.", "warning");
         return;
       }
@@ -1440,13 +1468,22 @@ export default function DesignManager({
     const tags = parseTags(draft.tags);
     
     try {
+      const replacement = createImageReplacements[image.id];
+      const requestFile = replacement?.file || image.file || null;
+      logAiListingRequest({
+        designIndex: createImageIds.indexOf(image.id),
+        designId: image.id,
+        filename: requestFile?.name || image.name || "",
+        hasLocalFile: Boolean(requestFile),
+        imageSource: requestFile ? "local-file" : (image.previewDataUrl ? "local-preview" : "none"),
+      });
       const result = await generateDraftListingContent("redbubble", {
-        filename: image.name || "",
+        filename: requestFile?.name || image.name || "",
         title: draft.title,
         description: draft.description,
         primary_tag: tags[0] || "",
         supporting_tags: tags.slice(1).join(", "),
-      }, image.file || null);
+      }, requestFile);
       
       setCreateDrafts((currentDrafts) => ({
         ...currentDrafts,
@@ -1509,13 +1546,22 @@ export default function DesignManager({
       const tags = parseTags(draft.tags);
 
       try {
+        const replacement = createImageReplacements[image.id];
+        const requestFile = replacement?.file || image.file || null;
+        logAiListingRequest({
+          designIndex: i,
+          designId: image.id,
+          filename: requestFile?.name || image.name || "",
+          hasLocalFile: Boolean(requestFile),
+          imageSource: requestFile ? "local-file" : (image.previewDataUrl ? "local-preview" : "none"),
+        });
         const result = await generateDraftListingContent("redbubble", {
-          filename: image.name || "",
+          filename: requestFile?.name || image.name || "",
           title: draft.title,
           description: draft.description,
           primary_tag: tags[0] || "",
           supporting_tags: tags.slice(1).join(", "),
-        }, image.file || null);
+        }, requestFile);
 
         if (stopGeneratingAllRef.current) {
           break;
@@ -1892,6 +1938,12 @@ export default function DesignManager({
   const activeCreateDraft = activeCreateImage
     ? createDrafts[activeCreateImage.id] || makeCreateDraft(activeCreateImage)
     : makeCreateDraft(null);
+  useEffect(() => {
+    activeCreateAiDesignIdRef.current = activeCreateImage?.id || "";
+  }, [activeCreateImage?.id]);
+  useEffect(() => {
+    activeEditAiDesignIdRef.current = editingDesign?.id || "";
+  }, [editingDesign?.id]);
   const activeStickerEnabled = activeCreateDraft.stickers_color_enabled === "On";
   const activeStickerColor = validHexColor(activeCreateDraft.sticker_color);
   const completedCreateCount = selectedCreateImages.filter((image) => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { batchUpdateDesigns, checkCopyrightRisk, checkTrademarkForDesign, createDesign, generateListingContent, listDesigns, updateDesign, uploadDesignImage, uploadStandaloneImages, logFailingRequest } from "../api/client";
+import { batchUpdateDesigns, checkCopyrightRisk, checkTrademarkForDesign, createDesign, generateDraftListingContent, generateListingContent, listDesigns, updateDesign, uploadDesignImage, uploadStandaloneImages, logFailingRequest } from "../api/client";
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import { clearCachedDesignImages } from "../utils/imageCache";
 import CachedThumbnail from "./CachedThumbnail";
@@ -102,6 +102,7 @@ export default function TeePublicEditor({
   const [generatingAllTotal, setGeneratingAllTotal] = useState(0);
   const [generatingAllError, setGeneratingAllError] = useState("");
   const stopGeneratingAllRef = useRef(false);
+  const activeAiDesignIdRef = useRef("");
   const [showBatchProgressModal, setShowBatchProgressModal] = useState(false);
   const [batchItems, setBatchItems] = useState([]);
 
@@ -145,6 +146,9 @@ export default function TeePublicEditor({
     : Math.max(0, Math.min(activeIndexProp || 0, visibleDesigns.length - 1));
   const design = visibleDesigns[activeIndex] || visibleDesigns[0];
   const designId = design?.id;
+  useEffect(() => {
+    activeAiDesignIdRef.current = designId || "";
+  }, [designId]);
 
   // Local editable state for current design
   const [form, setForm] = useState(() => buildForm(design));
@@ -366,7 +370,7 @@ export default function TeePublicEditor({
   }, [design, uploadedImages, replacementPreviewUrl, isPreviewCleared]);
 
   // ── Copy/Paste ──────────────────────────────────────────────────────────
-      function normalizeAiListingResult(result) {
+  function normalizeAiListingResult(result) {
     if (!result) return null;
     const title = result.title || result.design_title || "";
     const description = result.description || "";
@@ -409,6 +413,31 @@ export default function TeePublicEditor({
     };
   }
 
+  function logAiListingRequest({ designIndex, designId, filename, hasLocalFile, imageSource }) {
+    console.info(
+      `[PodPilot][AI Listing] request designIndex=${designIndex} designId=${designId || ""} filename=${filename || ""} hasLocalFile=${Boolean(hasLocalFile)} imageSource=${imageSource || "none"}`
+    );
+  }
+
+  async function requestAiListingForDesign(item, currentMetadata, designIndex, localFile = null) {
+    const requestFile = localFile || (isLocalId(item.id) ? getLocalDraftFile(item) : null);
+    logAiListingRequest({
+      designIndex,
+      designId: item.id,
+      filename: requestFile?.name || item.filename || currentMetadata.filename || "",
+      hasLocalFile: Boolean(requestFile),
+      imageSource: requestFile ? "local-file" : (item.ai_preview_r2_key ? "ai-preview" : (item.image_r2_key ? "saved-r2" : "none")),
+    });
+    if (requestFile) {
+      return generateDraftListingContent(
+        "teepublic",
+        { ...currentMetadata, filename: requestFile.name || currentMetadata.filename || item.filename || "" },
+        requestFile
+      );
+    }
+    return generateListingContent(item.id, "teepublic", currentMetadata);
+  }
+
   async function handleAiGenerate() {
     if (!requireUnlocked()) return;
     if (!design?.id || isAiGenerating) return;
@@ -422,15 +451,16 @@ export default function TeePublicEditor({
     const requestDesignId = design.id;
 
     try {
-      const result = await generateListingContent(design.id, "teepublic", {
+      const currentMetadata = {
         filename: design.filename || "",
         title: form.title,
         description: form.description,
         primary_tag: form.primary_tag,
         supporting_tags: form.supporting_tags,
-      });
+      };
+      const result = await requestAiListingForDesign(design, currentMetadata, activeIndex, pendingReplacementFile);
 
-      if (design?.id !== requestDesignId) {
+      if (activeAiDesignIdRef.current !== requestDesignId) {
         showToast("AI result ignored because the selected design changed.", "warning");
         return;
       }
@@ -490,7 +520,7 @@ export default function TeePublicEditor({
         };
         
     try {
-      const result = await generateListingContent(item.id, "teepublic", currentMetadata);
+      const result = await requestAiListingForDesign(item, currentMetadata, designs.findIndex((designItem) => designItem.id === item.id), isActiveDesign ? pendingReplacementFile : null);
       const patch = {
         title: result.title || currentMetadata.title,
         description: result.description || currentMetadata.description,
@@ -581,7 +611,7 @@ export default function TeePublicEditor({
           };
 
       try {
-        const result = await generateListingContent(item.id, "teepublic", currentMetadata);
+        const result = await requestAiListingForDesign(item, currentMetadata, i, isActiveDesign ? pendingReplacementFile : null);
         if (stopGeneratingAllRef.current) {
           break;
         }
