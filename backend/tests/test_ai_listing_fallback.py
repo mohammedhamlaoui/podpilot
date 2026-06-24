@@ -57,20 +57,14 @@ class FakeAsyncClient:
 
 
 class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_free_fallback_runs_after_paid_openrouter_and_gemini(self):
-        paid_error = openrouter_service.OpenRouterListingError("paid provider unavailable")
-        openrouter_mock = AsyncMock(side_effect=[paid_error, VALID_LISTING])
-        gemini_mock = AsyncMock(side_effect=ai_listing_service.AIListingError("gemini unavailable"))
+    async def test_listing_generation_uses_configured_openrouter_model_only(self):
+        openrouter_mock = AsyncMock(return_value=VALID_LISTING)
 
         with (
             patch.object(ai_listing_service, "AI_LISTING_PROVIDER", "openrouter"),
             patch.object(ai_listing_service, "OPENROUTER_API_KEY", "test-key"),
             patch.object(ai_listing_service, "OPENROUTER_MODEL", "paid/model"),
-            patch.object(ai_listing_service, "GEMINI_API_KEY", "test-gemini-key"),
-            patch.object(ai_listing_service, "ENABLE_OPENROUTER_FREE_FALLBACK", True),
-            patch.object(ai_listing_service, "OPENROUTER_FREE_FALLBACK_MODEL", "openrouter/free"),
             patch.object(openrouter_service, "generate_listing_openrouter", openrouter_mock),
-            patch.object(ai_listing_service, "_generate_listing_gemini", gemini_mock),
         ):
             result = await ai_listing_service.generate_listing_content(
                 design={"id": "design-1"},
@@ -79,14 +73,12 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, VALID_LISTING)
-        self.assertEqual(openrouter_mock.await_count, 2)
-        self.assertEqual(openrouter_mock.await_args_list[0].kwargs["model"], "paid/model")
-        self.assertEqual(openrouter_mock.await_args_list[1].kwargs["model"], "openrouter/free")
-        self.assertTrue(openrouter_mock.await_args_list[1].kwargs["structured_output"])
-        self.assertEqual(openrouter_mock.await_args_list[1].kwargs["timeout_seconds"], 20.0)
-        gemini_mock.assert_awaited_once()
+        openrouter_mock.assert_awaited_once()
+        self.assertEqual(openrouter_mock.await_args.kwargs["model"], "paid/model")
+        self.assertFalse(openrouter_mock.await_args.kwargs["structured_output"])
+        self.assertEqual(openrouter_mock.await_args.kwargs["timeout_seconds"], 60.0)
 
-    async def test_mocked_free_response_repairs_wrapped_json_and_uses_image_url(self):
+    async def test_openrouter_response_uses_compressed_image_payload(self):
         FakeAsyncClient.requests = []
         FakeAsyncClient.responses = [
             FakeResponse(
@@ -94,8 +86,8 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "model": "free/vision-model",
                     "choices": [{"message": {"content": (
-                        'Result:\n{"title":"Tea Cup","description":"A floral tea cup.",'
-                        '"main_tag":"teacup","supporting_tags":["floral","floral","line art"]}'
+                        '{"title":"Tea Cup","description":"A floral tea cup.",'
+                        '"main_keyword":"teacup","tags":["floral","line art"]}'
                     )}}],
                 },
             )
@@ -104,6 +96,8 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(openrouter_service.config, "OPENROUTER_API_KEY", "test-key"),
             patch.object(openrouter_service.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(openrouter_service, "_download_image", AsyncMock(return_value=b"image-bytes")),
+            patch.object(openrouter_service, "_compress_image_for_ai", return_value=b"jpeg-bytes"),
         ):
             result = await openrouter_service.generate_listing_openrouter(
                 design={"filename": "cup.png"},
@@ -122,21 +116,29 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["json"]["model"], "openrouter/free")
         self.assertEqual(request["json"]["response_format"]["type"], "json_schema")
         image_part = request["json"]["messages"][0]["content"][1]
-        self.assertEqual(image_part["image_url"]["url"], "https://example.com/cup.png")
+        self.assertEqual(image_part["image_url"]["url"], "data:image/jpeg;base64,anBlZy1ieXRlcw==")
 
-    async def test_free_rate_limit_returns_normal_listing_error(self):
-        free_error = openrouter_service.OpenRouterListingError("OpenRouter API returned status code 429")
+    async def test_listing_rejects_non_openrouter_provider(self):
         with (
             patch.object(ai_listing_service, "AI_LISTING_PROVIDER", "gemini"),
-            patch.object(ai_listing_service, "GEMINI_API_KEY", "test-gemini-key"),
             patch.object(ai_listing_service, "OPENROUTER_API_KEY", "test-key"),
-            patch.object(ai_listing_service, "ENABLE_OPENROUTER_FREE_FALLBACK", True),
-            patch.object(ai_listing_service, "_generate_listing_gemini", AsyncMock(side_effect=RuntimeError("down"))),
-            patch.object(openrouter_service, "generate_listing_openrouter", AsyncMock(side_effect=free_error)),
         ):
-            with self.assertRaisesRegex(ai_listing_service.AIListingError, "temporarily unavailable"):
+            with self.assertRaisesRegex(ai_listing_service.AIListingError, "OpenRouter/Edge only"):
                 await ai_listing_service.generate_listing_content(
                     design={"id": "design-2"},
+                    platform="teepublic",
+                )
+
+    async def test_openrouter_rate_limit_returns_listing_error(self):
+        provider_error = openrouter_service.OpenRouterListingError("OpenRouter API returned status code 429")
+        with (
+            patch.object(ai_listing_service, "AI_LISTING_PROVIDER", "openrouter"),
+            patch.object(ai_listing_service, "OPENROUTER_API_KEY", "test-key"),
+            patch.object(openrouter_service, "generate_listing_openrouter", AsyncMock(side_effect=provider_error)),
+        ):
+            with self.assertRaisesRegex(ai_listing_service.AIListingError, "OpenRouter API returned status code 429"):
+                await ai_listing_service.generate_listing_content(
+                    design={"id": "design-3"},
                     platform="teepublic",
                 )
 
