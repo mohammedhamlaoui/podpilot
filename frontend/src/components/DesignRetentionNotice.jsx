@@ -58,7 +58,10 @@ export default function DesignRetentionNotice({ open, onAcknowledge }) {
         <div className="pp-retention-modal-icon" aria-hidden="true"><Info /></div>
         <h2 id="design-retention-notice-title">Design Retention Notice</h2>
         <p id="design-retention-notice-body">
-          Your uploaded designs are kept for 20 days, then automatically deleted from PodPilot storage to keep your workspace clean and protect your files. Please download or export anything you need before the 20-day window ends.
+          To keep PodPilot affordable and avoid expensive storage costs, uploaded designs are kept for 20 days after import and then automatically deleted from PodPilot storage.
+        </p>
+        <p>
+          For the best experience, upload your designs from the dashboard within 20 days of importing them.
         </p>
         <a className="pp-retention-modal-policy" href="/terms">Read the full policy in our Terms of Service.</a>
         <button type="button" className="pp-retention-modal-confirm" onClick={onAcknowledge}>Got it</button>
