@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-const STORAGE_KEY = "podpilot_storage_notice_acknowledged";
+const STORAGE_KEY = "podpilot_design_retention_notice_ack_v3_20d";
 
 /**
  * One-time notice modal informing users that temporary uploaded
@@ -12,13 +12,7 @@ export default function StorageNoticeModal() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(STORAGE_KEY) !== "true") {
-        setVisible(true);
-      }
-    } catch {
-      // If localStorage is unavailable, silently skip.
-    }
+    setVisible(false);
   }, []);
 
   const handleAcknowledge = useCallback(() => {
@@ -60,7 +54,7 @@ export default function StorageNoticeModal() {
         </div>
 
         <h3 id="storage-notice-title" className="pp-storage-notice-title">
-          Important Notice
+          Design Retention Notice
         </h3>
         <p className="pp-storage-notice-subtitle">
           Temporary Workspace Cleanup
@@ -68,7 +62,10 @@ export default function StorageNoticeModal() {
 
         <div className="pp-storage-notice-body">
           <p>
-            Designs are kept for 7 days, then automatically deleted.
+            To keep PodPilot affordable and avoid expensive storage costs, uploaded designs are kept for 20 days after import and then automatically deleted from PodPilot storage.
+          </p>
+          <p>
+            For the best experience, upload your designs from the dashboard within 20 days of importing them.
           </p>
           <p className="pp-storage-notice-safe">
             Your account, subscription, billing status, AI tokens, and saved
@@ -81,8 +78,8 @@ export default function StorageNoticeModal() {
             What this means for you
           </span>
           <ul>
-            <li>Uploaded design workspaces are kept for 7 days</li>
-            <li>Temporary image files are automatically deleted after 7 days</li>
+            <li>Uploaded design workspaces are kept for 20 days after import</li>
+            <li>Temporary image files are automatically deleted after 20 days</li>
             <li>Your account and subscription stay safe</li>
             <li>Your AI tokens stay safe</li>
             <li>You can upload fresh files again whenever needed</li>

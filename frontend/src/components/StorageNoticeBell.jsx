@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import Icon from "./Icon";
 
-const DISMISSED_KEY = "podpilot_storage_notice_dismissed";
+const DISMISSED_KEY = "podpilot_design_retention_notice_ack_v3_20d";
 
 export default function StorageNoticeBell() {
   const [isOpen, setIsOpen] = useState(false);
@@ -94,7 +94,10 @@ export default function StorageNoticeBell() {
 
           <div className="pp-bell-dropdown-body">
             <p>
-              Designs are kept for 7 days, then automatically deleted.
+              To keep PodPilot affordable and avoid expensive storage costs, uploaded designs are kept for 20 days after import and then automatically deleted from PodPilot storage.
+            </p>
+            <p>
+              For the best experience, upload your designs from the dashboard within 20 days of importing them.
             </p>
             <p>
               Your design metadata, upload status, logs, and account data
@@ -103,8 +106,8 @@ export default function StorageNoticeBell() {
           </div>
 
           <div className="pp-bell-dropdown-recommendation">
-            <strong>Recommendation:</strong> Please start your upload queue within 7
-            days after importing your files.
+            <strong>Recommendation:</strong> Start your upload queue within 20 days
+            after importing your files.
           </div>
 
           <button
