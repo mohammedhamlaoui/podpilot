@@ -26,10 +26,11 @@ const refundSections = [
     ],
   },
   {
-    title: "4. Money-Back Guarantee SLA",
+    title: "4. First Payment Refund Review Window",
     body: [
-      "For added peace of mind, refund requests may be submitted and reviewed within 7 days of your first payment.",
-      "We want to ensure that every POD seller has an exceptional experience. If you encounter setup blockers or software errors, please let us know immediately so we can assist you.",
+      "Refund requests may be submitted within 7 days of your first payment for review. Submitting a request does not guarantee approval.",
+      "Payments made after a completed free trial are generally non-refundable, except where required by law or in eligible cases such as duplicate billing, verified billing errors, or severe and prolonged platform outages caused by PodPilot.",
+      "If you encounter setup blockers or software errors, please contact us immediately so we can assist you.",
     ],
   },
   {
@@ -46,7 +47,8 @@ const refundSections = [
   {
     title: "6. Non-Refundable Scenarios",
     body: [
-      "Refunds are not issued in cases where users forget to cancel prior to renewal, do not use the active dashboard features, or experience marketplace-specific account penalties or design rejections. Print-on-demand marketplaces own their listing approvals, and automated tools make no safety guarantees.",
+      "Refunds are not issued when users forget to cancel before the free trial ends, forget to cancel before renewal, do not use the service during the active billing period, or decide after payment that they no longer need the service.",
+      "Print-on-demand marketplaces own their listing approvals, and automated tools make no safety guarantees.",
     ],
   },
   {
@@ -72,7 +74,7 @@ const refundSections = [
 export default function RefundPolicyPage() {
   useSeo({
     title: "Refund Policy - PodPilot",
-    description: "PodPilot offers a 7-day money-back guarantee on all subscription plans. Learn about our refund criteria, cancellation terms, and how to request a refund.",
+    description: "Learn about PodPilot refund review criteria, cancellation terms, non-refundable scenarios, and how to submit a refund request.",
     canonical: "/refund-policy",
   });
   return (
