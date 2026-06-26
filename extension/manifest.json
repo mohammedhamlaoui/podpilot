@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PodPilot - Print on Demand Upload Automation",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtVY2hqxvdoWt2c4IpFTWfLMhD2T9EBTgyTaVY3AqdNcRbINKVMjfAi87t5tL5350BpDBfJcSb5u/iLUthThzqkqEfrctHJodwcMeCF5xJ0AD84tbCJRqM002VLAhvPFjw5pMqNRDf9PugIFA53tzmrOs90oeZGtVA2EJSijQoRCNPRNKMK4KRidLgh9B+YDU7qUdDEKGykjcuqfWNNw3CQA0kjGIAbRLTd1zohyNu1DjBC2Axf9eeiB7QZoDuFTA6oDIXfbjIXQ+LzdCrmJ5jEhkN4Ck3Nck0mWGgIpI70AWTT4Il189k/RLawIzbXoIXc4+vxprbKI1+cpSrwlk+QIDAQAB",
   "description": "Bulk upload designs to Redbubble and TeePublic. Print on Demand automation uploader with automatic listing metadata generator.",
   "permissions": ["storage", "tabs", "scripting", "activeTab", "notifications", "offscreen", "contextMenus"],

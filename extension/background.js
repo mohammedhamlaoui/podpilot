@@ -36,6 +36,7 @@ try {
 const QUEUE_DELAY_MS = 3000;
 const CONTENT_RESPONSE_TIMEOUT_MS = 180000;
 const TAB_LOAD_TIMEOUT_MS = 60000;
+const POST_SUBMIT_TIMEOUT_MS = 60000;
 const ALLOWED_EXTERNAL_ORIGINS = new Set([
   "https://podpilot.space",
   "https://www.podpilot.space",
@@ -55,6 +56,7 @@ const DEFAULT_STATE = {
   completedDesignIds: {},
   failedDesignIds: {},
   terminalHandled: {},
+  activeQueueItem: null,
   statusSyncEvents: {},
   processingDesignId: null,
   currentDesignId: null,
@@ -87,6 +89,11 @@ let queueCompletionFired = false;
 let lastNotifiedJobId = null;
 let creatingOffscreenPromise = null;
 let preferredUploadTab = null;
+
+function uploadQueueLog(message, details) {
+  if (details !== undefined) console.info(`[PodPilot][UploadQueue] ${message}`, details);
+  else console.info(`[PodPilot][UploadQueue] ${message}`);
+}
 
 const NOTIFICATION_ICON_URL = chrome.runtime.getURL("icons/icon128.png");
 
@@ -482,10 +489,26 @@ async function handleControlMessage(message, sender = null, options = {}) {
         if (stageState.awaitingPublishRedirect !== undefined ||
             stageState.publishClickedForDesignId !== undefined ||
             stageState.publishClickedAt !== undefined) {
+          const previousQueueState = await getQueueState();
+          const publishDesignId = String(stageState.publishClickedForDesignId || "").trim();
+          const publishClickedAt = Number.isFinite(Number(stageState.publishClickedAt)) ? Number(stageState.publishClickedAt) : null;
+          const currentIndex = Number.isInteger(stageState.currentIndex) ? stageState.currentIndex : previousQueueState.currentIndex;
+          const currentDesign = previousQueueState.queue?.[currentIndex] || null;
+          if (publishDesignId && normalizeIdMap(previousQueueState.terminalHandled)[publishDesignId]) {
+            return { ok: true };
+          }
+          const wasAwaiting = previousQueueState.awaitingPublishRedirect === true &&
+            String(previousQueueState.publishClickedForDesignId || "").trim() === publishDesignId;
+          if (stageState.awaitingPublishRedirect === true && publishDesignId && !wasAwaiting) {
+            uploadQueueLog(`submit clicked designId=${publishDesignId}`);
+          }
           await setQueueState({
             awaitingPublishRedirect: stageState.awaitingPublishRedirect === true,
-            publishClickedForDesignId: stageState.publishClickedForDesignId || null,
-            publishClickedAt: Number.isFinite(Number(stageState.publishClickedAt)) ? Number(stageState.publishClickedAt) : null,
+            publishClickedForDesignId: publishDesignId || null,
+            publishClickedAt,
+            activeQueueItem: stageState.awaitingPublishRedirect === true
+              ? buildActiveQueueItem("teepublic", currentDesign, currentIndex)
+              : previousQueueState.activeQueueItem,
             updatedAt: new Date().toISOString(),
           });
         }
@@ -601,6 +624,26 @@ async function handleControlMessage(message, sender = null, options = {}) {
       }).catch((err) => {
         console.warn("appendProgressLog (stage_update) failed:", err?.message || err);
       });
+      if (message.stage === "save_click" && message.status === "done") {
+        const state = await getQueueState();
+        const designId = String(message.design_id || "").trim();
+        if (designId && normalizeIdMap(state.terminalHandled)[designId]) {
+          return { ok: true };
+        }
+        const currentDesign = state.queue?.[state.currentIndex] || null;
+        const wasAwaiting = state.awaitingPublishRedirect === true &&
+          String(state.publishClickedForDesignId || "").trim() === designId;
+        if (designId && !wasAwaiting) {
+          uploadQueueLog(`submit clicked designId=${designId}`);
+        }
+        await setQueueState({
+          awaitingPublishRedirect: Boolean(designId),
+          publishClickedForDesignId: designId || null,
+          publishClickedAt: designId ? Date.now() : null,
+          activeQueueItem: buildActiveQueueItem("redbubble", currentDesign, state.currentIndex),
+          updatedAt: new Date().toISOString(),
+        });
+      }
       return { ok: true };
 
     case "download_redbubble_design":
@@ -1151,6 +1194,7 @@ async function startQueueInstant(message) {
     completedDesignIds: {},
     failedDesignIds: {},
     terminalHandled: {},
+    activeQueueItem: null,
     prefetchedDesignId: null,
     prefetchedReady: false,
     prefetchError: "",
@@ -1313,7 +1357,16 @@ async function startQueue(designs) {
     uploadTabId: null,
     uploadTabMarketplace: "redbubble",
     updatedAt: new Date().toISOString(),
-    currentJobId: jobId
+    currentJobId: jobId,
+    completedDesignIds: {},
+    failedDesignIds: {},
+    terminalHandled: {},
+    activeQueueItem: null,
+    processingDesignId: null,
+    currentDesignId: null,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null
   });
 
   processNext();
@@ -1406,7 +1459,16 @@ async function startExistingQueue() {
     status: "running",
     lastError: "",
     updatedAt: new Date().toISOString(),
-    currentJobId: jobId
+    currentJobId: jobId,
+    completedDesignIds: {},
+    failedDesignIds: {},
+    terminalHandled: {},
+    activeQueueItem: null,
+    processingDesignId: null,
+    currentDesignId: null,
+    awaitingPublishRedirect: false,
+    publishClickedForDesignId: null,
+    publishClickedAt: null
   });
   const marketplace = state.marketplace || queue[0]?.marketplace || "redbubble";
   const platformAccess = await verifyPlatformAccessBeforeQueue(marketplace);
@@ -1520,6 +1582,16 @@ async function processNext() {
       }
 
       const design = state.queue[state.currentIndex];
+      const designId = String(design.id || design.design_id || "").trim();
+      await setQueueState({
+        processingDesignId: designId || null,
+        currentDesignId: designId || null,
+        activeQueueItem: buildActiveQueueItem("redbubble", design, state.currentIndex),
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
+        updatedAt: new Date().toISOString(),
+      });
       await updateDesignAt(state.currentIndex, {
         status: "uploading",
         error: "",
@@ -1534,6 +1606,12 @@ async function processNext() {
       const isLastDesign = state.currentIndex >= state.queue.length - 1;
 
       if (result.status === "success") {
+        const completedDesignIds = normalizeIdMap((await getQueueState()).completedDesignIds);
+        const terminalHandled = normalizeIdMap((await getQueueState()).terminalHandled);
+        if (designId) {
+          completedDesignIds[designId] = true;
+          terminalHandled[designId] = "success";
+        }
         await updateDesignAt(state.currentIndex, {
           status: "done",
           error: "",
@@ -1552,8 +1630,16 @@ async function processNext() {
           console.warn("[Billing] failed to increment usage:", billingError?.message || billingError);
         }
         await setQueueState({
+          completedDesignIds,
+          terminalHandled,
           currentIndex: state.currentIndex + 1,
           lastError: "",
+          activeQueueItem: null,
+          processingDesignId: null,
+          currentDesignId: null,
+          awaitingPublishRedirect: false,
+          publishClickedForDesignId: null,
+          publishClickedAt: null,
           updatedAt: new Date().toISOString()
         });
         if (isLastDesign) {
@@ -1576,6 +1662,7 @@ async function processNext() {
         continue;
       }
 
+      uploadQueueLog(`marking failed reason=${result.reason || result.error || "upload_failed"}`);
       await updateDesignAt(latest.currentIndex, {
         status: "error",
         error: result.error || "Upload failed after retry",
@@ -1585,9 +1672,24 @@ async function processNext() {
         status: "failed",
         error_message: result.error || "Upload failed after retry",
       }).catch(() => {});
+      const failedDesignId = String(latestDesign.id || latestDesign.design_id || design.id || "").trim();
+      const failedDesignIds = normalizeIdMap(latest.failedDesignIds);
+      const terminalHandled = normalizeIdMap(latest.terminalHandled);
+      if (failedDesignId) {
+        failedDesignIds[failedDesignId] = true;
+        terminalHandled[failedDesignId] = "failed";
+      }
       await setQueueState({
+        failedDesignIds,
+        terminalHandled,
         currentIndex: latest.currentIndex + 1,
         lastError: result.error || "Upload failed after retry",
+        activeQueueItem: null,
+        processingDesignId: null,
+        currentDesignId: null,
+        awaitingPublishRedirect: false,
+        publishClickedForDesignId: null,
+        publishClickedAt: null,
         updatedAt: new Date().toISOString()
       });
       const isLastAfterError = latest.currentIndex >= latest.queue.length - 1;
@@ -1595,6 +1697,7 @@ async function processNext() {
         await broadcastQueueComplete();
         break;
       }
+      uploadQueueLog("continuing next item in 3000ms");
       await delay(QUEUE_DELAY_MS);
     }
   } finally {
@@ -1646,7 +1749,12 @@ async function uploadDesign(design) {
     const imageUrl = await resolveSignedImageUrl(design);
     const imagePayload = await fetchImageAsBase64(imageUrl);
 
-    const successPromise = waitForTabSuccess(tab.id);
+    const successPromise = waitForPostSubmitOutcome({
+      tabId: tab.id,
+      marketplace: "redbubble",
+      design,
+      timeoutMs: POST_SUBMIT_TIMEOUT_MS,
+    });
 
     const contentPromise = sendTabMessage(tab.id, {
       action: "fill_duplicate_form",
@@ -1678,6 +1786,13 @@ async function uploadDesign(design) {
     if (firstOutcome === "success") {
       return { status: "success", error: "" };
     }
+    if (firstOutcome === "content_done" && !(await isAwaitingSubmitResult("redbubble", getQueueDesignId(design)))) {
+      const contentResult = await contentPromise;
+      return {
+        status: "error",
+        error: contentResult?.error || "Upload failed before submit"
+      };
+    }
 
     const outcome = await successPromise;
     if (outcome && outcome.outcome === "success") {
@@ -1685,6 +1800,30 @@ async function uploadDesign(design) {
         status: "success",
         error: "",
         redbubble_work_id: outcome.redbubble_work_id || ""
+      };
+    }
+    if (outcome && outcome.outcome === "redirected_after_submit") {
+      return {
+        status: "error",
+        terminal: true,
+        reason: "redirected_after_submit",
+        error: "redirected_after_submit"
+      };
+    }
+    if (outcome && outcome.outcome === "submit_timeout") {
+      return {
+        status: "error",
+        terminal: true,
+        reason: "submit_timeout",
+        error: "submit_timeout"
+      };
+    }
+    if (outcome && outcome.outcome === "terminal_handled") {
+      return {
+        status: outcome.terminalStatus === "success" ? "success" : "error",
+        terminal: true,
+        reason: `already_${outcome.terminalStatus || "handled"}`,
+        error: outcome.terminalStatus === "success" ? "" : "Design already marked failed."
       };
     }
 
@@ -1924,6 +2063,20 @@ async function handleUploadResult(message) {
   const state = await getQueueState();
   const marketplace = state.marketplace || state.queue[0]?.marketplace;
   if (message && message.design_id !== undefined) {
+    const messageDesignId = String(message.design_id || "").trim();
+    const terminalStatus = normalizeIdMap(state.terminalHandled)[messageDesignId];
+    if (terminalStatus === "failed" && message.status === "success") {
+      uploadQueueLog(`late success ignored designId=${messageDesignId} reason=already_failed`);
+      if (resultWaiter && String(message.design_id) === String(resultWaiter.designId)) {
+        resultWaiter.resolve({ status: "error", error: "Design already marked failed." });
+        resultWaiter = null;
+      }
+      return;
+    }
+    if (terminalStatus === "success" && message.status !== "success") {
+      uploadQueueLog(`late failure ignored designId=${messageDesignId} reason=already_uploaded`);
+      return;
+    }
     if (message.status === "success") {
       try {
         await appendProgressLog(message.design_id, { stage: "wait_success", status: "done" });
@@ -1980,6 +2133,184 @@ const SUCCESS_URL_RE = /^https:\/\/www\.redbubble\.com\/studio\/promote\/(\d+)/;
 
 function isRedbubbleSuccessUrl(url) {
   return typeof url === "string" && SUCCESS_URL_RE.test(url);
+}
+
+function buildActiveQueueItem(platform, design = null, queueIndex = 0) {
+  return {
+    platform,
+    designId: String(design?.id || design?.design_id || "").trim(),
+    filename: String(design?.filename || "").trim(),
+    title: String(design?.title || "").trim(),
+    queueIndex: Number.isInteger(queueIndex) ? queueIndex : 0,
+  };
+}
+
+function isRedbubbleExpectedUploadUrl(url) {
+  try {
+    const parsed = new URL(url || "");
+    if (!/(\.|^)redbubble\.com$/i.test(parsed.hostname)) return false;
+    return isRedbubbleSuccessUrl(url) ||
+      /^\/portfolio\/images\/[^/]+\/duplicate\/?$/.test(parsed.pathname) ||
+      /^\/portfolio\/images\/new\/?$/.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isRedbubbleUnexpectedStoreProfileUrl(url) {
+  try {
+    const parsed = new URL(url || "");
+    if (!/(\.|^)redbubble\.com$/i.test(parsed.hostname)) return false;
+    if (isRedbubbleExpectedUploadUrl(url)) return false;
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return /^\/people\/[^/]+(?:\/shop|\/collections|\/favorites|\/about)?$/i.test(path) ||
+      /^\/shop(?:\/|$)/i.test(path) ||
+      /^\/account(?:\/|$)/i.test(path) ||
+      /^\/portfolio(?:\/|$)/i.test(path);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTeePublicUnexpectedStoreProfileUrl(url) {
+  try {
+    const parsed = new URL(url || "");
+    if (!/(\.|^)teepublic\.com$/i.test(parsed.hostname)) return false;
+    if (isTpPublishSuccessUrl(url) || isTpUploadPageUrl(url)) return false;
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return /^\/user\/[^/]+/i.test(path) ||
+      /^\/users\/[^/]+/i.test(path) ||
+      /^\/stores?(?:\/|$)/i.test(path) ||
+      /^\/shop(?:\/|$)/i.test(path) ||
+      /^\/account(?:\/|$)/i.test(path) ||
+      /^\/members\/[^/]+/i.test(path);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isMarketplaceSuccessUrl(marketplace, url) {
+  return marketplace === "teepublic" ? isTpPublishSuccessUrl(url) : isRedbubbleSuccessUrl(url);
+}
+
+function isUnexpectedPostSubmitRedirect(marketplace, url) {
+  return marketplace === "teepublic"
+    ? isTeePublicUnexpectedStoreProfileUrl(url)
+    : isRedbubbleUnexpectedStoreProfileUrl(url);
+}
+
+function getQueueDesignId(design) {
+  return String(design?.id || design?.design_id || "").trim();
+}
+
+async function isAwaitingSubmitResult(marketplace, designId) {
+  const state = await getQueueState();
+  const id = String(designId || "").trim();
+  if (!["starting", "running", "paused"].includes(state.status)) return false;
+  if (state.awaitingPublishRedirect !== true) return false;
+  if (String(state.publishClickedForDesignId || "").trim() !== id) return false;
+  const active = state.activeQueueItem || {};
+  if (active.platform && active.platform !== marketplace) return false;
+  if (active.designId && active.designId !== id) return false;
+  const clickedAt = Number(state.publishClickedAt || 0);
+  return Number.isFinite(clickedAt) && clickedAt > 0;
+}
+
+function waitForPostSubmitOutcome({ tabId, marketplace, design, timeoutMs = POST_SUBMIT_TIMEOUT_MS }) {
+  const designId = getQueueDesignId(design);
+  return new Promise((resolve) => {
+    let settled = false;
+    let intervalId = null;
+
+    function cleanup() {
+      if (intervalId) clearInterval(intervalId);
+      chrome.tabs.onUpdated.removeListener(listener);
+    }
+
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    async function inspectUrl(url) {
+      if (!url || settled) return;
+      if (isMarketplaceSuccessUrl(marketplace, url)) {
+        if (marketplace === "teepublic") {
+          const tpState = await getTpUploadState().catch(() => null);
+          if (!isTpAwaitingPublishRedirect(tpState, designId)) return;
+        }
+        if (marketplace === "redbubble" && !(await isAwaitingSubmitResult(marketplace, designId))) return;
+        const result = { outcome: "success", url };
+        if (marketplace === "redbubble") {
+          const match = String(url).match(SUCCESS_URL_RE);
+          result.redbubble_work_id = match?.[1] || "";
+        }
+        finish(result);
+        return;
+      }
+
+      const awaiting = marketplace === "teepublic"
+        ? isTpAwaitingPublishRedirect(await getTpUploadState().catch(() => null), designId)
+        : await isAwaitingSubmitResult(marketplace, designId);
+      if (!awaiting) return;
+
+      if (isUnexpectedPostSubmitRedirect(marketplace, url)) {
+        uploadQueueLog(`unexpected redirect detected url=${safeUrlForLog(url)}`);
+        uploadQueueLog("marking failed reason=redirected_after_submit");
+        finish({ outcome: "redirected_after_submit", url });
+      }
+    }
+
+    async function checkTimeoutAndCurrentUrl() {
+      if (settled) return;
+      const queueState = await getQueueState().catch(() => null);
+      const terminalStatus = normalizeIdMap(queueState?.terminalHandled)[designId];
+      if (terminalStatus) {
+        finish({ outcome: "terminal_handled", terminalStatus });
+        return;
+      }
+      let state = null;
+      if (marketplace === "teepublic") {
+        const tpState = await getTpUploadState().catch(() => null);
+        if (isTpAwaitingPublishRedirect(tpState, designId)) {
+          state = { publishClickedAt: tpState.publishClickedAt };
+        }
+      } else {
+        if (queueState?.awaitingPublishRedirect === true &&
+            String(queueState.publishClickedForDesignId || "").trim() === designId) {
+          state = queueState;
+        }
+      }
+
+      if (state?.publishClickedAt) {
+        const elapsed = Date.now() - Number(state.publishClickedAt);
+        if (elapsed >= timeoutMs) {
+          uploadQueueLog("marking failed reason=submit_timeout");
+          finish({ outcome: "submit_timeout" });
+          return;
+        }
+      }
+
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || settled) return;
+        inspectUrl(tab?.url).catch(() => {});
+      });
+    }
+
+    function listener(updatedTabId, changeInfo, tab) {
+      if (updatedTabId !== tabId) return;
+      inspectUrl(changeInfo.url).catch(() => {});
+      inspectUrl(tab?.url).catch(() => {});
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+    intervalId = setInterval(() => {
+      checkTimeoutAndCurrentUrl().catch(() => {});
+    }, 500);
+    checkTimeoutAndCurrentUrl().catch(() => {});
+  });
 }
 
 function waitForTabSuccess(tabId, timeoutMs = CONTENT_RESPONSE_TIMEOUT_MS) {
@@ -2229,6 +2560,7 @@ async function getQueueState() {
     completedDesignIds: normalizeIdMap(stored.completedDesignIds),
     failedDesignIds: normalizeIdMap(stored.failedDesignIds),
     terminalHandled: normalizeIdMap(stored.terminalHandled),
+    activeQueueItem: stored.activeQueueItem && typeof stored.activeQueueItem === "object" ? stored.activeQueueItem : null,
     statusSyncEvents: normalizeIdMap(stored.statusSyncEvents),
     processingDesignId: stored.processingDesignId || null,
     currentDesignId: stored.currentDesignId || null,
@@ -2354,6 +2686,7 @@ async function handleTeePublicTerminalResult(designId, status = "success", reaso
     currentIndex: nextIndex,
     lastError: isSuccess ? "" : (reason || "Upload failed"),
     stoppedByUser: false,
+    activeQueueItem: null,
     awaitingPublishRedirect: false,
     publishClickedForDesignId: null,
     publishClickedAt: null,
@@ -3024,6 +3357,7 @@ async function startTeePublicQueue(designs) {
     completedDesignIds: {},
     failedDesignIds: {},
     terminalHandled: {},
+    activeQueueItem: null,
     processingDesignId: null,
     currentDesignId: null,
     processingStartedForCurrentDesign: false,
@@ -3131,6 +3465,7 @@ async function processTpNext() {
         processingStartedForCurrentDesign: true,
         imageInjectedForCurrentDesign: false,
         hasNavigatedForCurrentDesign: false,
+        activeQueueItem: buildActiveQueueItem("teepublic", design, state.currentIndex),
         awaitingPublishRedirect: false,
         publishClickedForDesignId: null,
         publishClickedAt: null,
@@ -3197,6 +3532,7 @@ async function processTpNext() {
       }
 
       // Mark failed
+      uploadQueueLog(`marking failed reason=${result.reason || result.error || "upload_failed"}`);
       const failedDesignId = getTpDesignId(latestDesign);
       const failedDesignIds = normalizeIdMap(latest.failedDesignIds);
       const terminalHandled = normalizeIdMap(latest.terminalHandled);
@@ -3219,6 +3555,7 @@ async function processTpNext() {
         failedCount: (latest.failedCount || 0) + 1,
         currentIndex: latest.currentIndex + 1,
         lastError: result.error || "Upload failed",
+        activeQueueItem: null,
         awaitingPublishRedirect: false,
         publishClickedForDesignId: null,
         publishClickedAt: null,
@@ -3257,6 +3594,7 @@ async function processTpNext() {
         await broadcastQueueComplete();
         break;
       }
+      uploadQueueLog("continuing next item in 3000ms");
       await delay(QUEUE_DELAY_MS);
     }
   } finally {
@@ -3375,7 +3713,12 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
       return { status: "error", terminal: true, error: "Design already terminal-handled." };
     }
 
-    const successPromise = waitForTpSuccessUrl(tab.id, TP_PUBLISH_REDIRECT_TIMEOUT_MS, designId);
+    const successPromise = waitForPostSubmitOutcome({
+      tabId: tab.id,
+      marketplace: "teepublic",
+      design,
+      timeoutMs: POST_SUBMIT_TIMEOUT_MS,
+    });
 
     const contentPromise = sendTpFillMessage(tab.id, {
       action: "tp_fill_and_publish",
@@ -3395,11 +3738,7 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
     });
 
     const firstOutcome = await Promise.race([
-      successPromise.then((urlResult) =>
-        urlResult.success
-          ? { outcome: "success", url: urlResult.url || "" }
-          : { outcome: "timeout" }
-      ),
+      successPromise,
       contentPromise.then((response) =>
         response && response.status === "success"
           ? { outcome: "success", url: response.url || "" }
@@ -3418,9 +3757,30 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
       });
       return { status: "success", url: firstOutcome.url || "" };
     }
+    if (firstOutcome && firstOutcome.outcome === "redirected_after_submit") {
+      return { status: "error", terminal: true, reason: "redirected_after_submit", error: "redirected_after_submit" };
+    }
+    if (firstOutcome && firstOutcome.outcome === "submit_timeout") {
+      return { status: "error", terminal: true, reason: "submit_timeout", error: "submit_timeout" };
+    }
+    if (firstOutcome && firstOutcome.outcome === "terminal_handled") {
+      return {
+        status: firstOutcome.terminalStatus === "success" ? "success" : "error",
+        terminal: true,
+        reason: `already_${firstOutcome.terminalStatus || "handled"}`,
+        error: firstOutcome.terminalStatus === "success" ? "" : "Design already marked failed."
+      };
+    }
+    if (firstOutcome && firstOutcome.outcome === "content_done") {
+      const tpState = await getTpUploadState().catch(() => null);
+      if (!isTpAwaitingPublishRedirect(tpState, designId)) {
+        const contentResult = await contentPromise;
+        return { status: "error", error: contentResult?.error || "Upload failed before submit" };
+      }
+    }
 
     const outcome = await successPromise;
-    if (outcome && outcome.success) {
+    if (outcome && outcome.outcome === "success") {
       await setTpUploadState({
         active: true,
         designId,
@@ -3430,6 +3790,20 @@ async function uploadTpDesign(design, designIndex, queueTotal) {
         imageInjected: true,
       });
       return { status: "success", url: outcome.url || "" };
+    }
+    if (outcome && outcome.outcome === "redirected_after_submit") {
+      return { status: "error", terminal: true, reason: "redirected_after_submit", error: "redirected_after_submit" };
+    }
+    if (outcome && outcome.outcome === "submit_timeout") {
+      return { status: "error", terminal: true, reason: "submit_timeout", error: "submit_timeout" };
+    }
+    if (outcome && outcome.outcome === "terminal_handled") {
+      return {
+        status: outcome.terminalStatus === "success" ? "success" : "error",
+        terminal: true,
+        reason: `already_${outcome.terminalStatus || "handled"}`,
+        error: outcome.terminalStatus === "success" ? "" : "Design already marked failed."
+      };
     }
 
     const contentResult = await contentPromise;
