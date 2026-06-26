@@ -160,7 +160,7 @@ export default function TeePublicEditor({
   }, [activeDesignId, activeDesignIdProp]);
   useEffect(() => {
     if (!design) return;
-    console.info(`[PodPilot][TeePublic Edit] editor resolved designId=${design.id || ""} filename=${design.filename || ""}`);
+    console.info(`[PodPilot][Navigation] editor restored platform=teepublic designId=${design.id || ""} filename=${design.filename || ""}`);
   }, [design?.id, design?.filename]);
 
   // Local editable state for current design

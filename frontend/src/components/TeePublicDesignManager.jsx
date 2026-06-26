@@ -16,6 +16,12 @@ const MAX_CREATE_DESIGNS_MESSAGE = "Maximum 50 designs per session.";
 function isAcceptedReplacementImage(file) {
   return Boolean(file && (ACCEPTED_REPLACEMENT_TYPES.has(file.type) || ACCEPTED_REPLACEMENT_EXTENSIONS.test(file.name || "")));
 }
+function makeTempDraftId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `temp_${crypto.randomUUID()}`;
+  }
+  return `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
 import Icon from "./Icon";
 import ColorDropdown from "./ColorDropdown";
 import CopyrightRiskModal from "./CopyrightRiskModal";
@@ -411,7 +417,7 @@ export default function DesignManager({
     }
 
     setCreateError("");
-    const newId = "local_" + Date.now();
+    const newId = makeTempDraftId();
     const newImage = {
       id: newId,
       name: "design.png",

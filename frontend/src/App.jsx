@@ -219,6 +219,10 @@ const EDITOR_DESIGN_ID_KEYS = {
   redbubble: "podpilot:redbubble:selectedDesignId",
   teepublic: "podpilot:teepublic:selectedDesignId",
 };
+const EDITOR_VIEW_KEYS = {
+  redbubble: "podpilot:redbubble:lastView",
+  teepublic: "podpilot:teepublic:lastView",
+};
 const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
@@ -306,6 +310,36 @@ function writeEditorDesignId(marketplace, designId) {
   } catch {
     // Editor selection still works in memory if session storage is unavailable.
   }
+}
+
+function readEditorView(marketplace) {
+  try {
+    return sessionStorage.getItem(EDITOR_VIEW_KEYS[marketplace]) === "editor" ? "editor" : "list";
+  } catch {
+    return "list";
+  }
+}
+
+function writeEditorView(marketplace, view) {
+  try {
+    sessionStorage.setItem(EDITOR_VIEW_KEYS[marketplace], view === "editor" ? "editor" : "list");
+  } catch {
+    // View restoration still works in memory if session storage is unavailable.
+  }
+}
+
+function designIdentity(design) {
+  return String(design?.id || design?.local_id || design?.tempId || "").trim();
+}
+
+function findDesignIndexById(designs, designId) {
+  const targetId = String(designId || "").trim();
+  if (!targetId) return -1;
+  return (Array.isArray(designs) ? designs : []).findIndex((design) => designIdentity(design) === targetId);
+}
+
+function logNavigation(message) {
+  console.info(`[PodPilot][Navigation] ${message}`);
 }
 
 function designDedupeKeys(design, marketplace) {
@@ -577,10 +611,25 @@ export default function App() {
   const [trialEligibility, setTrialEligibility] = useState(null);
   const [isLoadingPlatformAccess, setIsLoadingPlatformAccess] = useState(true);
   const [rbEditorIndex, setRbEditorIndex] = useState(() => readEditorIndex("redbubble"));
+  const [rbEditorDesignId, setRbEditorDesignId] = useState(() => (
+    initialRoute.editor && initialRoute.route === "redbubble" ? readEditorDesignId("redbubble") : ""
+  ));
   const [tpEditorIndex, setTpEditorIndex] = useState(() => initialRoute.editor && initialRoute.route === "teepublic" ? readEditorIndex("teepublic") : -1);
   const [tpEditorDesignId, setTpEditorDesignId] = useState(() => (
     initialRoute.editor && initialRoute.route === "teepublic" ? readEditorDesignId("teepublic") : ""
   ));
+  const [platformNavState, setPlatformNavState] = useState(() => ({
+    redbubble: {
+      lastView: initialRoute.editor && initialRoute.route === "redbubble" ? "editor" : readEditorView("redbubble"),
+      activeDesignId: initialRoute.editor && initialRoute.route === "redbubble" ? readEditorDesignId("redbubble") : readEditorDesignId("redbubble"),
+      activeDesignIndex: readEditorIndex("redbubble"),
+    },
+    teepublic: {
+      lastView: initialRoute.editor && initialRoute.route === "teepublic" ? "editor" : readEditorView("teepublic"),
+      activeDesignId: initialRoute.editor && initialRoute.route === "teepublic" ? readEditorDesignId("teepublic") : readEditorDesignId("teepublic"),
+      activeDesignIndex: readEditorIndex("teepublic"),
+    },
+  }));
   const [dashboardToast, setDashboardToast] = useState(null);
   const [uploadControlPrompt, setUploadControlPrompt] = useState({
     visible: false,
@@ -1216,7 +1265,14 @@ export default function App() {
         }
         if (next.route === "teepublic") {
           setTpEditorDesignId(historyDesignId || readEditorDesignId("teepublic"));
+        } else if (next.route === "redbubble") {
+          setRbEditorDesignId(historyDesignId || readEditorDesignId("redbubble"));
         }
+        rememberPlatformNavigation(next.route, {
+          lastView: "editor",
+          activeDesignId: historyDesignId || readEditorDesignId(next.route),
+          activeDesignIndex: Number.isInteger(historyIndex) && historyIndex >= 0 ? historyIndex : readEditorIndex(next.route),
+        });
         setEditorKinds((current) => ({
           ...current,
           [next.route]: historyKind === "create" || historyKind === "design"
@@ -1230,22 +1286,77 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (editorPlatform !== "redbubble" || editorKinds.redbubble !== "design") return;
+    if (isLoadingDesigns || !hasLoadedDesigns.current) return;
+    if (redbubbleDesigns.length === 0) {
+      handleEditorUnavailable("redbubble", "no-designs");
+      return;
+    }
+    if (rbEditorDesignId) {
+      const idIndex = findDesignIndexById(redbubbleDesigns, rbEditorDesignId);
+      if (idIndex >= 0) {
+        if (idIndex !== rbEditorIndex) setRbEditorIndex(idIndex);
+        rememberPlatformNavigation("redbubble", {
+          lastView: "editor",
+          activeDesignId: rbEditorDesignId,
+          activeDesignIndex: idIndex,
+        });
+        logNavigation(`editor restored platform=redbubble designId=${rbEditorDesignId} filename=${redbubbleDesigns[idIndex]?.filename || ""}`);
+        return;
+      }
+      handleEditorUnavailable("redbubble", "active-design-missing");
+      return;
+    }
+    const fallbackIndex = Math.max(0, Math.min(rbEditorIndex || 0, redbubbleDesigns.length - 1));
+    const fallbackDesign = redbubbleDesigns[fallbackIndex];
+    const fallbackId = designIdentity(fallbackDesign);
+    if (fallbackId) {
+      setRbEditorIndex(fallbackIndex);
+      setRbEditorDesignId(fallbackId);
+      rememberPlatformNavigation("redbubble", {
+        lastView: "editor",
+        activeDesignId: fallbackId,
+        activeDesignIndex: fallbackIndex,
+      });
+      logNavigation(`editor restored platform=redbubble designId=${fallbackId} filename=${fallbackDesign.filename || ""}`);
+    }
+  }, [editorKinds.redbubble, editorPlatform, isLoadingDesigns, rbEditorDesignId, rbEditorIndex, redbubbleDesigns]);
+
+  useEffect(() => {
     if (editorPlatform !== "teepublic" || editorKinds.teepublic !== "design") return;
     if (isLoadingDesigns || !hasLoadedDesigns.current) return;
     if (teepublicDesigns.length === 0) {
-      handleEditorUnavailable("teepublic");
+      handleEditorUnavailable("teepublic", "no-designs");
       return;
     }
     if (tpEditorDesignId) {
-      const idIndex = teepublicDesigns.findIndex((design) => design.id === tpEditorDesignId);
-      if (idIndex >= 0 && idIndex !== tpEditorIndex) {
-        setTpEditorIndex(idIndex);
-        writeEditorIndex("teepublic", idIndex);
+      const idIndex = findDesignIndexById(teepublicDesigns, tpEditorDesignId);
+      if (idIndex >= 0) {
+        if (idIndex !== tpEditorIndex) setTpEditorIndex(idIndex);
+        rememberPlatformNavigation("teepublic", {
+          lastView: "editor",
+          activeDesignId: tpEditorDesignId,
+          activeDesignIndex: idIndex,
+        });
+        logNavigation(`editor restored platform=teepublic designId=${tpEditorDesignId} filename=${teepublicDesigns[idIndex]?.filename || ""}`);
+        return;
       }
+      handleEditorUnavailable("teepublic", "active-design-missing");
       return;
     }
-    const safeIndex = Math.max(0, Math.min(tpEditorIndex, teepublicDesigns.length - 1));
-    if (safeIndex !== tpEditorIndex) setTpEditorIndex(safeIndex);
+    const fallbackIndex = Math.max(0, Math.min(tpEditorIndex || 0, teepublicDesigns.length - 1));
+    const fallbackDesign = teepublicDesigns[fallbackIndex];
+    const fallbackId = designIdentity(fallbackDesign);
+    if (fallbackId) {
+      setTpEditorIndex(fallbackIndex);
+      setTpEditorDesignId(fallbackId);
+      rememberPlatformNavigation("teepublic", {
+        lastView: "editor",
+        activeDesignId: fallbackId,
+        activeDesignIndex: fallbackIndex,
+      });
+      logNavigation(`editor restored platform=teepublic designId=${fallbackId} filename=${fallbackDesign.filename || ""}`);
+    }
   }, [editorKinds.teepublic, editorPlatform, isLoadingDesigns, teepublicDesigns, tpEditorDesignId, tpEditorIndex]);
 
   useEffect(() => {
@@ -1360,7 +1471,88 @@ export default function App() {
     });
   }
 
+  function rememberPlatformNavigation(platform, patch = {}) {
+    if (!isPlatformRoute(platform)) return;
+    setPlatformNavState((current) => {
+      const previous = current[platform] || { lastView: "list", activeDesignId: "", activeDesignIndex: 0 };
+      const next = { ...previous, ...patch };
+      if (patch.lastView) writeEditorView(platform, next.lastView);
+      if (Object.prototype.hasOwnProperty.call(patch, "activeDesignId")) {
+        writeEditorDesignId(platform, next.activeDesignId || "");
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "activeDesignIndex")) {
+        writeEditorIndex(platform, next.activeDesignIndex || 0);
+      }
+      return { ...current, [platform]: next };
+    });
+  }
+
+  function restorePlatformNavigation(platform) {
+    const designs = platform === "teepublic" ? teepublicDesigns : redbubbleDesigns;
+    const state = platformNavState[platform] || {};
+    const restoreView = state.lastView === "editor" ? "editor" : "list";
+    const activeDesignId = String(state.activeDesignId || readEditorDesignId(platform) || "").trim();
+    const activeDesignIndex = Number.isInteger(state.activeDesignIndex) ? state.activeDesignIndex : readEditorIndex(platform);
+    logNavigation(`switch platform=${platform} restoreView=${restoreView} activeDesignId=${activeDesignId}`);
+
+    setActiveRoute(platform);
+    setActiveTab("designs");
+
+    if (restoreView === "editor") {
+      const idIndex = findDesignIndexById(designs, activeDesignId);
+      const fallbackDesign = activeDesignId
+        ? null
+        : designs[Math.max(0, Math.min(activeDesignIndex || 0, Math.max(0, designs.length - 1)))] || null;
+      const resolvedDesign = idIndex >= 0 ? designs[idIndex] : fallbackDesign;
+      const canWaitForDesignLoad = activeDesignId && (!hasLoadedDesigns.current || isLoadingDesigns);
+
+      if (resolvedDesign || canWaitForDesignLoad) {
+        const resolvedId = designIdentity(resolvedDesign) || activeDesignId;
+        const resolvedIndex = idIndex >= 0 ? idIndex : Math.max(0, activeDesignIndex || 0);
+        if (platform === "teepublic") {
+          setTpEditorIndex(resolvedIndex);
+          setTpEditorDesignId(resolvedId);
+        } else {
+          setRbEditorIndex(resolvedIndex);
+          setRbEditorDesignId(resolvedId);
+        }
+        rememberPlatformNavigation(platform, {
+          lastView: "editor",
+          activeDesignId: resolvedId,
+          activeDesignIndex: resolvedIndex,
+        });
+        setEditorKinds((current) => ({ ...current, [platform]: "design" }));
+        setEditorPlatform(platform);
+        const target = buildPath(platform, "designs", platform);
+        const historyState = {
+          editorPlatform: platform,
+          editorKind: "design",
+          selectedDesignIndex: resolvedIndex,
+          selectedDesignId: resolvedId,
+        };
+        if (window.location.pathname !== target) window.history.pushState(historyState, "", target);
+        else window.history.replaceState(historyState, "", target);
+        if (resolvedDesign) {
+          logNavigation(`editor restored platform=${platform} designId=${resolvedId} filename=${resolvedDesign.filename || ""}`);
+        }
+        return;
+      }
+
+      logNavigation(`fallback to list reason=missing-active-design platform=${platform} activeDesignId=${activeDesignId}`);
+    }
+
+    setEditorPlatform("");
+    const target = buildPath(platform, "designs");
+    if (window.location.pathname !== target) {
+      window.history.pushState({ editorPlatform: "", editorKind: "" }, "", target);
+    }
+  }
+
   function handleNavigate(route) {
+    if (isPlatformRoute(route)) {
+      restorePlatformNavigation(route);
+      return;
+    }
     setActiveRoute(route);
     setActiveTab("designs");
     setEditorPlatform("");
@@ -1381,22 +1573,32 @@ export default function App() {
 
   function handleOpenEditor(platform, kind = "design", index = null, designId = "") {
     if (!isPlatformRoute(platform)) return;
+    const designs = platform === "teepublic" ? teepublicDesigns : redbubbleDesigns;
     const selectedDesignId = String(designId || "").trim();
-    if (Number.isInteger(index) && index >= 0) {
-      writeEditorIndex(platform, index);
-      if (platform === "teepublic") setTpEditorIndex(index);
-      else setRbEditorIndex(index);
+    const designFromIdIndex = findDesignIndexById(designs, selectedDesignId);
+    const designFromId = designFromIdIndex >= 0 ? designs[designFromIdIndex] : null;
+    const designFromIndex = Number.isInteger(index) && index >= 0 ? designs[index] : null;
+    const requestedDesign = designFromId || designFromIndex || null;
+    const nextDesignId = selectedDesignId || designIdentity(requestedDesign);
+    const nextIndex = designFromIdIndex >= 0
+      ? designFromIdIndex
+      : (Number.isInteger(index) && index >= 0 ? index : Math.max(0, findDesignIndexById(designs, nextDesignId)));
+
+    if (Number.isInteger(nextIndex) && nextIndex >= 0) {
+      if (platform === "teepublic") setTpEditorIndex(nextIndex);
+      else setRbEditorIndex(nextIndex);
     }
-    if (platform === "teepublic") {
-      const designFromId = selectedDesignId ? teepublicDesigns.find((design) => design.id === selectedDesignId) : null;
-      const designFromIndex = Number.isInteger(index) && index >= 0 ? teepublicDesigns[index] : null;
-      const requestedDesign = designFromId || designFromIndex || null;
-      const nextDesignId = selectedDesignId || requestedDesign?.id || "";
-      setTpEditorDesignId(nextDesignId);
-      writeEditorDesignId("teepublic", nextDesignId);
-      console.info(
-        `[PodPilot][TeePublic Edit] open requested designId=${nextDesignId || ""} filename=${requestedDesign?.filename || ""}`
-      );
+    if (nextDesignId) {
+      if (platform === "teepublic") setTpEditorDesignId(nextDesignId);
+      else setRbEditorDesignId(nextDesignId);
+    }
+    rememberPlatformNavigation(platform, {
+      lastView: kind === "design" ? "editor" : "list",
+      activeDesignId: kind === "design" ? nextDesignId : "",
+      activeDesignIndex: Number.isInteger(nextIndex) && nextIndex >= 0 ? nextIndex : 0,
+    });
+    if (kind === "design") {
+      logNavigation(`editor restored platform=${platform} designId=${nextDesignId || ""} filename=${requestedDesign?.filename || ""}`);
     }
     setEditorKinds((current) => ({ ...current, [platform]: kind }));
     setActiveRoute(platform);
@@ -1406,8 +1608,8 @@ export default function App() {
     const historyState = {
       editorPlatform: platform,
       editorKind: kind,
-      selectedDesignIndex: Number.isInteger(index) ? index : 0,
-      selectedDesignId: platform === "teepublic" ? (selectedDesignId || teepublicDesigns[index]?.id || "") : "",
+      selectedDesignIndex: Number.isInteger(nextIndex) && nextIndex >= 0 ? nextIndex : 0,
+      selectedDesignId: kind === "design" ? nextDesignId : "",
     };
     if (window.location.pathname !== target) {
       window.history.pushState(historyState, "", target);
@@ -1420,16 +1622,14 @@ export default function App() {
     setActiveRoute(platform);
     setActiveTab("designs");
     setEditorPlatform("");
-    if (platform === "teepublic") {
-      setTpEditorDesignId("");
-      writeEditorDesignId("teepublic", "");
-      console.info("[PodPilot][TeePublic Edit] back to list clear active design");
-    }
+    rememberPlatformNavigation(platform, { lastView: "list" });
     const target = buildPath(platform, "designs");
     if (window.location.pathname !== target) window.history.pushState({ editorPlatform: "", editorKind: "" }, "", target);
   }
 
-  function handleEditorUnavailable(platform) {
+  function handleEditorUnavailable(platform, reason = "active-design-unavailable") {
+    logNavigation(`fallback to list reason=${reason} platform=${platform}`);
+    rememberPlatformNavigation(platform, { lastView: "list" });
     setEditorKinds((current) => ({ ...current, [platform]: "" }));
     setDashboardToast({
       type: "info",
@@ -1696,8 +1896,16 @@ export default function App() {
                   editorMode={editorPlatform === "redbubble"}
                   editorKind={editorKinds.redbubble}
                   selectedDesignIndex={rbEditorIndex}
-                  onSelectedDesignIndexChange={(index) => { setRbEditorIndex(index); writeEditorIndex("redbubble", index); }}
-                  onEditorOpen={(kind, index) => handleOpenEditor("redbubble", kind, index)}
+                  selectedDesignId={rbEditorDesignId}
+                  onSelectedDesignIndexChange={(index) => {
+                    setRbEditorIndex(index);
+                    rememberPlatformNavigation("redbubble", { activeDesignIndex: index });
+                  }}
+                  onSelectedDesignIdChange={(designId) => {
+                    setRbEditorDesignId(designId);
+                    rememberPlatformNavigation("redbubble", { activeDesignId: designId });
+                  }}
+                  onEditorOpen={(kind, index, designId) => handleOpenEditor("redbubble", kind, index, designId)}
                   onBackToDesigns={() => handleBackToDesigns("redbubble")}
                   onEditorUnavailable={() => handleEditorUnavailable("redbubble")}
                   designsLoaded={hasLoadedDesigns.current}
@@ -1733,8 +1941,14 @@ export default function App() {
                     designs={teepublicDesigns}
                     activeIndex={tpEditorIndex}
                     activeDesignId={tpEditorDesignId}
-                    onActiveIndexChange={(index) => { setTpEditorIndex(index); writeEditorIndex("teepublic", index); }}
-                    onActiveDesignIdChange={(designId) => { setTpEditorDesignId(designId); writeEditorDesignId("teepublic", designId); }}
+                    onActiveIndexChange={(index) => {
+                      setTpEditorIndex(index);
+                      rememberPlatformNavigation("teepublic", { activeDesignIndex: index });
+                    }}
+                    onActiveDesignIdChange={(designId) => {
+                      setTpEditorDesignId(designId);
+                      rememberPlatformNavigation("teepublic", { activeDesignId: designId });
+                    }}
                     onDesignsChange={setTeepublicDesignsCached}
                     onBack={() => handleBackToDesigns("teepublic")}
                     uploadedImages={teepublicImages}

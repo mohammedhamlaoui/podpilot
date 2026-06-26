@@ -172,7 +172,9 @@ export default function DesignManager({
   editorMode = false,
   editorKind = "",
   selectedDesignIndex = 0,
+  selectedDesignId = "",
   onSelectedDesignIndexChange,
+  onSelectedDesignIdChange,
   onEditorOpen,
   onBackToDesigns,
   onEditorUnavailable,
@@ -685,7 +687,7 @@ export default function DesignManager({
     }
 
     setCreateError("");
-    const newId = "local_" + Date.now();
+    const newId = makeTempDraftId();
     const newImage = {
       id: newId,
       name: "design.png",
@@ -932,9 +934,28 @@ export default function DesignManager({
       onEditorUnavailable?.();
       return;
     }
-    const safeIndex = Math.max(0, Math.min(selectedDesignIndex || 0, designs.length - 1));
+    const selectedId = String(selectedDesignId || "").trim();
+    const idIndex = selectedId ? designs.findIndex((design) => design.id === selectedId) : -1;
+    if (selectedId && idIndex === -1) {
+      onEditorUnavailable?.();
+      return;
+    }
+    const safeIndex = idIndex >= 0 ? idIndex : Math.max(0, Math.min(selectedDesignIndex || 0, designs.length - 1));
     startEdit(designs[safeIndex]);
-  }, [designs, designsLoaded, editingId, editorKind, editorMode, isLoading, selectedDesignIndex]);
+  }, [designs, designsLoaded, editingId, editorKind, editorMode, isLoading, selectedDesignId, selectedDesignIndex]);
+
+  useEffect(() => {
+    if (!editorMode || editorKind !== "design" || isLoading || !designsLoaded) return;
+    const selectedId = String(selectedDesignId || "").trim();
+    if (!selectedId || editingId === selectedId) return;
+    const design = designs.find((item) => item.id === selectedId);
+    if (!design) {
+      onEditorUnavailable?.();
+      return;
+    }
+    persistEditingForm();
+    startEdit(design);
+  }, [designs, designsLoaded, editingId, editorKind, editorMode, isLoading, selectedDesignId]);
 
   // ── Close 3-dot menu on outside click / scroll / Escape ─────────────────
   useEffect(() => {
@@ -995,7 +1016,8 @@ export default function DesignManager({
     });
     const index = designs.findIndex((item) => item.id === design.id);
     onSelectedDesignIndexChange?.(index >= 0 ? index : 0);
-    onEditorOpen?.("design", index >= 0 ? index : 0);
+    onSelectedDesignIdChange?.(design.id || "");
+    onEditorOpen?.("design", index >= 0 ? index : 0, design.id || "");
   }
 
   function cancelEdit(silent = false) {
