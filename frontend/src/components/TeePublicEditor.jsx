@@ -83,6 +83,8 @@ export default function TeePublicEditor({
   onActiveDesignIdChange,
   onDesignsChange,
   onBack,
+  onUnsavedChangesChange,
+  unsavedResetToken = 0,
   uploadedImages,
   userId = "",
   isWorkspaceLocked = false,
@@ -165,6 +167,25 @@ export default function TeePublicEditor({
 
   // Local editable state for current design
   const [form, setForm] = useState(() => buildForm(design));
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  function markDirty() {
+    setHasUnsavedChanges(true);
+    onUnsavedChangesChange?.(true);
+  }
+
+  function markClean() {
+    setHasUnsavedChanges(false);
+    onUnsavedChangesChange?.(false);
+  }
+
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  useEffect(() => {
+    markClean();
+  }, [unsavedResetToken]);
 
   useEffect(() => {
     if (visibleDesigns.length === 0) {
@@ -224,6 +245,7 @@ export default function TeePublicEditor({
 
   function clearPreview() {
     if (!requireUnlocked()) return;
+    markDirty();
     const activeD = designs[activeIndex];
     if (activeD && isLocalId(activeD.id)) {
       revokeLocalDraftPreview(activeD);
@@ -247,6 +269,7 @@ export default function TeePublicEditor({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    markDirty();
     if (!isAcceptedReplacementImage(file)) {
       setImageReplacementError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
@@ -315,6 +338,7 @@ export default function TeePublicEditor({
   }
 
   function updateForm(field, value) {
+    markDirty();
     setForm((f) => ({ ...f, [field]: value }));
   }
 
@@ -342,6 +366,7 @@ export default function TeePublicEditor({
   }
 
   function updateColor(product, color) {
+    markDirty();
     setForm((f) => ({
       ...f,
       color_settings: { ...f.color_settings, [product]: color },
@@ -349,6 +374,7 @@ export default function TeePublicEditor({
   }
 
   function toggleProduct(product) {
+    markDirty();
     setForm((f) => ({
       ...f,
       product_settings: { ...f.product_settings, [product]: !f.product_settings[product] },
@@ -483,6 +509,7 @@ export default function TeePublicEditor({
 
       const normalized = normalizeAiListingResult(result);
       if (normalized) {
+        markDirty();
         setForm((current) => ({
           ...current,
           title: normalized.title || current.title,
@@ -549,6 +576,7 @@ export default function TeePublicEditor({
       onDesignsChange(nextDesigns);
 
       if (isActiveDesign) {
+        markDirty();
         setForm((current) => ({
           ...current,
           title: patch.title,
@@ -721,6 +749,7 @@ export default function TeePublicEditor({
         // Apply to current design form
         const patched = applyClipboardToDesign(form, { ...clip, data: canonicalData });
         const newForm = { ...form, ...patched };
+        markDirty();
         setForm(newForm);
 
         // Persist to backend immediately
@@ -737,6 +766,7 @@ export default function TeePublicEditor({
         }
 
         showToast(`Pasted ${getClipboardLabel(clip)} to current design.`);
+        markClean();
 
       } else if (target === "all") {
         // Apply to all designs
@@ -744,6 +774,7 @@ export default function TeePublicEditor({
 
         // Update current form too
         const patched = applyClipboardToDesign(form, { ...clip, data: canonicalData });
+        markDirty();
         setForm({ ...form, ...patched });
         // Build patches for backend
         const patches = updatedDesigns.map((d) => ({ id: d.id, ...canonicalData }));
@@ -765,6 +796,7 @@ export default function TeePublicEditor({
         }
 
         showToast(`Pasted ${getClipboardLabel(clip)} to all ${designs.length} designs.`);
+        markClean();
       }
     } catch (err) {
       console.error("[PodPilot] Paste failed:", err);
@@ -904,6 +936,7 @@ export default function TeePublicEditor({
       // normalised (e.g., trimmed whitespace) is reflected.
       setForm(buildForm(savedDesign));
       resetImageReplacementState();
+      markClean();
     } catch (err) {
       logFailingRequest(err);
       console.error("[PodPilot] save current error:", err);
@@ -1101,6 +1134,7 @@ export default function TeePublicEditor({
       if (refreshedActive) setForm(buildForm(refreshedActive));
       resetImageReplacementState();
       showToast(`Saved ${designs.length} designs.`);
+      markClean();
     } catch (err) {
       logFailingRequest(err);
       console.error("[PodPilot] save all error:", err);
@@ -1295,12 +1329,11 @@ export default function TeePublicEditor({
   function handleBack() {
     setAiMenuOpen(false);
     setTrademarkMenuOpen(false);
-    setActiveDesignId("");
-    onActiveDesignIdChange?.("");
     onBack();
   }
 
   function handleAddLocalDesignDraft() {
+    markDirty();
     const newId = makeTempDraftId();
     const newDesign = {
       id: newId,

@@ -228,6 +228,8 @@ export default function DesignManager({
   editorKind = "",
   onEditorOpen,
   onBackToDesigns,
+  onUnsavedChangesChange,
+  unsavedResetToken = 0,
   designsLoaded = false,
   autoOpenCreate = false,
   createSignal = 0,
@@ -304,6 +306,25 @@ export default function DesignManager({
 
   // Custom toast notification state
   const [toast, setToast] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  function markDirty() {
+    setHasUnsavedChanges(true);
+    onUnsavedChangesChange?.(true);
+  }
+
+  function markClean() {
+    setHasUnsavedChanges(false);
+    onUnsavedChangesChange?.(false);
+  }
+
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  useEffect(() => {
+    markClean();
+  }, [unsavedResetToken]);
   
   function showToast(msg, type = "success") {
     setToast({ msg, type });
@@ -324,6 +345,7 @@ export default function DesignManager({
 
   function clearCreatePreview(imageId) {
     if (!requireUnlocked()) return;
+    markDirty();
     setClearedCreateImageIds((current) => {
       const next = new Set(current);
       next.add(imageId);
@@ -346,6 +368,7 @@ export default function DesignManager({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    markDirty();
     if (!isAcceptedReplacementImage(file)) {
       setCreateError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
@@ -389,6 +412,7 @@ export default function DesignManager({
     visibleDesigns.length > 0 && visibleDesigns.every((design) => selectedIds.includes(design.id));
 
   function updateForm(field, value) {
+    markDirty();
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -396,6 +420,7 @@ export default function DesignManager({
     if (!requireUnlocked()) return;
     setOpenActionId(null);
     setEditingId("new");
+    markClean();
     setForm(EMPTY_FORM);
     setCreateError("");
     setCreateUploadError("");
@@ -417,6 +442,7 @@ export default function DesignManager({
     }
 
     setCreateError("");
+    markDirty();
     const newId = makeTempDraftId();
     const newImage = {
       id: newId,
@@ -558,6 +584,7 @@ export default function DesignManager({
 
       setSessionImages((current) => [...current, ...nextImages]);
       setCreateImageIds((current) => [...current, ...nextImages.map((image) => image.id)]);
+      markDirty();
       console.log("[PodPilot] selected files (draft only, not uploaded yet)", nextImages.map((i) => i.name));
       setActiveCreateIndex(createImageIds.length);
       setCreateDrafts((currentDrafts) => {
@@ -636,16 +663,13 @@ export default function DesignManager({
       sticker_color: design.sticker_color || "",
       stickers_color_enabled: design.stickers_color_enabled || "Off"
     });
+    markClean();
   }
 
   function cancelEdit(silent = false, navigateBack = true) {
-    // Only show the leave-warning when the user explicitly navigates away,
-    // NOT when this is called programmatically after a successful save.
-    // Create-session local drafts are tracked in createImageIds / sessionImages;
-    // the designs prop contains only persisted backend designs in this component.
-    if (!silent && createImageIds.length > 0) {
-      const ok = window.confirm("You have unsaved designs. Leave without saving?");
-      if (!ok) return;
+    if (!silent) {
+      if (navigateBack) onBackToDesigns?.();
+      return;
     }
 
     setEditingId(null);
@@ -655,6 +679,7 @@ export default function DesignManager({
     setAiError("");
     setCreateImageReplacements({});
     setClearedCreateImageIds(new Set());
+    markClean();
     if (navigateBack) onBackToDesigns?.();
   }
 
@@ -710,6 +735,7 @@ export default function DesignManager({
   function updateCreateDraft(field, value) {
     const imageId = createImageIds[activeCreateIndex];
     if (!imageId) return;
+    markDirty();
 
     const image = getCreateImageById(imageId);
     setCreateDrafts((currentDrafts) => ({
@@ -723,6 +749,7 @@ export default function DesignManager({
 
   function toggleCreateImage(image) {
     setCreateError("");
+    markDirty();
     setCreateImageIds((currentIds) => {
       if (currentIds.includes(image.id)) {
         const nextIds = currentIds.filter((id) => id !== image.id);

@@ -15534,3 +15534,51 @@ button.copy-link-open .pp-spinner-on-button {
   font-size: 12px;
   color: var(--danger-color, #ef4444);
 }
+/* Unsaved changes confirmation */
+.pp-unsaved-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(6px);
+}
+
+.pp-unsaved-modal {
+  width: min(440px, 100%);
+  border-radius: 16px;
+  background: var(--surface, #ffffff);
+  color: var(--text, #111827);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  padding: 28px;
+}
+
+.pp-unsaved-modal h2 {
+  margin: 0 0 10px;
+  font-size: 1.35rem;
+}
+
+.pp-unsaved-modal p {
+  margin: 0;
+  color: var(--muted, #64748b);
+  line-height: 1.55;
+}
+
+.pp-unsaved-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.pp-unsaved-modal .danger-button {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.pp-unsaved-modal .danger-button:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+}

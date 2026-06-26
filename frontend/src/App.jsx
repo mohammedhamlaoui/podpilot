@@ -32,6 +32,7 @@ import PreviewModeBanner from "./components/PreviewModeBanner";
 import DesignRetentionNotice, {
   acknowledgeDesignRetentionNotice,
 } from "./components/DesignRetentionNotice";
+import UnsavedChangesModal from "./components/UnsavedChangesModal";
 import { EXTENSION_ID } from "./config";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
 import {
@@ -630,6 +631,20 @@ export default function App() {
       activeDesignIndex: readEditorIndex("teepublic"),
     },
   }));
+  const [editorDirtyState, setEditorDirtyState] = useState({
+    redbubble: false,
+    teepublic: false,
+  });
+  const editorDirtyStateRef = useRef(editorDirtyState);
+  const [unsavedResetTokens, setUnsavedResetTokens] = useState({
+    redbubble: 0,
+    teepublic: 0,
+  });
+  const [unsavedPrompt, setUnsavedPrompt] = useState({
+    open: false,
+    platform: "",
+    action: null,
+  });
   const [dashboardToast, setDashboardToast] = useState(null);
   const [uploadControlPrompt, setUploadControlPrompt] = useState({
     visible: false,
@@ -675,6 +690,24 @@ export default function App() {
       platformAccess,
     };
   }, [subscriptionLoaded, subscriptionUserId, subscriptionSummary, platformAccess]);
+
+  useEffect(() => {
+    editorDirtyStateRef.current = editorDirtyState;
+  }, [editorDirtyState]);
+
+  useEffect(() => {
+    const hasDirtyEditor = Object.values(editorDirtyState).some(Boolean);
+    if (!hasDirtyEditor) return undefined;
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [editorDirtyState]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -1252,38 +1285,49 @@ export default function App() {
   useEffect(() => {
     function onPopState(event) {
       const next = readRouteFromLocation();
-      setActiveRoute(next.route);
-      setActiveTab(next.tab);
-      setEditorPlatform(next.editor ? next.route : "");
-      if (next.editor) {
-        const historyKind = event.state?.editorKind;
-        const historyIndex = Number(event.state?.selectedDesignIndex);
-        const historyDesignId = String(event.state?.selectedDesignId || "").trim();
-        if (Number.isInteger(historyIndex) && historyIndex >= 0) {
-          if (next.route === "teepublic") setTpEditorIndex(historyIndex);
-          else setRbEditorIndex(historyIndex);
+      const applyPopState = () => {
+        setActiveRoute(next.route);
+        setActiveTab(next.tab);
+        setEditorPlatform(next.editor ? next.route : "");
+        if (next.editor) {
+          const historyKind = event.state?.editorKind;
+          const historyIndex = Number(event.state?.selectedDesignIndex);
+          const historyDesignId = String(event.state?.selectedDesignId || "").trim();
+          if (Number.isInteger(historyIndex) && historyIndex >= 0) {
+            if (next.route === "teepublic") setTpEditorIndex(historyIndex);
+            else setRbEditorIndex(historyIndex);
+          }
+          if (next.route === "teepublic") {
+            setTpEditorDesignId(historyDesignId || readEditorDesignId("teepublic"));
+          } else if (next.route === "redbubble") {
+            setRbEditorDesignId(historyDesignId || readEditorDesignId("redbubble"));
+          }
+          rememberPlatformNavigation(next.route, {
+            lastView: "editor",
+            activeDesignId: historyDesignId || readEditorDesignId(next.route),
+            activeDesignIndex: Number.isInteger(historyIndex) && historyIndex >= 0 ? historyIndex : readEditorIndex(next.route),
+          });
+          setEditorKinds((current) => ({
+            ...current,
+            [next.route]: historyKind === "create" || historyKind === "design"
+              ? historyKind
+              : current[next.route] || "design",
+          }));
         }
-        if (next.route === "teepublic") {
-          setTpEditorDesignId(historyDesignId || readEditorDesignId("teepublic"));
-        } else if (next.route === "redbubble") {
-          setRbEditorDesignId(historyDesignId || readEditorDesignId("redbubble"));
+      };
+      if (getDirtyNavigationPlatform()) {
+        const target = buildPath(activeRoute, activeTab, editorPlatform);
+        if (window.location.pathname !== target) {
+          window.history.pushState(null, "", target);
         }
-        rememberPlatformNavigation(next.route, {
-          lastView: "editor",
-          activeDesignId: historyDesignId || readEditorDesignId(next.route),
-          activeDesignIndex: Number.isInteger(historyIndex) && historyIndex >= 0 ? historyIndex : readEditorIndex(next.route),
-        });
-        setEditorKinds((current) => ({
-          ...current,
-          [next.route]: historyKind === "create" || historyKind === "design"
-            ? historyKind
-            : current[next.route] || "design",
-        }));
+        guardUnsavedNavigation(applyPopState);
+        return;
       }
+      applyPopState();
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [activeRoute, activeTab, editorPlatform, guardUnsavedNavigation]);
 
   useEffect(() => {
     if (editorPlatform !== "redbubble" || editorKinds.redbubble !== "design") return;
@@ -1471,6 +1515,66 @@ export default function App() {
     });
   }
 
+  function setPlatformUnsaved(platform, isDirty) {
+    if (!isPlatformRoute(platform)) return;
+    const nextValue = Boolean(isDirty);
+    if (editorDirtyStateRef.current[platform] !== nextValue) {
+      editorDirtyStateRef.current = {
+        ...editorDirtyStateRef.current,
+        [platform]: nextValue,
+      };
+    }
+    setEditorDirtyState((current) => (
+      current[platform] === nextValue
+        ? current
+        : { ...current, [platform]: nextValue }
+    ));
+  }
+
+  function getDirtyNavigationPlatform() {
+    if (isPlatformRoute(editorPlatform) && editorDirtyStateRef.current[editorPlatform]) {
+      return editorPlatform;
+    }
+    if (isPlatformRoute(activeRoute) && editorDirtyStateRef.current[activeRoute]) {
+      return activeRoute;
+    }
+    return DESIGN_MARKETPLACES.find((platform) => editorDirtyStateRef.current[platform]) || "";
+  }
+
+  function clearPlatformUnsaved(platform) {
+    if (!isPlatformRoute(platform)) return;
+    setPlatformUnsaved(platform, false);
+    setUnsavedResetTokens((current) => ({
+      ...current,
+      [platform]: current[platform] + 1,
+    }));
+  }
+
+  function guardUnsavedNavigation(action) {
+    const dirtyPlatform = getDirtyNavigationPlatform();
+    if (!dirtyPlatform) {
+      action();
+      return true;
+    }
+    setUnsavedPrompt({
+      open: true,
+      platform: dirtyPlatform,
+      action,
+    });
+    return false;
+  }
+
+  function stayOnUnsavedEditor() {
+    setUnsavedPrompt({ open: false, platform: "", action: null });
+  }
+
+  function leaveUnsavedEditor() {
+    const pending = unsavedPrompt;
+    if (pending.platform) clearPlatformUnsaved(pending.platform);
+    setUnsavedPrompt({ open: false, platform: "", action: null });
+    if (typeof pending.action === "function") pending.action();
+  }
+
   function rememberPlatformNavigation(platform, patch = {}) {
     if (!isPlatformRoute(platform)) return;
     setPlatformNavState((current) => {
@@ -1549,6 +1653,10 @@ export default function App() {
   }
 
   function handleNavigate(route) {
+    guardUnsavedNavigation(() => applyNavigate(route));
+  }
+
+  function applyNavigate(route) {
     if (isPlatformRoute(route)) {
       restorePlatformNavigation(route);
       return;
@@ -1563,6 +1671,10 @@ export default function App() {
   }
 
   function handleTabChange(nextTab) {
+    guardUnsavedNavigation(() => applyTabChange(nextTab));
+  }
+
+  function applyTabChange(nextTab) {
     setActiveTab(nextTab);
     setEditorPlatform("");
     const target = buildPath(activeRoute, nextTab);
@@ -1619,6 +1731,10 @@ export default function App() {
   }
 
   function handleBackToDesigns(platform) {
+    guardUnsavedNavigation(() => applyBackToDesigns(platform));
+  }
+
+  function applyBackToDesigns(platform) {
     setActiveRoute(platform);
     setActiveTab("designs");
     setEditorPlatform("");
@@ -1908,6 +2024,8 @@ export default function App() {
                   onEditorOpen={(kind, index, designId) => handleOpenEditor("redbubble", kind, index, designId)}
                   onBackToDesigns={() => handleBackToDesigns("redbubble")}
                   onEditorUnavailable={() => handleEditorUnavailable("redbubble")}
+                  onUnsavedChangesChange={(isDirty) => setPlatformUnsaved("redbubble", isDirty)}
+                  unsavedResetToken={unsavedResetTokens.redbubble}
                   designsLoaded={hasLoadedDesigns.current}
                   userId={user?.id || ""}
                   isLoading={isLoadingDesigns}
@@ -1951,6 +2069,8 @@ export default function App() {
                     }}
                     onDesignsChange={setTeepublicDesignsCached}
                     onBack={() => handleBackToDesigns("teepublic")}
+                    onUnsavedChangesChange={(isDirty) => setPlatformUnsaved("teepublic", isDirty)}
+                    unsavedResetToken={unsavedResetTokens.teepublic}
                     uploadedImages={teepublicImages}
                     userId={user?.id || ""}
                     isWorkspaceLocked={teepublicLocked}
@@ -1973,6 +2093,8 @@ export default function App() {
                       editorKind={editorKinds.teepublic}
                       onEditorOpen={(kind) => handleOpenEditor("teepublic", kind)}
                       onBackToDesigns={() => handleBackToDesigns("teepublic")}
+                      onUnsavedChangesChange={(isDirty) => setPlatformUnsaved("teepublic", isDirty)}
+                      unsavedResetToken={unsavedResetTokens.teepublic}
                       designsLoaded={hasLoadedDesigns.current}
                       userId={user?.id || ""}
                       isLoading={isLoadingDesigns}
@@ -2002,6 +2124,11 @@ export default function App() {
       </main>
       </div>
       <DesignRetentionNotice open={retentionNoticeOpen} onAcknowledge={acknowledgeRetentionNotice} />
+      <UnsavedChangesModal
+        open={unsavedPrompt.open}
+        onStay={stayOnUnsavedEditor}
+        onLeave={leaveUnsavedEditor}
+      />
     </>
   );
 }

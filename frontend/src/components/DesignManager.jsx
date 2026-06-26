@@ -178,6 +178,8 @@ export default function DesignManager({
   onEditorOpen,
   onBackToDesigns,
   onEditorUnavailable,
+  onUnsavedChangesChange,
+  unsavedResetToken = 0,
   designsLoaded = false,
   autoOpenCreate = false,
   createSignal = 0,
@@ -216,6 +218,25 @@ export default function DesignManager({
 
   // Custom toast notification state
   const [toast, setToast] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  function markDirty() {
+    setHasUnsavedChanges(true);
+    onUnsavedChangesChange?.(true);
+  }
+
+  function markClean() {
+    setHasUnsavedChanges(false);
+    onUnsavedChangesChange?.(false);
+  }
+
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  useEffect(() => {
+    markClean();
+  }, [unsavedResetToken]);
 
   function handleLockedAction() {
     setCreateError(PREMIUM_LOCK_MESSAGE);
@@ -320,6 +341,7 @@ export default function DesignManager({
 
   function clearPreview() {
     if (!requireUnlocked()) return;
+    markDirty();
     const currentDesign = designs.find((design) => design.id === editingId);
     if (currentDesign && isLocalId(currentDesign.id)) {
       revokeLocalDraftPreview(currentDesign);
@@ -342,6 +364,7 @@ export default function DesignManager({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    markDirty();
     if (!isAcceptedReplacementImage(file)) {
       setImageReplacementError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
@@ -371,6 +394,7 @@ export default function DesignManager({
 
   function clearCreatePreview(imageId) {
     if (!requireUnlocked()) return;
+    markDirty();
     setClearedCreateImageIds((current) => {
       const next = new Set(current);
       next.add(imageId);
@@ -393,6 +417,7 @@ export default function DesignManager({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    markDirty();
     if (!isAcceptedReplacementImage(file)) {
       setCreateError("Unsupported file type. Please upload PNG or JPEG designs only.");
       return;
@@ -639,6 +664,7 @@ export default function DesignManager({
     visibleDesigns.length > 0 && visibleDesigns.every((design) => selectedIds.includes(design.id));
 
   function updateForm(field, value) {
+    markDirty();
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -669,6 +695,7 @@ export default function DesignManager({
     if (!requireUnlocked()) return;
     setOpenActionId(null);
     setEditingId("new");
+    markClean();
     setForm(EMPTY_FORM);
     setCreateError("");
     setCreateUploadError("");
@@ -687,6 +714,7 @@ export default function DesignManager({
     }
 
     setCreateError("");
+    markDirty();
     const newId = makeTempDraftId();
     const newImage = {
       id: newId,
@@ -714,6 +742,7 @@ export default function DesignManager({
   }
 
   function handleAddLocalDesignDraftInEdit() {
+    markDirty();
     const newId = makeTempDraftId();
     const newDesign = {
       id: newId,
@@ -1018,25 +1047,13 @@ export default function DesignManager({
     onSelectedDesignIndexChange?.(index >= 0 ? index : 0);
     onSelectedDesignIdChange?.(design.id || "");
     onEditorOpen?.("design", index >= 0 ? index : 0, design.id || "");
+    markClean();
   }
 
   function cancelEdit(silent = false) {
-    // Only show the leave-warning when the user explicitly navigates away,
-    // NOT when this is called programmatically after a successful save.
-    // Create-session local drafts are tracked in createImageIds / sessionImages;
-    // edit-session local drafts (handleAddLocalDesignDraftInEdit) are in the designs prop.
-    const hasUnsavedCreateImages = createImageIds.length > 0;
-    const hasUnsavedEditDrafts = designs.some((d) => isLocalId(d.id));
-    if (!silent && (hasUnsavedCreateImages || hasUnsavedEditDrafts)) {
-      const ok = window.confirm("You have unsaved designs. Leave without saving?");
-      if (!ok) return;
-    }
-
-    // Remove any local draft designs from the edit-session list when the user
-    // explicitly cancels (not when we call this silently after a successful save).
-    if (!silent && hasUnsavedEditDrafts) {
-      designs.filter((d) => isLocalId(d.id)).forEach(revokeLocalDraftPreview);
-      onDesignsChange(designs.filter((d) => !isLocalId(d.id)));
+    if (!silent) {
+      onBackToDesigns?.();
+      return;
     }
 
     setEditingId(null);
@@ -1045,6 +1062,7 @@ export default function DesignManager({
     resetImageReplacementState();
     setCreateImageReplacements({});
     setClearedCreateImageIds(new Set());
+    markClean();
     onBackToDesigns?.();
   }
 
@@ -1233,6 +1251,7 @@ export default function DesignManager({
   function updateCreateDraft(field, value) {
     const imageId = createImageIds[activeCreateIndex];
     if (!imageId) return;
+    markDirty();
 
     const image = getCreateImageById(imageId);
     setCreateDrafts((currentDrafts) => ({
@@ -1246,6 +1265,7 @@ export default function DesignManager({
 
   function toggleCreateImage(image) {
     setCreateError("");
+    markDirty();
     setCreateImageIds((currentIds) => {
       if (currentIds.includes(image.id)) {
         const nextIds = currentIds.filter((id) => id !== image.id);
