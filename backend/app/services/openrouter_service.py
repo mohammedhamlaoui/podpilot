@@ -20,40 +20,6 @@ class OpenRouterListingError(Exception):
 MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024
 AI_IMAGE_MAX_SIDE = 768
 AI_IMAGE_JPEG_QUALITY = 80
-REJECTION_PHRASES = [
-    "print-on-demand design featuring",
-    "print on demand design featuring",
-    "this design features",
-    "a design with",
-    "graphic design",
-    "uploaded artwork",
-    "seller artwork",
-    "clean design",
-    "unique design",
-    "beautiful design",
-    "perfect for everyone",
-    "abstract geometric",
-    "geometric shapes",
-    "seedling",
-    "seeds",
-    "growth",
-    "vase",
-    "minimalist line art",
-]
-HARD_REJECTION_PHRASES = {
-    "print-on-demand design featuring",
-    "print on demand design featuring",
-    "this design features",
-    "a design with",
-    "graphic design",
-    "artwork",
-    "uploaded artwork",
-    "seller artwork",
-    "clean design",
-    "unique design",
-    "beautiful design",
-    "perfect for everyone",
-}
 
 
 LISTING_JSON_SCHEMA = {
@@ -114,18 +80,10 @@ def _build_prompt(
     )
     correction = f"\n\nCorrection request: {correction_instruction}" if correction_instruction else ""
     return f"""
-You are analyzing a print-on-demand design image and writing listing metadata.
-
-Look carefully at this exact image.
-Describe only what is visible in this exact image.
-Do not invent themes, objects, styles, or meanings.
-Do not use generic POD marketplace phrases.
-Do not mention print-on-demand, design, artwork, graphic, or illustration unless necessary to describe visible text.
-Do not use generic filler such as abstract geometric, minimalist, seedling, growth, modern line art, or vase unless those exact elements are clearly visible.
-If the design contains ghosts, skulls, potion bottles, witches, Halloween, cute spooky elements, animals, food, quotes, or characters, mention the visible subject accurately.
-If the image has text, include the exact text if readable.
-If unsure, choose a broad but safe description based on visible objects only.
-Create marketplace metadata that a human seller would actually use.
+Generate marketplace listing metadata based only on what is visible in this image.
+Describe the actual subject, style, colors, text, and theme you can see.
+Do not invent objects that are not visible.
+Avoid generic phrases when possible.
 
 Platform: {platform}
 {image_line}
@@ -138,43 +96,36 @@ Return ONLY valid JSON with this exact shape:
 {{
   "title": "...",
   "description": "...",
-  "tags": "...",
-  "main_keyword": "..."
+  "primary_tag": "...",
+  "supporting_tags": ["...", "..."]
 }}
 
 Rules:
-- Title: short, natural, 3 to 8 words.
-- Description: one short sentence.
-- Tags: comma-separated, 8 to 12 relevant tags.
-- Main keyword: 2 to 4 words.
-- Avoid spammy repetition.
-- Avoid copyrighted character names, brand names, celebrity names, or trademarked terms.
-- Do not mention Redbubble or TeePublic in the listing fields.
-- Do not say "print-on-demand design featuring", "this design features", "a design with", "graphic design", or "artwork".
-- Do not mention print-on-demand, design, artwork, graphic, or illustration unless necessary.
-- Do not say "geometric", "abstract", "seedling", "vase", "growth", or "minimalist" unless clearly visible.
-- Use simple POD seller-friendly wording.
-- Prefer concrete visible nouns over vague aesthetics.
-- Description must be one natural sentence specific to the visible subject.
-- Primary keyword must be specific, not generic.
-
-Example:
-If the image shows a cute potion bottle with ghosts and skulls, a good output is:
-{{
-  "title": "Cute Ghost Potion Bottle",
-  "description": "A cute spooky potion bottle filled with ghosts, skulls, stars, and pastel Halloween magic.",
-  "tags": "spooky potion bottle, cute ghost, halloween potion, ghost bottle, skulls, witchy bottle, pastel spooky, kawaii halloween, magic bottle, cute spooky",
-  "main_keyword": "spooky potion bottle"
-}}
+- The title should be specific and sellable.
+- The description should be one natural sentence.
+- Tags should match visible content.
+- If the image has readable text, use the exact text when helpful.
+- Do not mention Redbubble or TeePublic.
 """.strip()
 
 
 def _parse_json_response(text: str) -> dict[str, Any]:
     raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise OpenRouterListingError("AI returned invalid JSON.") from error
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise OpenRouterListingError("AI returned invalid JSON.")
+        try:
+            data = json.loads(raw[start : end + 1])
+        except json.JSONDecodeError as error:
+            raise OpenRouterListingError("AI returned invalid JSON.") from error
 
     if not isinstance(data, dict):
         raise OpenRouterListingError("AI returned an unexpected response.")
@@ -196,61 +147,8 @@ def _safe_trim(text: str, max_len: int) -> str:
 
 
 def _is_forbidden_tag(tag: str) -> bool:
-    """Check if a tag is empty, numeric, too long, or contains forbidden keywords."""
-    tag_lower = tag.lower().strip()
-    if not tag_lower:
-        return True
-    if tag_lower.isdigit():
-        return True
-    if len(tag_lower) > 30:
-        return True
-    
-    forbidden_keywords = [
-        "copyright", "trademark", "registered", "patent", "untitled", "image", "file",
-        "upload", "redbubble", "teepublic", "podpilot", "placeholder", "logo", "watermark",
-        "designed by", "created by", "unknown", "©", "®", "™"
-    ]
-    for keyword in forbidden_keywords:
-        if keyword in tag_lower:
-            return True
-            
-    return False
-
-
-def _contains_rejected_generic_terms(
-    data: dict[str, Any],
-    metadata: dict[str, str],
-) -> Optional[str]:
-    response_text = " ".join(
-        _stringify(data.get(field))
-        for field in ("title", "description", "tags", "main_keyword", "main_tag", "supporting_tags")
-    ).lower()
-    context_text = " ".join(metadata.values()).lower()
-    for phrase in REJECTION_PHRASES:
-        if phrase in HARD_REJECTION_PHRASES and phrase in response_text:
-            return phrase
-        phrase_words = [word for word in phrase.split() if len(word) > 2]
-        supported_by_context = phrase in context_text or all(word in context_text for word in phrase_words)
-        if phrase in response_text and not supported_by_context:
-            return phrase
-    return None
-
-
-GENERIC_WORDS = {
-    "a", "an", "and", "are", "art", "artwork", "beautiful", "black", "clean", "cool",
-    "design", "featuring", "for", "graphic", "image", "illustration", "in", "of", "on",
-    "perfect", "print", "printable", "the", "this", "to", "unique", "white", "with",
-}
-
-
-def _meaningful_words(text: str) -> set[str]:
-    words = re.findall(r"[a-zA-Z][a-zA-Z']{2,}", (text or "").lower())
-    return {word for word in words if word not in GENERIC_WORDS}
-
-
-def _is_same_text(left: str, right: str) -> bool:
-    normalize = lambda value: re.sub(r"\s+", " ", (value or "").strip().lower())
-    return bool(normalize(left)) and normalize(left) == normalize(right)
+    """Only reject empty tags so normal AI listings are not over-blocked."""
+    return not tag.lower().strip()
 
 
 def _clean_filename_words(filename: str) -> list[str]:
@@ -269,7 +167,9 @@ def _fallback_listing(metadata: dict[str, str]) -> dict[str, Any]:
         main_keyword = " ".join(words[: min(4, len(words))])
         tags = list(dict.fromkeys(words + [main_keyword]))
     else:
-        raise OpenRouterListingError("AI listing could not identify visible content confidently.")
+        title = "Custom Visual Listing"
+        main_keyword = "custom visual"
+        tags = ["custom visual", "visual art", "print ready", "seller listing", "creative graphic"]
 
     return {
         "title": title,
@@ -286,13 +186,9 @@ def _clean_and_normalize_metadata(
 ) -> dict[str, Any]:
     """Normalize and validate all fields, raising OpenRouterListingError on failure."""
     metadata = metadata or {}
-    rejected_phrase = _contains_rejected_generic_terms(data, metadata)
-    if rejected_phrase:
-        raise OpenRouterListingError(f"AI listing used unsupported generic wording: {rejected_phrase}.")
-
     title = _stringify(data.get("title"))
     description = _stringify(data.get("description"))
-    main_tag = _stringify(data.get("main_keyword") or data.get("main_tag") or data.get("primary_tag"))
+    main_tag = _stringify(data.get("primary_tag") or data.get("main_keyword") or data.get("main_tag"))
     
     # Extract raw supporting tags list
     tags_val = data.get("supporting_tags")
@@ -347,7 +243,8 @@ def _clean_and_normalize_metadata(
         cleaned_tags = cleaned_tags[:50]
 
     if not cleaned_tags:
-        raise OpenRouterListingError("No valid supporting tags were returned.")
+        fallback_words = _clean_filename_words(metadata.get("filename", ""))
+        cleaned_tags = fallback_words[:8] or [main_tag_cleaned]
 
     title_trimmed = _safe_trim(title, 60)
     description_trimmed = _safe_trim(description, 160)
@@ -359,18 +256,6 @@ def _clean_and_normalize_metadata(
 
     if not title_trimmed or not description_trimmed:
         raise OpenRouterListingError("Title or description is missing or invalid.")
-    if len(title_trimmed) < 8 or len(title_trimmed) > 70:
-        raise OpenRouterListingError("Title length is outside the accepted range.")
-    if len(description_trimmed) < 25 or len(description_trimmed) > 180:
-        raise OpenRouterListingError("Description length is outside the accepted range.")
-    if _is_same_text(title_trimmed, metadata.get("title", "")):
-        raise OpenRouterListingError("AI listing title copied the existing title.")
-    if _is_same_text(description_trimmed, metadata.get("description", "")):
-        raise OpenRouterListingError("AI listing description copied the existing description.")
-    if len(cleaned_tags) < 5:
-        raise OpenRouterListingError("Not enough specific supporting tags were returned.")
-    if not _meaningful_words(title_trimmed + " " + description_trimmed):
-        raise OpenRouterListingError("AI listing lacks a concrete visible noun.")
 
     return {
         "title": title_trimmed,
@@ -625,11 +510,7 @@ async def generate_listing_openrouter(
                 data.get("model") or selected_model,
             )
     except Exception as final_error:
-        logger.warning(
-            "[PodPilot][AI Listing] validation failed reason=%s designId=%s",
-            str(final_error)[:240],
-            short_id(design.get("id")),
-        )
+        logger.warning("[PodPilot][AI Listing] fallback designId=%s reason=%s", short_id(design.get("id")), str(final_error)[:240])
         try:
             normalized = _fallback_listing(metadata)
             normalized = _clean_and_normalize_metadata(
