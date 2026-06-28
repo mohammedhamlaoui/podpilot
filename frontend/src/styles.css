@@ -12762,11 +12762,95 @@ button.copy-link-open .pp-spinner-on-button {
   flex-grow: 1;
 }
 
+.pricing-guarantee-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
 .pricing-guarantee-content h2 {
   font-size: 18px;
   font-weight: 800;
-  margin: 0 0 8px;
+  margin: 0;
   color: var(--pp-text);
+}
+
+.pricing-guarantee-info {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.07);
+  color: #7C3AED;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: help;
+  flex: 0 0 auto;
+}
+
+.pricing-guarantee-info:focus-visible {
+  outline: 2px solid rgba(124, 58, 237, 0.35);
+  outline-offset: 2px;
+}
+
+.pricing-guarantee-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  width: min(280px, calc(100vw - 48px));
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: #1F1633;
+  color: #F8F5FF;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: 0 14px 30px rgba(31, 22, 51, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+  z-index: 20;
+}
+
+.pricing-guarantee-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 10px;
+  height: 10px;
+  background: #1F1633;
+  transform: translate(-50%, -5px) rotate(45deg);
+}
+
+.pricing-guarantee-info:hover .pricing-guarantee-tooltip,
+.pricing-guarantee-info:focus-visible .pricing-guarantee-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+[data-theme="dark"] .pricing-guarantee-info {
+  background: rgba(192, 132, 252, 0.12);
+  border-color: rgba(192, 132, 252, 0.28);
+  color: #C084FC;
+}
+
+[data-theme="dark"] .pricing-guarantee-tooltip {
+  background: #F8F5FF;
+  color: #211733;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .pricing-guarantee-tooltip::after {
+  background: #F8F5FF;
 }
 
 .pricing-guarantee-content p {

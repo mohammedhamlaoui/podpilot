@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ShieldCheck, HelpCircle, ArrowRight, Gift } from "lucide-react";
+import { CheckCircle2, ShieldCheck, HelpCircle, ArrowRight, Gift, Info } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import Icon from "./Icon";
 import { LandingButton, LogoMark, UserMenu } from "./LandingPage";
@@ -617,7 +617,20 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
             <ShieldCheck size={28} strokeWidth={2} />
           </div>
           <div className="pricing-guarantee-content">
-            <h2>7-Day Money-Back Guarantee</h2>
+            <div className="pricing-guarantee-title-row">
+              <h2>7-Day Money-Back Guarantee</h2>
+              <button
+                type="button"
+                className="pricing-guarantee-info"
+                aria-label="Trial refund note"
+                aria-describedby="trial-refund-note"
+              >
+                <Info size={14} strokeWidth={2.3} />
+                <span id="trial-refund-note" className="pricing-guarantee-tooltip" role="tooltip">
+                  If you forget to cancel before your trial ends, the payment cannot be refunded.
+                </span>
+              </button>
+            </div>
             <p>
               Try PodPilot with your own upload workflow. If it is not a fit, contact support within 7 days of your initial payment for a full refund.
             </p>
