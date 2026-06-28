@@ -46,7 +46,7 @@ from app.schemas.job import (
     UploadLogIn,
     design_to_response,
 )
-from app.services import device_session_service, rate_limiter, r2_service, supabase_service, subscription_service
+from app.services import cdn_service, device_session_service, rate_limiter, r2_service, supabase_service, subscription_service
 from app.services.ai_copyright_service import (
     AICopyrightImageTooLarge,
     AICopyrightRiskError,
@@ -353,12 +353,14 @@ def _design_file_proxy_url(row: dict[str, Any], kind: str) -> str:
 def _design_with_file_urls(row: dict) -> dict:
     image_key = row.get("image_r2_key")
     thumbnail_key = row.get("thumbnail_r2_key")
+    cdn_image_url = cdn_service.sign_design_image_url(row) if image_key else ""
 
     response = design_to_response(
         row,
         image_url=_design_file_proxy_url(row, "image") if image_key else None,
         thumbnail_url=_design_file_proxy_url(row, "thumbnail") if thumbnail_key else None,
     )
+    response["cdn_image_url"] = cdn_image_url or None
     marketplace = row.get("marketplace") or "redbubble"
     response["upload_ready"] = _is_upload_ready(row, marketplace)
     response["mime_type"] = _guess_design_mime_type(row)
@@ -460,6 +462,7 @@ def _design_to_upload_queue_item(row: dict[str, Any], marketplace: str) -> dict[
     thumbnail_key = str(row.get("thumbnail_r2_key") or "").strip()
     image_url = ""
     thumbnail_url = ""
+    cdn_image_url = cdn_service.sign_design_image_url(row) if image_key else ""
     if image_key:
         image_url = r2_service.signed_get_url(
             image_key,
@@ -495,6 +498,7 @@ def _design_to_upload_queue_item(row: dict[str, Any], marketplace: str) -> dict[
         "image_path": image_key,
         "image_url": image_url,
         "upload_url": image_url,
+        "cdn_image_url": cdn_image_url,
         "thumbnail_url": thumbnail_url,
         "thumbnail_r2_key": thumbnail_key or None,
         "copy_link": str(row.get("copy_link") or "").strip(),
@@ -1575,6 +1579,7 @@ def get_design_image_url(
         "design_id": str(design_id),
         "image_r2_key": image_key,
         "image_url": url,
+        "cdn_image_url": cdn_service.sign_design_image_url(design) or None,
     }
 
 

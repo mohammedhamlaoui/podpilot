@@ -146,7 +146,6 @@ _DESIGN_WRITABLE = {
     "adult_content",
     "uploaded_at",
     "cleanup_at",
-    "updated_at",
     "color_settings",
     "product_settings",
 }
@@ -156,6 +155,7 @@ _DESIGN_WRITABLE = {
 # data — the previous behavior caused settings to disappear after refresh.
 _OPTIONAL_COLUMNS = {"color_settings", "product_settings"}
 _R2_KEY_COLUMNS = {"image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key"}
+_DESIGN_IMAGE_VERSION_COLUMNS = {"image_r2_key", "thumbnail_r2_key"}
 
 # Detected at first write — set to the columns that actually exist.
 _verified_writable: Optional[set] = None
@@ -429,6 +429,8 @@ def update_design(
     payload = _scrub_design(patch, fail_loud=True)
     if not payload:
         return None
+    if any(column in payload for column in _DESIGN_IMAGE_VERSION_COLUMNS):
+        payload["updated_at"] = _now()
     _validate_user_r2_keys(payload, user_id)
     response = (
         _admin.table(DESIGN_TABLE)

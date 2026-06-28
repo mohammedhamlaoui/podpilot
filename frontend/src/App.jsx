@@ -67,14 +67,14 @@ function deriveImagesFromDesigns(designs) {
       id: `design-${d.id}`,
       name: d.filename,
       size: 0,
-      previewUrl: d.image_url || "",
+      previewUrl: d.cdn_image_url || d.image_url || "",
       previewDataUrl: "",
       matched: true,
       storedName: d.filename,
       imagePath: d.image_r2_key || "",
-      imageUrl: d.image_url || "",
+      imageUrl: d.cdn_image_url || d.image_url || "",
       thumbnail_r2_key: d.thumbnail_r2_key || "",
-      thumbnailUrl: d.thumbnail_url || d.image_url || "",
+      thumbnailUrl: d.cdn_image_url || d.thumbnail_url || d.image_url || "",
     }));
 }
 
@@ -83,6 +83,7 @@ function normalizeDesignForExtension(design) {
     id: design.id,
     filename: design.filename,
     image_url: design.image_url || "",
+    cdn_image_url: design.cdn_image_url || "",
     image_r2_key: design.image_r2_key || "",
     image_path: design.image_r2_key || "",
     thumbnail_url: design.thumbnail_url || "",

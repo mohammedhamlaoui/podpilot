@@ -94,9 +94,9 @@
 
   function getImageUrl(design = {}, variant = "thumbnail") {
     if (variant === "preview") {
-      return String(design.image_url || design.upload_url || "").trim();
+      return String(design.cdn_image_url || design.image_url || design.upload_url || "").trim();
     }
-    return String(design.thumbnail_url || design.thumbnailUrl || design.preview_url || design.image_url || "").trim();
+    return String(design.cdn_image_url || design.thumbnail_url || design.thumbnailUrl || design.preview_url || design.image_url || "").trim();
   }
 
   function buildImageCacheKey(design = {}, userId = "", variant = "thumbnail") {

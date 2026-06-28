@@ -344,6 +344,7 @@ function mapDesignToCache(d) {
     marketplace: d.marketplace || "redbubble",
     thumbnail_url: d.thumbnail_url || "",
     image_url: d.image_url || "",
+    cdn_image_url: d.cdn_image_url || "",
     upload_url: d.upload_url || "",
     preview_url: d.preview_url || "",
     thumbnail_r2_key: d.thumbnail_r2_key || "",
@@ -1135,7 +1136,7 @@ function getFiltered() {
 function uploadPayloadNeedsRefresh(platform, designs) {
   if (!Array.isArray(designs) || designs.length === 0) return false;
   return designs.some((design) => {
-    const hasImage = Boolean(design.image_url || design.upload_url || design.image_r2_key);
+    const hasImage = Boolean(design.cdn_image_url || design.image_url || design.upload_url || design.image_r2_key);
     const hasCoreMetadata = Boolean(design.title && design.description && (design.main_tag || design.primary_tag));
     if (platform === "redbubble") {
       return !hasImage || !design.copy_link || !hasCoreMetadata;
@@ -1498,7 +1499,7 @@ async function handleUpload() {
     designIds: toQueue.map((d) => d.id || d.design_id).filter(Boolean),
     payloadHealth: toQueue.map((d) => ({
       id: d.id || d.design_id || "",
-      hasImageUrl: Boolean(d.image_url || d.upload_url || d.image_r2_key),
+      hasImageUrl: Boolean(d.cdn_image_url || d.image_url || d.upload_url || d.image_r2_key),
       hasCopyLink: Boolean(d.copy_link),
       hasTitle: Boolean(d.title),
       hasDescription: Boolean(d.description),

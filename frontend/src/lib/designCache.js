@@ -107,6 +107,18 @@ function inferSignedUrlExpiresAt(url, cachedAt = Date.now()) {
   if (!url || !/^https?:\/\//i.test(String(url))) return null;
   try {
     const parsed = new URL(url);
+    const cdnToken = parsed.searchParams.get("token");
+    if (cdnToken) {
+      try {
+        const normalized = cdnToken.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+        const payload = JSON.parse(atob(padded));
+        const expires = Number(payload?.exp || 0);
+        if (expires > 0) return expires * 1000 - SIGNED_URL_SAFETY_MS;
+      } catch (_) {
+        // Fall through to the generic signed URL parsing below.
+      }
+    }
     const amzDate = parseAmzDate(parsed.searchParams.get("X-Amz-Date"));
     const amzExpires = Number(parsed.searchParams.get("X-Amz-Expires") || 0);
     if (amzDate && amzExpires > 0) {
@@ -150,6 +162,9 @@ function normalizeDesignForCache(design, cachedAt = Date.now()) {
   if (next.image_url) {
     next.image_url_expires_at = next.image_url_expires_at || inferSignedUrlExpiresAt(next.image_url, cachedAt);
   }
+  if (next.cdn_image_url) {
+    next.cdn_image_url_expires_at = next.cdn_image_url_expires_at || inferSignedUrlExpiresAt(next.cdn_image_url, cachedAt);
+  }
   if (next.thumbnail_url) {
     next.thumbnail_url_expires_at = next.thumbnail_url_expires_at || inferSignedUrlExpiresAt(next.thumbnail_url, cachedAt);
   }
@@ -168,6 +183,9 @@ function normalizeDesignForDisplay(design, now = Date.now()) {
   }
   if (next.image_url && !isUrlFresh(next.image_url_expires_at, now)) {
     next.image_url = "";
+  }
+  if (next.cdn_image_url && !isUrlFresh(next.cdn_image_url_expires_at, now)) {
+    next.cdn_image_url = "";
   }
   if (next.thumbnail_url && !isUrlFresh(next.thumbnail_url_expires_at, now)) {
     next.thumbnail_url = "";
@@ -356,6 +374,7 @@ export async function clearDesignCacheForUser(userId) {
 
 export function getCachedThumbnailUrl(design) {
   if (!design) return "";
+  if (design.cdn_image_url && isUrlFresh(design.cdn_image_url_expires_at)) return design.cdn_image_url;
   if (design.thumbnail_url && isUrlFresh(design.thumbnail_url_expires_at)) return design.thumbnail_url;
   if (design.image_url && isUrlFresh(design.image_url_expires_at)) return design.image_url;
   return "";

@@ -21,7 +21,12 @@ export default function CachedThumbnail({
   const storageKey = cacheR2Key || (variant === "preview"
     ? design?.image_r2_key
     : design?.thumbnail_r2_key || design?.image_r2_key);
-  const thumbnailSrc = src || getCachedThumbnailUrl(design) || fallbackSrc || "";
+  const explicitLocalSrc = /^(blob:|data:)/i.test(String(src || ""));
+  const preferredRemoteSrc = getCachedThumbnailUrl(design);
+  const thumbnailSrc = explicitLocalSrc ? src : preferredRemoteSrc || src || fallbackSrc || "";
+  const errorFallbackSrc = [fallbackSrc, src, design?.thumbnail_url, design?.image_url]
+    .map((value) => String(value || "").trim())
+    .find((value) => value && value !== thumbnailSrc) || "";
   const r2Key = storageKey || design?.id || thumbnailSrc;
   const cacheKey = useMemo(
     () =>
@@ -36,6 +41,9 @@ export default function CachedThumbnail({
   const isProtectedProxySrc =
     String(thumbnailSrc || "").startsWith("/api/") ||
     String(thumbnailSrc || "").startsWith("/designs/");
+  const isProtectedProxyFallback =
+    String(errorFallbackSrc || "").startsWith("/api/") ||
+    String(errorFallbackSrc || "").startsWith("/designs/");
   const shouldCache = Boolean(
     r2Key &&
     (/^https?:\/\//i.test(thumbnailSrc) ||
@@ -99,13 +107,18 @@ export default function CachedThumbnail({
       onError={(event) => {
         imgProps.onError?.(event);
         if (
-          thumbnailSrc &&
+          (errorFallbackSrc || thumbnailSrc) &&
           !isProtectedProxySrc &&
-          displaySrc !== thumbnailSrc &&
           failedFallbackKeyRef.current !== cacheKey
         ) {
           failedFallbackKeyRef.current = cacheKey;
-          setDisplaySrc(thumbnailSrc);
+          if (errorFallbackSrc && isProtectedProxyFallback) {
+            getOrCacheImageUrl(cacheKey, errorFallbackSrc, { fetchRemote: true }).then((cachedSrc) => {
+              if (cachedSrc) setDisplaySrc(cachedSrc);
+            });
+          } else {
+            setDisplaySrc(errorFallbackSrc || thumbnailSrc);
+          }
         }
       }}
     />

@@ -2452,8 +2452,8 @@ export default function DesignManager({
             {visibleDesigns.map((design) => {
               const matchedImage = findImageForDesign(design, uploadedImages);
               const tags = tagList(design);
-              const thumbnailSrc = design.thumbnail_url || matchedImage?.thumbnailUrl || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || "";
-              const previewSrc = design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || thumbnailSrc;
+              const thumbnailSrc = design.cdn_image_url || design.thumbnail_url || matchedImage?.thumbnailUrl || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || "";
+              const previewSrc = design.cdn_image_url || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || thumbnailSrc;
               const previewR2Key = design.image_r2_key || matchedImage?.imagePath || matchedImage?.image_r2_key || "";
 
               return (

@@ -1037,6 +1037,7 @@ async function createPreparedUploadSessionForQueue(marketplace, designs) {
         ...item,
         id: itemId,
         design_id: itemId,
+        cdn_image_url: item.cdn_image_url || original.cdn_image_url || "",
         image_url: item.image_url || item.upload_url || original.image_url || "",
         upload_url: item.upload_url || item.image_url || original.upload_url || original.image_url || "",
         image_r2_key: item.image_r2_key || item.image_key || original.image_r2_key || "",
@@ -1149,8 +1150,8 @@ async function startQueueInstant(message) {
   debugTimerEnd(normalizeTimer, { queuedCount: queue.length });
 
   const invalid = marketplace === "teepublic"
-    ? queue.find((design) => !design.image_url && !design.image_r2_key)
-    : queue.find((design) => (!design.image_url && !design.image_r2_key) || !design.copy_link);
+    ? queue.find((design) => !design.cdn_image_url && !design.image_url && !design.image_r2_key)
+    : queue.find((design) => (!design.cdn_image_url && !design.image_url && !design.image_r2_key) || !design.copy_link);
   if (invalid) {
     const need = marketplace === "teepublic" ? "an original image URL." : "an original image URL and copy_link.";
     throw new Error(`Design ${invalid.filename || invalid.id} needs ${need}`);
@@ -1207,7 +1208,7 @@ async function startQueueInstant(message) {
   debugLog("[PodPilot] Queue prepared", {
     marketplace,
     total: queue.length,
-    uploadUsesOriginalImageUrl: queue.every((design) => Boolean(design.image_url)),
+    uploadUsesOriginalImageUrl: queue.every((design) => Boolean(design.cdn_image_url || design.image_url)),
     elapsedMs: Date.now() - startedAt,
   });
 
@@ -1332,7 +1333,7 @@ async function startQueue(designs) {
 
   const queue = designs.map((design, index) => normalizeQueueDesign(design, index));
 
-  const invalid = queue.find((d) => (!d.image_url && !d.image_r2_key) || !d.copy_link);
+  const invalid = queue.find((d) => (!d.cdn_image_url && !d.image_url && !d.image_r2_key) || !d.copy_link);
   if (invalid) {
     throw new Error(`Design ${invalid.filename || invalid.id} needs an image and copy_link.`);
   }
@@ -1405,14 +1406,17 @@ async function startSelectedQueue(designIds) {
 }
 
 function normalizeQueueDesign(design, index) {
+  const cdnImageUrl = String(design.cdn_image_url || "").trim();
+  const imageUrl = String(design.image_url || "").trim();
   return {
     ...design,
     id: design.id || design.design_id || `${design.filename || "design"}-${index}`,
     design_id: String(design.id || design.design_id || `${design.filename || "design"}-${index}`),
     filename: String(design.filename || "").trim(),
-    image_url: String(design.image_url || "").trim(),
-    upload_url: String(design.image_url || "").trim(),
-    preview_url: String(design.thumbnail_url || design.image_url || "").trim(),
+    cdn_image_url: cdnImageUrl,
+    image_url: imageUrl,
+    upload_url: imageUrl,
+    preview_url: String(cdnImageUrl || design.thumbnail_url || imageUrl || "").trim(),
     thumbnail_url: String(design.thumbnail_url || "").trim(),
     image_r2_key: String(design.image_r2_key || "").trim(),
     image_key: String(design.image_key || design.image_r2_key || "").trim(),
@@ -1746,8 +1750,7 @@ async function uploadDesign(design) {
 
     // Always re-mint a signed image URL just before downloading to make
     // sure it's valid for the entire form-fill window.
-    const imageUrl = await resolveSignedImageUrl(design);
-    const imagePayload = await fetchImageAsBase64(imageUrl);
+    const imagePayload = await fetchPreferredDesignImageAsBase64(design);
 
     const successPromise = waitForPostSubmitOutcome({
       tabId: tab.id,
@@ -1843,11 +1846,11 @@ async function uploadDesign(design) {
  * reached (rare, e.g. quick offline blip).
  */
 async function resolveSignedImageUrl(design) {
-  if ((design?.prepared_queue === true || design?.upload_ready === true) && (design?.upload_url || design?.image_url)) {
-    return design.upload_url || design.image_url;
+  if ((design?.prepared_queue === true || design?.upload_ready === true) && (design?.cdn_image_url || design?.upload_url || design?.image_url)) {
+    return design.cdn_image_url || design.upload_url || design.image_url;
   }
   if (!design?.id) {
-    if (design?.upload_url || design?.image_url) return design.upload_url || design.image_url;
+    if (design?.cdn_image_url || design?.upload_url || design?.image_url) return design.cdn_image_url || design.upload_url || design.image_url;
     throw new Error("inject_image: Design has no id and no image_url.");
   }
   const timer = debugTimerStart("image URL fetch duration", {
@@ -1859,8 +1862,8 @@ async function resolveSignedImageUrl(design) {
     const response = await self.PodPilotAuth.apiFetch(`/designs/${encodeURIComponent(design.id)}/image-url`);
     if (response.ok) {
       const data = await response.json();
-      debugTimerEnd(timer, { ok: Boolean(data?.image_url), status: response.status });
-      if (data?.image_url) return data.image_url;
+      debugTimerEnd(timer, { ok: Boolean(data?.cdn_image_url || data?.image_url), status: response.status });
+      if (data?.cdn_image_url || data?.image_url) return data.cdn_image_url || data.image_url;
     }
     debugTimerEnd(timer, { ok: false, status: response.status });
   } catch (error) {
@@ -1872,8 +1875,39 @@ async function resolveSignedImageUrl(design) {
     }
     console.warn("[PodPilot] /image-url fetch failed:", error?.message || error);
   }
-  if (design.upload_url || design.image_url) return design.upload_url || design.image_url;
+  if (design.cdn_image_url || design.upload_url || design.image_url) return design.cdn_image_url || design.upload_url || design.image_url;
   throw new Error("inject_image: No image URL available for this design.");
+}
+
+async function fetchPreferredDesignImageAsBase64(design) {
+  const designId = String(design?.id || design?.design_id || "").trim();
+  const cdnUrl = String(design?.cdn_image_url || "").trim();
+
+  if (cdnUrl) {
+    console.info(`[PodPilot][Extension] fetching image via CDN designId=${designId}`);
+    try {
+      const payload = await fetchImageAsBase64(cdnUrl);
+      console.info(`[PodPilot][Extension] CDN fetch ok designId=${designId}`);
+      return payload;
+    } catch (error) {
+      console.warn(`[PodPilot][Extension] CDN failed, fallback to backend proxy designId=${designId}`, error?.message || error);
+      return fetchDesignImageAsBase64(design);
+    }
+  }
+
+  const imageUrl = await resolveSignedImageUrl(design);
+  if (/^https:\/\/cdn\.podpilot\.space\//i.test(String(imageUrl || ""))) {
+    console.info(`[PodPilot][Extension] fetching image via CDN designId=${designId}`);
+    try {
+      const payload = await fetchImageAsBase64(imageUrl);
+      console.info(`[PodPilot][Extension] CDN fetch ok designId=${designId}`);
+      return payload;
+    } catch (error) {
+      console.warn(`[PodPilot][Extension] CDN failed, fallback to backend proxy designId=${designId}`, error?.message || error);
+      return fetchDesignImageAsBase64(design);
+    }
+  }
+  return fetchImageAsBase64(imageUrl);
 }
 
 async function fetchImageAsBase64(imageUrl) {
@@ -2142,6 +2176,56 @@ function buildActiveQueueItem(platform, design = null, queueIndex = 0) {
     filename: String(design?.filename || "").trim(),
     title: String(design?.title || "").trim(),
     queueIndex: Number.isInteger(queueIndex) ? queueIndex : 0,
+  };
+}
+
+async function fetchDesignImageAsBase64(design) {
+  const designId = String(design?.id || design?.design_id || "").trim();
+  if (!designId) {
+    const imageUrl = await resolveSignedImageUrl(design);
+    return fetchImageAsBase64(imageUrl);
+  }
+
+  const fetchTimer = debugTimerStart("image URL fetch duration", { source: "backend-proxy", designId });
+  const response = await self.PodPilotAuth.apiFetch(`/designs/${encodeURIComponent(designId)}/image`, {
+    headers: { Accept: "image/*" },
+  });
+  if (!response.ok) {
+    debugTimerEnd(fetchTimer, { ok: false, status: response.status });
+    const detail = await response.text().catch(() => "");
+    throw new Error(detail || `inject_image: backend image fetch failed: ${response.status} ${response.statusText}`);
+  }
+
+  const mimeType = response.headers.get("Content-Type") || design?.mime_type || "image/png";
+  const arrayBuffer = await response.arrayBuffer();
+  debugTimerEnd(fetchTimer, {
+    ok: true,
+    status: response.status,
+    mimeType,
+    bytes: arrayBuffer.byteLength,
+  });
+
+  const conversionTimer = debugTimerStart("image blob/file conversion duration", {
+    source: "backend-proxy-arrayBuffer-to-base64",
+    mimeType,
+    bytes: arrayBuffer.byteLength,
+  });
+  const uint8Array = new Uint8Array(arrayBuffer);
+
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < uint8Array.length; i += chunkSize) {
+    binary += String.fromCharCode(...uint8Array.subarray(i, i + chunkSize));
+  }
+  const base64 = btoa(binary);
+  debugTimerEnd(conversionTimer, { base64Length: base64.length });
+
+  return {
+    base64,
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    mimeType,
+    filename: design?.filename || "image.png",
+    blobSize: arrayBuffer.byteLength,
   };
 }
 
@@ -3018,18 +3102,24 @@ function primeTpImagePayload(design) {
 
 async function prepareTpImagePayload(design) {
   const designId = getTpDesignPayloadKey(design);
+  let imageUrl = String(design?.cdn_image_url || design?.upload_url || design?.image_url || "").trim();
+  let preparedDesign = design;
   const urlTimer = debugTimerStart("signed image URL fetched", {
     marketplace: "teepublic",
     designId,
+    source: design?.cdn_image_url ? "cdn" : "backend",
   });
-  const imageUrl = await resolveSignedImageUrl(design);
+  if (!imageUrl) {
+    imageUrl = await resolveSignedImageUrl(design);
+    preparedDesign = { ...design, image_url: imageUrl };
+  }
   debugTimerEnd(urlTimer, { ok: true });
 
   const payloadTimer = debugTimerStart("image blob/file ready", {
     marketplace: "teepublic",
     designId,
   });
-  const imagePayload = await fetchImageAsBase64(imageUrl);
+  const imagePayload = await fetchPreferredDesignImageAsBase64(preparedDesign);
   debugTimerEnd(payloadTimer, {
     ok: true,
     mimeType: imagePayload.mimeType,
@@ -3068,7 +3158,8 @@ async function setTpPrefetchMetadata(partialState = {}) {
 
 async function prefetchTeePublicImage(message = {}) {
   const designId = String(message.designId || message.design_id || "").trim();
-  const imageUrl = String(message.imageUrl || message.image_url || "").trim();
+  const cdnImageUrl = String(message.cdn_image_url || message.cdnImageUrl || "").trim();
+  const imageUrl = String(cdnImageUrl || message.imageUrl || message.image_url || "").trim();
   const filename = String(message.filename || "design.png").trim() || "design.png";
 
   if (!designId) return { ok: false, error: "Missing TeePublic design id." };
@@ -3102,7 +3193,9 @@ async function prefetchTeePublicImage(message = {}) {
 
   const promise = (async () => {
     debugLog(`[TP Prefetch] fetching image design_id=${designId}`);
-    const payload = await fetchImageAsBase64(imageUrl);
+    const payload = cdnImageUrl
+      ? await fetchPreferredDesignImageAsBase64({ id: designId, cdn_image_url: cdnImageUrl, image_url: message.imageUrl || message.image_url || "", filename })
+      : await fetchImageAsBase64(imageUrl);
     const cachedPayload = normalizeTpPrefetchPayload(designId, payload, filename);
     teePublicPrefetchCache.set(designId, cachedPayload);
     debugLog(`[TP Prefetch] ready design_id=${designId} blobSize=${cachedPayload.blobSize || 0}`);
@@ -3215,9 +3308,8 @@ async function prefetchNextTpDesign(nextIndex) {
 
   const promise = (async () => {
     try {
-      const imageUrl = await resolveSignedImageUrl(nextDesign);
       debugLog(`[TP Prefetch] fetching image design_id=${nextDesignId}`);
-      const payload = await fetchImageAsBase64(imageUrl);
+      const payload = await fetchPreferredDesignImageAsBase64(nextDesign);
       const readyPayload = normalizeTpPrefetchPayload(
         nextDesignId,
         payload,
@@ -3338,7 +3430,7 @@ async function startTeePublicQueue(designs) {
   const session = await createPreparedUploadSessionForQueue("teepublic", designs);
   const queue = session.designs.map((design, index) => normalizeTpQueueDesign(design, index));
 
-  const invalid = queue.find((d) => !d.image_url && !d.image_r2_key);
+  const invalid = queue.find((d) => !d.cdn_image_url && !d.image_url && !d.image_r2_key);
   if (invalid) {
     throw new Error(`Design ${invalid.filename || invalid.id} needs an image URL.`);
   }
@@ -3379,6 +3471,7 @@ async function startTeePublicQueue(designs) {
 }
 
 function normalizeTpQueueDesign(design, index) {
+  const cdnImageUrl = String(design.cdn_image_url || "").trim();
   const imageUrl = String(design.upload_url || design.image_url || "").trim();
   const imageKey = String(design.image_key || design.image_r2_key || "").trim();
   return {
@@ -3386,9 +3479,10 @@ function normalizeTpQueueDesign(design, index) {
     id: design.id || design.design_id || `tp-${index}-${Date.now()}`,
     design_id: String(design.id || design.design_id || `tp-${index}-${Date.now()}`),
     filename: String(design.filename || "").trim(),
+    cdn_image_url: cdnImageUrl,
     image_url: imageUrl,
     upload_url: imageUrl,
-    preview_url: String(design.thumbnail_url || imageUrl || "").trim(),
+    preview_url: String(cdnImageUrl || design.thumbnail_url || imageUrl || "").trim(),
     thumbnail_url: String(design.thumbnail_url || "").trim(),
     image_r2_key: imageKey,
     image_key: imageKey,

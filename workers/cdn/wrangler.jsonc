@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "podpilot-design-image-cdn",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-12",
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "cdn.podpilot.space/*",
+      "zone_name": "podpilot.space"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DESIGN_IMAGES",
+      "bucket_name": "podpilot-files"
+    }
+  ]
+}

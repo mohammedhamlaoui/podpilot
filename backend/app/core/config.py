@@ -46,6 +46,12 @@ R2_ENDPOINT = _optional(
 )
 R2_SIGNED_URL_TTL_SECONDS = int(_optional("R2_SIGNED_URL_TTL_SECONDS", "3600"))
 
+# Private CDN for design image delivery. The bucket remains private; the
+# Cloudflare Worker validates signed URLs before reading from R2.
+CDN_BASE_URL = _optional("CDN_BASE_URL", "https://cdn.podpilot.space").rstrip("/")
+CDN_SIGNING_SECRET = _optional("CDN_SIGNING_SECRET", "")
+CDN_URL_TTL_SECONDS = int(_optional("CDN_URL_TTL_SECONDS", "1800"))
+
 # Rate limiting. Redis is not a current runtime dependency, so the backend
 # defaults to a local in-memory limiter. Set REDIS_URL/RATE_LIMIT_BACKEND when
 # a shared limiter is added behind app.services.rate_limiter.

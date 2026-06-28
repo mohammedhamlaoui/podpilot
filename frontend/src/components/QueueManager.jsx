@@ -35,6 +35,7 @@ function normalizeDesignForExtension(design, image) {
   return {
     id: design.id,
     filename: design.filename,
+    cdn_image_url: design.cdn_image_url || image?.cdnImageUrl || "",
     image_url: image?.imageUrl || design.image_url || "",
     image_r2_key: design.image_r2_key || "",
     image_path: design.image_r2_key || "",
@@ -148,7 +149,7 @@ export default function QueueManager({ designs, uploadedImages, onRefresh }) {
       return;
     }
 
-    const missingImages = uploadable.filter((d) => !d.image_r2_key && !d.image_url).map((d) => d.filename);
+    const missingImages = uploadable.filter((d) => !d.image_r2_key && !d.cdn_image_url && !d.image_url).map((d) => d.filename);
     if (missingImages.length > 0) {
       setError(
         `Attach images first. Missing for: ${missingImages.slice(0, 5).join(", ")}` +

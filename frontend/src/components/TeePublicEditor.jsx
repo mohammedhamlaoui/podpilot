@@ -251,7 +251,7 @@ export default function TeePublicEditor({
       revokeLocalDraftPreview(activeD);
       onDesignsChange((current) => current.map((item) => (
         item.id === activeD.id
-          ? { ...item, imageFile: null, imagePreviewUrl: "", file: null, previewUrl: "", image_url: "", thumbnail_url: "" }
+          ? { ...item, imageFile: null, imagePreviewUrl: "", file: null, previewUrl: "", cdn_image_url: "", image_url: "", thumbnail_url: "" }
           : item
       )));
       setReplacementPreviewUrl("");
@@ -398,9 +398,10 @@ export default function TeePublicEditor({
     if (isPreviewCleared) return null;
     if (!design) return null;
     if (isLocalId(design.id)) {
-      return getLocalDraftPreviewUrl(design) || design.thumbnail_url || design.image_url || null;
+      return getLocalDraftPreviewUrl(design) || design.cdn_image_url || design.thumbnail_url || design.image_url || null;
     }
     if (replacementPreviewUrl) return replacementPreviewUrl;
+    if (design.cdn_image_url) return design.cdn_image_url;
     if (design.thumbnail_url) return design.thumbnail_url;
     if (design.image_url) return design.image_url;
     const match = (uploadedImages || []).find((img) => {
@@ -1373,6 +1374,7 @@ export default function TeePublicEditor({
       item.thumbnail_r2_key ||
       item.excel_r2_key ||
       item.ai_preview_r2_key ||
+      item.cdn_image_url ||
       item.image_url ||
       item.thumbnail_url ||
       item.status === "uploaded"

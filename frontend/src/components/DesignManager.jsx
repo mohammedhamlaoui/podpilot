@@ -776,6 +776,7 @@ export default function DesignManager({
       design.thumbnail_r2_key ||
       design.excel_r2_key ||
       design.ai_preview_r2_key ||
+      design.cdn_image_url ||
       design.image_url ||
       design.thumbnail_url ||
       design.status === "uploaded"
@@ -1944,12 +1945,12 @@ export default function DesignManager({
   const editingImage = useMemo(() => {
     if (isPreviewCleared) return null;
     if (editingDesign && isLocalId(editingDesign.id)) {
-      const previewUrl = getLocalDraftPreviewUrl(editingDesign) || editingDesign.thumbnail_url || editingDesign.image_url;
+      const previewUrl = getLocalDraftPreviewUrl(editingDesign) || editingDesign.cdn_image_url || editingDesign.thumbnail_url || editingDesign.image_url;
       return previewUrl ? { previewUrl } : null;
     }
     if (replacementPreviewUrl) return { previewUrl: replacementPreviewUrl };
-    if (editingDesign?.thumbnail_url || editingDesign?.image_url) {
-      return { previewUrl: editingDesign.image_url || editingDesign.thumbnail_url };
+    if (editingDesign?.cdn_image_url || editingDesign?.thumbnail_url || editingDesign?.image_url) {
+      return { previewUrl: editingDesign.cdn_image_url || editingDesign.image_url || editingDesign.thumbnail_url };
     }
     return editingDesign ? findImageForDesign(editingDesign, uploadedImages) : null;
   }, [editingDesign, uploadedImages, replacementPreviewUrl, isPreviewCleared]);
@@ -3164,8 +3165,8 @@ export default function DesignManager({
             {visibleDesigns.map((design) => {
               const matchedImage = findImageForDesign(design, uploadedImages);
               const tags = tagList(design);
-              const thumbnailSrc = design.thumbnail_url || matchedImage?.thumbnailUrl || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || "";
-              const previewSrc = design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || thumbnailSrc;
+              const thumbnailSrc = design.cdn_image_url || design.thumbnail_url || matchedImage?.thumbnailUrl || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || "";
+              const previewSrc = design.cdn_image_url || design.image_url || matchedImage?.imageUrl || matchedImage?.previewUrl || thumbnailSrc;
               const previewR2Key = design.image_r2_key || matchedImage?.imagePath || matchedImage?.image_r2_key || "";
 
               return (
