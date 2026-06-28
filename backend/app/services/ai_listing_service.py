@@ -370,5 +370,6 @@ async def generate_listing_content(
         "title": result["title"],
         "description": result["description"],
         "main_tag": result["main_tag"],
+        "primary_tag": result.get("primary_tag") or result["main_tag"],
         "supporting_tags": result["supporting_tags"],
     }

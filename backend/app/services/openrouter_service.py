@@ -30,13 +30,13 @@ LISTING_JSON_SCHEMA = {
         "properties": {
             "title": {"type": "string"},
             "description": {"type": "string"},
-            "main_tag": {"type": "string"},
+            "primary_tag": {"type": "string"},
             "supporting_tags": {
                 "type": "array",
                 "items": {"type": "string"},
             },
         },
-        "required": ["title", "description", "main_tag", "supporting_tags"],
+        "required": ["title", "description", "primary_tag", "supporting_tags"],
         "additionalProperties": False,
     },
 }
@@ -102,8 +102,12 @@ Return ONLY valid JSON with this exact shape:
 
 Rules:
 - The title should be specific and sellable.
-- The description should be one natural sentence.
-- Tags should match visible content.
+- The description should be 3 to 4 short sentences or lines if possible.
+- Describe the visible subject, style, colors, mood, and likely buyer or use case only when supported by the image.
+- The primary tag must be 1 to 2 words maximum. Do not use a long hyphenated phrase.
+- Good primary tag examples: kitchen decor, tea lover, floral mug, coffee art.
+- Supporting tags should be 8 to 12 useful marketplace search tags, minimum 7.
+- Supporting tags must match visible content, with no empty tags or duplicates.
 - If the image has readable text, use the exact text when helpful.
 - Do not mention Redbubble or TeePublic.
 """.strip()
@@ -146,6 +150,17 @@ def _safe_trim(text: str, max_len: int) -> str:
     return truncated
 
 
+def _shorten_primary_tag(tag: str) -> str:
+    """Keep a model-provided primary tag to a gentle 1-2 word marketplace phrase."""
+    cleaned = re.sub(r"[_\-]+", " ", tag.lower()).strip()
+    for delimiter in [",", ";", "/", "\\", "|"]:
+        if delimiter in cleaned:
+            parts = [part.strip() for part in cleaned.split(delimiter) if part.strip()]
+            cleaned = parts[0] if parts else ""
+    words = re.findall(r"[a-z0-9]+", cleaned)
+    return " ".join(words[:2])
+
+
 def _is_forbidden_tag(tag: str) -> bool:
     """Only reject empty tags so normal AI listings are not over-blocked."""
     return not tag.lower().strip()
@@ -184,7 +199,7 @@ def _fallback_listing(metadata: dict[str, str]) -> dict[str, Any]:
 def _clean_and_normalize_metadata(
     data: dict[str, Any], platform: str, *, metadata: Optional[dict[str, str]] = None, require_tags_array: bool = False
 ) -> dict[str, Any]:
-    """Normalize and validate all fields, raising OpenRouterListingError on failure."""
+    """Normalize model output gently while preserving safe user-facing metadata."""
     metadata = metadata or {}
     title = _stringify(data.get("title"))
     description = _stringify(data.get("description"))
@@ -203,17 +218,13 @@ def _clean_and_normalize_metadata(
     else:
         raw_tags = []
 
-    # 1. Clean main tag: must be one short tag only.
-    main_tag_cleaned = main_tag.lower().strip()
-    for delimiter in [",", ";", "/", "\\"]:
-        if delimiter in main_tag_cleaned:
-            parts = [p.strip() for p in main_tag_cleaned.split(delimiter) if p.strip()]
-            main_tag_cleaned = parts[0] if parts else ""
+    # 1. Clean main tag: keep the best short 1-2 word phrase the model provided.
+    main_tag_cleaned = _shorten_primary_tag(main_tag)
             
     if _is_forbidden_tag(main_tag_cleaned):
         salvaged = False
         for tag in raw_tags:
-            candidate = tag.lower().strip()
+            candidate = _shorten_primary_tag(tag)
             if not _is_forbidden_tag(candidate):
                 main_tag_cleaned = candidate
                 salvaged = True
@@ -228,7 +239,7 @@ def _clean_and_normalize_metadata(
     
     cleaned_tags = []
     for tag in raw_tags:
-        cleaned_tag = tag.lower().strip()
+        cleaned_tag = re.sub(r"\s+", " ", str(tag).replace("#", "").lower()).strip(" ,;")
         if _is_forbidden_tag(cleaned_tag):
             continue
         if cleaned_tag in seen:
@@ -247,12 +258,7 @@ def _clean_and_normalize_metadata(
         cleaned_tags = fallback_words[:8] or [main_tag_cleaned]
 
     title_trimmed = _safe_trim(title, 60)
-    description_trimmed = _safe_trim(description, 160)
-
-    if is_teepublic:
-        sentences = [s.strip() for s in description_trimmed.split(".") if s.strip()]
-        if sentences:
-            description_trimmed = sentences[0] + "."
+    description_trimmed = _safe_trim(description, 420)
 
     if not title_trimmed or not description_trimmed:
         raise OpenRouterListingError("Title or description is missing or invalid.")
@@ -261,6 +267,7 @@ def _clean_and_normalize_metadata(
         "title": title_trimmed,
         "description": description_trimmed,
         "main_tag": main_tag_cleaned,
+        "primary_tag": main_tag_cleaned,
         "tags": cleaned_tags,
         "supporting_tags": ", ".join(cleaned_tags),
     }
