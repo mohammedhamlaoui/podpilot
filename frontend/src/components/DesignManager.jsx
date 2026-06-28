@@ -5,6 +5,7 @@ import { batchDeleteDesigns, batchUpdateDesigns, checkCopyrightRisk, checkTradem
 import { createImagePreviewDataUrl } from "../utils/imagePreview";
 import { clearCachedDesignImages } from "../utils/imageCache";
 import { deleteDesignBatch } from "../utils/designDeleteBatch";
+import { validateAiListingQuality } from "../utils/aiListingQuality";
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import CachedThumbnail from "./CachedThumbnail";
 import DeleteProgressModal from "./DeleteProgressModal";
@@ -1282,7 +1283,7 @@ export default function DesignManager({
     });
   }
 
-  function normalizeAiListingResult(result) {
+  function normalizeAiListingResult(result, currentMetadata = {}) {
     if (!result) return null;
     const title = result.title || result.design_title || "";
     const description = result.description || "";
@@ -1317,12 +1318,14 @@ export default function DesignManager({
       }
     }
     
-    return {
+    const normalized = {
       title,
       description,
       main_tag,
       supporting_tags: uniqueTags.join(", "),
     };
+    validateAiListingQuality(normalized, currentMetadata);
+    return normalized;
   }
 
   function logAiListingRequest({ designIndex, designId, filename, hasLocalFile, imageSource }) {
@@ -1366,7 +1369,12 @@ export default function DesignManager({
         return;
       }
 
-      const normalized = normalizeAiListingResult(result);
+      const normalized = normalizeAiListingResult(result, {
+        title: activeCreateDraft.title,
+        description: activeCreateDraft.description,
+        primary_tag: tags[0] || "",
+        supporting_tags: tags.slice(1).join(", "),
+      });
       if (normalized) {
         updateCreateDraft("title", normalized.title || activeCreateDraft.title);
         updateCreateDraft("description", normalized.description || activeCreateDraft.description);
@@ -1426,7 +1434,7 @@ export default function DesignManager({
         return;
       }
 
-      const normalized = normalizeAiListingResult(result);
+      const normalized = normalizeAiListingResult(result, currentMetadata);
       if (normalized) {
         setForm((current) => ({
           ...current,
@@ -1528,13 +1536,20 @@ export default function DesignManager({
         supporting_tags: tags.slice(1).join(", "),
       }, requestFile);
       
+      const normalized = normalizeAiListingResult(result, {
+        title: draft.title,
+        description: draft.description,
+        primary_tag: tags[0] || "",
+        supporting_tags: tags.slice(1).join(", "),
+      });
+
       setCreateDrafts((currentDrafts) => ({
         ...currentDrafts,
         [image.id]: {
           ...draft,
-          title: result.title || draft.title,
-          description: result.description || draft.description,
-          tags: [result.main_tag, result.supporting_tags].filter(Boolean).join(", "),
+          title: normalized.title || draft.title,
+          description: normalized.description || draft.description,
+          tags: [normalized.main_tag, normalized.supporting_tags].filter(Boolean).join(", "),
         }
       }));
       
@@ -1610,13 +1625,20 @@ export default function DesignManager({
           break;
         }
 
+        const normalized = normalizeAiListingResult(result, {
+          title: draft.title,
+          description: draft.description,
+          primary_tag: tags[0] || "",
+          supporting_tags: tags.slice(1).join(", "),
+        });
+
         setCreateDrafts((currentDrafts) => ({
           ...currentDrafts,
           [image.id]: {
             ...draft,
-            title: result.title || draft.title,
-            description: result.description || draft.description,
-            tags: [result.main_tag, result.supporting_tags].filter(Boolean).join(", "),
+            title: normalized.title || draft.title,
+            description: normalized.description || draft.description,
+            tags: [normalized.main_tag, normalized.supporting_tags].filter(Boolean).join(", "),
           }
         }));
         setBatchItems(current => current.map(item => item.id === image.id ? { ...item, status: 'success' } : item));

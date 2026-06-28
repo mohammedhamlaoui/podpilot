@@ -316,6 +316,7 @@ async def generate_listing_content(
     platform: str,
     current_metadata: Optional[dict[str, Any]] = None,
     image_url: str = "",
+    fallback_image_url: str = "",
     image_bytes: Optional[bytes] = None,
     image_mime_type: str = "",
 ) -> dict[str, str]:
@@ -327,13 +328,8 @@ async def generate_listing_content(
     logger = logging.getLogger("podpilot.ai")
     design_id = short_id(design.get("id"))
 
-    logger.info(
-        "ai_generate_started design_id=%s platform=%s configured_provider=%s has_image=%s",
-        design_id,
-        platform,
-        AI_LISTING_PROVIDER,
-        bool(image_url or image_bytes),
-    )
+    logger.info("[PodPilot][AI Listing] start designId=%s", design_id)
+    logger.info("[PodPilot][AI Listing] provider=edge")
 
     if AI_LISTING_PROVIDER != "openrouter":
         raise AIListingError("AI Listing is configured to use OpenRouter/Edge only.")
@@ -347,28 +343,27 @@ async def generate_listing_content(
             platform=platform,
             current_metadata=current_metadata,
             image_url=image_url,
+            fallback_image_url=fallback_image_url,
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             model=OPENROUTER_MODEL,
-            timeout_seconds=60.0,
+            timeout_seconds=75.0,
             structured_output=False,
             require_tags_array=False,
-            provider_label="openrouter",
+            provider_label="edge",
         )
     except Exception as error:
         logger.warning(
-            "ai_generate_failed design_id=%s ai_listing_provider=openrouter ai_listing_model=%s duration_ms=%d error_type=%s",
+            "[PodPilot][AI Listing] failed designId=%s reason=%s duration_ms=%d",
             design_id,
-            OPENROUTER_MODEL,
+            str(error)[:240],
             int((time.perf_counter() - started_at) * 1000),
-            safe_error_type(error),
         )
         raise AIListingError(f"AI listing generation failed. Error: {error}") from error
 
     logger.info(
-        "ai_generate_succeeded design_id=%s ai_listing_provider=openrouter ai_listing_model=%s duration_ms=%d",
+        "[PodPilot][AI Listing] success designId=%s duration_ms=%d",
         design_id,
-        OPENROUTER_MODEL,
         int((time.perf_counter() - started_at) * 1000),
     )
     return {

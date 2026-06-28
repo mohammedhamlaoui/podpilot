@@ -4,6 +4,7 @@ import { useDropzone } from "react-dropzone";
 import { batchDeleteDesigns, checkCopyrightRisk, checkTrademarkForDesign, createDesign, generateDraftListingContent, updateDesign, uploadStandaloneImages, logFailingRequest } from "../api/client";
 import { createImagePreviewDataUrl } from "../utils/imagePreview";
 import { deleteDesignBatch } from "../utils/designDeleteBatch";
+import { validateAiListingQuality } from "../utils/aiListingQuality";
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import CachedThumbnail from "./CachedThumbnail";
 import DeleteProgressModal from "./DeleteProgressModal";
@@ -1139,6 +1140,7 @@ export default function DesignManager({
 
   function applyCreateAiListingResult(result) {
     if (!result || !activeCreateImage) return;
+    validateAiListingQuality(result, activeCreateDraft);
     updateCreateDraft("title", result.title || activeCreateDraft.title);
     updateCreateDraft("description", result.description || activeCreateDraft.description);
     updateCreateDraft("tags", [result.main_tag, result.supporting_tags].filter(Boolean).join(", "));
@@ -1181,6 +1183,7 @@ export default function DesignManager({
         supporting_tags: tags.slice(1).join(", "),
       }, requestFile);
       
+      validateAiListingQuality(result, draft);
       setCreateDrafts((currentDrafts) => ({
         ...currentDrafts,
         [image.id]: {
@@ -1263,6 +1266,7 @@ export default function DesignManager({
           break;
         }
 
+        validateAiListingQuality(result, draft);
         setCreateDrafts((currentDrafts) => ({
           ...currentDrafts,
           [image.id]: {

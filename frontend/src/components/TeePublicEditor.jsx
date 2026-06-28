@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { batchUpdateDesigns, checkCopyrightRisk, checkTrademarkForDesign, createDesign, generateDraftListingContent, generateListingContent, listDesigns, updateDesign, uploadDesignImage, uploadStandaloneImages, logFailingRequest } from "../api/client";
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import { clearCachedDesignImages } from "../utils/imageCache";
+import { validateAiListingQuality } from "../utils/aiListingQuality";
 import CachedThumbnail from "./CachedThumbnail";
 import ColorDropdown from "./ColorDropdown";
 import CopyrightRiskModal from "./CopyrightRiskModal";
@@ -413,7 +414,7 @@ export default function TeePublicEditor({
   }, [design, uploadedImages, replacementPreviewUrl, isPreviewCleared]);
 
   // ── Copy/Paste ──────────────────────────────────────────────────────────
-  function normalizeAiListingResult(result) {
+  function normalizeAiListingResult(result, currentMetadata = {}) {
     if (!result) return null;
     const title = result.title || result.design_title || "";
     const description = result.description || "";
@@ -448,12 +449,14 @@ export default function TeePublicEditor({
       }
     }
     
-    return {
+    const normalized = {
       title,
       description,
       main_tag,
       supporting_tags: uniqueTags.join(", "),
     };
+    validateAiListingQuality(normalized, currentMetadata);
+    return normalized;
   }
 
   function logAiListingRequest({ designIndex, designId, filename, hasLocalFile, imageSource }) {
@@ -508,7 +511,7 @@ export default function TeePublicEditor({
         return;
       }
 
-      const normalized = normalizeAiListingResult(result);
+      const normalized = normalizeAiListingResult(result, currentMetadata);
       if (normalized) {
         markDirty();
         setForm((current) => ({
@@ -565,12 +568,13 @@ export default function TeePublicEditor({
         
     try {
       const result = await requestAiListingForDesign(item, currentMetadata, designs.findIndex((designItem) => designItem.id === item.id), isActiveDesign ? pendingReplacementFile : null);
+      const normalized = normalizeAiListingResult(result, currentMetadata);
       const patch = {
-        title: result.title || currentMetadata.title,
-        description: result.description || currentMetadata.description,
-        primary_tag: result.main_tag || currentMetadata.primary_tag,
-        main_tag: result.main_tag || currentMetadata.primary_tag,
-        supporting_tags: result.supporting_tags || currentMetadata.supporting_tags,
+        title: normalized.title || currentMetadata.title,
+        description: normalized.description || currentMetadata.description,
+        primary_tag: normalized.main_tag || currentMetadata.primary_tag,
+        main_tag: normalized.main_tag || currentMetadata.primary_tag,
+        supporting_tags: normalized.supporting_tags || currentMetadata.supporting_tags,
       };
 
       const nextDesigns = designs.map((designItem) => (designItem.id === item.id ? { ...designItem, ...patch } : designItem));
@@ -660,12 +664,13 @@ export default function TeePublicEditor({
         if (stopGeneratingAllRef.current) {
           break;
         }
+        const normalized = normalizeAiListingResult(result, currentMetadata);
         const patch = {
-          title: result.title || currentMetadata.title,
-          description: result.description || currentMetadata.description,
-          primary_tag: result.main_tag || currentMetadata.primary_tag,
-          main_tag: result.main_tag || currentMetadata.primary_tag,
-          supporting_tags: result.supporting_tags || currentMetadata.supporting_tags,
+          title: normalized.title || currentMetadata.title,
+          description: normalized.description || currentMetadata.description,
+          primary_tag: normalized.main_tag || currentMetadata.primary_tag,
+          main_tag: normalized.main_tag || currentMetadata.primary_tag,
+          supporting_tags: normalized.supporting_tags || currentMetadata.supporting_tags,
         };
 
         nextDesigns = nextDesigns.map((designItem) => (designItem.id === item.id ? { ...designItem, ...patch } : designItem));

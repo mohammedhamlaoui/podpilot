@@ -1612,14 +1612,20 @@ async def generate_ai_listing_content(
         import time
         from app.services.image_preview_service import ensure_ai_preview_for_design
 
-        # Lazily ensure/get preview
+        logger.info("[PodPilot][AI Listing] start designId=%s", short_id(payload.design_id))
+
+        cdn_image_url = cdn_service.sign_design_image_url(design) or ""
+
+        # Lazily ensure/get preview/proxy fallback
         start_preview = time.perf_counter()
-        image_url, image_source, generated = await ensure_ai_preview_for_design(user.id, design)
+        fallback_image_url, fallback_image_source, generated = await ensure_ai_preview_for_design(user.id, design)
+        image_url = cdn_image_url or fallback_image_url
+        image_source = "cdn" if cdn_image_url else fallback_image_source
         preview_gen_ms = int((time.perf_counter() - start_preview) * 1000) if generated else 0
 
         # Log timing of preview generation safely
         logger.info(f"[AI TIMING] preview_generation_ms={preview_gen_ms}")
-        logger.info(f"[AI TIMING] image_source={image_source}")
+        logger.info("[PodPilot][AI Listing] image source=%s", image_source or "none")
 
         reservation = _reserve_ai_token(user.id)
         try:
@@ -1628,23 +1634,20 @@ async def generate_ai_listing_content(
                 platform=platform,
                 current_metadata=payload.current_metadata,
                 image_url=image_url,
+                fallback_image_url=fallback_image_url if cdn_image_url else "",
             )
         except AIListingError as error:
             _refund_ai_token(user.id, reservation, reason="listing_content_failed")
             logger.warning(
-                "ai_listing_request_failed user=%s design_id=%s platform=%s error_type=%s",
-                short_user_id(user.id),
+                "[PodPilot][AI Listing] failed designId=%s reason=%s",
                 short_id(payload.design_id),
-                platform,
-                safe_error_type(error),
+                str(error)[:240],
             )
             raise HTTPException(status_code=503, detail=str(error)) from error
 
         logger.info(
-            "ai_listing_request_succeeded user=%s design_id=%s platform=%s image_source=%s token_source=%s",
-            short_user_id(user.id),
+            "[PodPilot][AI Listing] success designId=%s image_source=%s token_source=%s",
             short_id(payload.design_id),
-            platform,
             image_source,
             reservation.get("token_source"),
         )

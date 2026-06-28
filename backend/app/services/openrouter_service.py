@@ -21,6 +21,17 @@ MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024
 AI_IMAGE_MAX_SIDE = 768
 AI_IMAGE_JPEG_QUALITY = 80
 REJECTION_PHRASES = [
+    "print-on-demand design featuring",
+    "print on demand design featuring",
+    "this design features",
+    "a design with",
+    "graphic design",
+    "uploaded artwork",
+    "seller artwork",
+    "clean design",
+    "unique design",
+    "beautiful design",
+    "perfect for everyone",
     "abstract geometric",
     "geometric shapes",
     "seedling",
@@ -29,6 +40,20 @@ REJECTION_PHRASES = [
     "vase",
     "minimalist line art",
 ]
+HARD_REJECTION_PHRASES = {
+    "print-on-demand design featuring",
+    "print on demand design featuring",
+    "this design features",
+    "a design with",
+    "graphic design",
+    "artwork",
+    "uploaded artwork",
+    "seller artwork",
+    "clean design",
+    "unique design",
+    "beautiful design",
+    "perfect for everyone",
+}
 
 
 LISTING_JSON_SCHEMA = {
@@ -91,12 +116,16 @@ def _build_prompt(
     return f"""
 You are analyzing a print-on-demand design image and writing listing metadata.
 
-Look carefully at the actual visible image.
-Describe ONLY what is clearly visible.
+Look carefully at this exact image.
+Describe only what is visible in this exact image.
 Do not invent themes, objects, styles, or meanings.
+Do not use generic POD marketplace phrases.
+Do not mention print-on-demand, design, artwork, graphic, or illustration unless necessary to describe visible text.
 Do not use generic filler such as abstract geometric, minimalist, seedling, growth, modern line art, or vase unless those exact elements are clearly visible.
 If the design contains ghosts, skulls, potion bottles, witches, Halloween, cute spooky elements, animals, food, quotes, or characters, mention the visible subject accurately.
+If the image has text, include the exact text if readable.
 If unsure, choose a broad but safe description based on visible objects only.
+Create marketplace metadata that a human seller would actually use.
 
 Platform: {platform}
 {image_line}
@@ -121,16 +150,20 @@ Rules:
 - Avoid spammy repetition.
 - Avoid copyrighted character names, brand names, celebrity names, or trademarked terms.
 - Do not mention Redbubble or TeePublic in the listing fields.
+- Do not say "print-on-demand design featuring", "this design features", "a design with", "graphic design", or "artwork".
+- Do not mention print-on-demand, design, artwork, graphic, or illustration unless necessary.
 - Do not say "geometric", "abstract", "seedling", "vase", "growth", or "minimalist" unless clearly visible.
 - Use simple POD seller-friendly wording.
 - Prefer concrete visible nouns over vague aesthetics.
+- Description must be one natural sentence specific to the visible subject.
+- Primary keyword must be specific, not generic.
 
 Example:
 If the image shows a cute potion bottle with ghosts and skulls, a good output is:
 {{
   "title": "Cute Ghost Potion Bottle",
-  "description": "A cute spooky potion bottle design filled with ghosts, skulls, stars, and pastel Halloween magic.",
-  "tags": "spooky potion bottle, cute ghost, halloween potion, ghost bottle, skulls, witchy design, pastel spooky, kawaii halloween, magic bottle, cute spooky",
+  "description": "A cute spooky potion bottle filled with ghosts, skulls, stars, and pastel Halloween magic.",
+  "tags": "spooky potion bottle, cute ghost, halloween potion, ghost bottle, skulls, witchy bottle, pastel spooky, kawaii halloween, magic bottle, cute spooky",
   "main_keyword": "spooky potion bottle"
 }}
 """.strip()
@@ -194,11 +227,30 @@ def _contains_rejected_generic_terms(
     ).lower()
     context_text = " ".join(metadata.values()).lower()
     for phrase in REJECTION_PHRASES:
+        if phrase in HARD_REJECTION_PHRASES and phrase in response_text:
+            return phrase
         phrase_words = [word for word in phrase.split() if len(word) > 2]
         supported_by_context = phrase in context_text or all(word in context_text for word in phrase_words)
         if phrase in response_text and not supported_by_context:
             return phrase
     return None
+
+
+GENERIC_WORDS = {
+    "a", "an", "and", "are", "art", "artwork", "beautiful", "black", "clean", "cool",
+    "design", "featuring", "for", "graphic", "image", "illustration", "in", "of", "on",
+    "perfect", "print", "printable", "the", "this", "to", "unique", "white", "with",
+}
+
+
+def _meaningful_words(text: str) -> set[str]:
+    words = re.findall(r"[a-zA-Z][a-zA-Z']{2,}", (text or "").lower())
+    return {word for word in words if word not in GENERIC_WORDS}
+
+
+def _is_same_text(left: str, right: str) -> bool:
+    normalize = lambda value: re.sub(r"\s+", " ", (value or "").strip().lower())
+    return bool(normalize(left)) and normalize(left) == normalize(right)
 
 
 def _clean_filename_words(filename: str) -> list[str]:
@@ -217,13 +269,11 @@ def _fallback_listing(metadata: dict[str, str]) -> dict[str, Any]:
         main_keyword = " ".join(words[: min(4, len(words))])
         tags = list(dict.fromkeys(words + [main_keyword]))
     else:
-        title = "Uploaded Artwork Design"
-        main_keyword = "uploaded artwork"
-        tags = ["uploaded artwork", "print on demand", "clean design", "seller artwork"]
+        raise OpenRouterListingError("AI listing could not identify visible content confidently.")
 
     return {
         "title": title,
-        "description": "A clean print-on-demand design based on the uploaded artwork.",
+        "description": f"{title} based on the uploaded filename; review the image before publishing.",
         "main_tag": main_keyword,
         "tags": tags[:12],
         "supporting_tags": ", ".join(tags[:12]),
@@ -309,6 +359,18 @@ def _clean_and_normalize_metadata(
 
     if not title_trimmed or not description_trimmed:
         raise OpenRouterListingError("Title or description is missing or invalid.")
+    if len(title_trimmed) < 8 or len(title_trimmed) > 70:
+        raise OpenRouterListingError("Title length is outside the accepted range.")
+    if len(description_trimmed) < 25 or len(description_trimmed) > 180:
+        raise OpenRouterListingError("Description length is outside the accepted range.")
+    if _is_same_text(title_trimmed, metadata.get("title", "")):
+        raise OpenRouterListingError("AI listing title copied the existing title.")
+    if _is_same_text(description_trimmed, metadata.get("description", "")):
+        raise OpenRouterListingError("AI listing description copied the existing description.")
+    if len(cleaned_tags) < 5:
+        raise OpenRouterListingError("Not enough specific supporting tags were returned.")
+    if not _meaningful_words(title_trimmed + " " + description_trimmed):
+        raise OpenRouterListingError("AI listing lacks a concrete visible noun.")
 
     return {
         "title": title_trimmed,
@@ -367,6 +429,7 @@ async def generate_listing_openrouter(
     platform: str,
     current_metadata: Optional[dict[str, Any]] = None,
     image_url: str = "",
+    fallback_image_url: str = "",
     image_bytes: Optional[bytes] = None,
     image_mime_type: str = "",
     model: str = "",
@@ -384,11 +447,27 @@ async def generate_listing_openrouter(
     image_payload_base64 = ""
     image_source_bytes: Optional[bytes] = None
 
+    image_source_label = "local" if image_bytes else ("cdn" if image_url and "cdn.podpilot.space" in image_url else ("proxy" if image_url else "none"))
+
     if image_bytes:
         if len(image_bytes) <= MAX_SOURCE_IMAGE_BYTES:
             image_source_bytes = image_bytes
     elif image_url:
         image_source_bytes = await _download_image(image_url, metadata.get("filename", ""))
+        if image_source_bytes is None and fallback_image_url:
+            logger.info(
+                "[PodPilot][AI Listing] image source fallback designId=%s from=%s to=proxy",
+                short_id(design.get("id")),
+                image_source_label,
+            )
+            image_source_label = "proxy"
+            image_source_bytes = await _download_image(fallback_image_url, metadata.get("filename", ""))
+
+    logger.info(
+        "[PodPilot][AI Listing] image source=%s designId=%s",
+        image_source_label,
+        short_id(design.get("id")),
+    )
 
     if image_source_bytes:
         try:
@@ -488,10 +567,7 @@ async def generate_listing_openrouter(
             if isinstance(first_error, OpenRouterListingError) and "AI provider authentication failed" in str(first_error):
                 raise first_error
             # Retry once
-            logger.warning(
-                "openrouter_retry error_type=%s",
-                safe_error_type(first_error),
-            )
+            logger.warning("[PodPilot][AI Listing] retry designId=%s reason=%s", short_id(design.get("id")), safe_error_type(first_error))
             
             retry_prompt_str = _build_prompt(
                 platform,
@@ -550,10 +626,19 @@ async def generate_listing_openrouter(
             )
     except Exception as final_error:
         logger.warning(
-            "openrouter_fallback_listing design_id=%s error_type=%s",
+            "[PodPilot][AI Listing] validation failed reason=%s designId=%s",
+            str(final_error)[:240],
             short_id(design.get("id")),
-            safe_error_type(final_error),
         )
-        normalized = _fallback_listing(metadata)
+        try:
+            normalized = _fallback_listing(metadata)
+            normalized = _clean_and_normalize_metadata(
+                normalized,
+                platform,
+                metadata=metadata,
+                require_tags_array=False,
+            )
+        except Exception as fallback_error:
+            raise OpenRouterListingError(str(fallback_error) or "AI listing failed validation.") from final_error
 
     return normalized

@@ -408,6 +408,8 @@ export async function generateListingContent(designId, platform, currentMetadata
     design_id: designId,
     platform,
     current_metadata: currentMetadata,
+  }, {
+    timeout: 90000,
   });
   return response.data;
 }
