@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDropzone } from "react-dropzone";
-import { batchDeleteDesigns, checkCopyrightRisk, checkTrademarkForDesign, createDesign, generateDraftListingContent, updateDesign, uploadStandaloneImages, logFailingRequest } from "../api/client";
+import { batchDeleteDesigns, checkCopyrightRisk, checkTrademarkForDesign, copyDesignsToMarketplace, createDesign, generateDraftListingContent, updateDesign, uploadStandaloneImages, logFailingRequest } from "../api/client";
 import { createImagePreviewDataUrl } from "../utils/imagePreview";
 import { deleteDesignBatch } from "../utils/designDeleteBatch";
 import { validateAiListingQuality } from "../utils/aiListingQuality";
@@ -259,7 +259,9 @@ export default function DesignManager({
   const [copiedStickerConfig, setCopiedStickerConfig] = useState(null);
   const [activeTab, setActiveTab] = useState("Info");
   const [confirmDelete, setConfirmDelete] = useState(null); // { type: 'one' | 'many', id?, count? }
+  const [confirmCopy, setConfirmCopy] = useState(null); // { count }
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCopyingSelected, setIsCopyingSelected] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState(null);
   const deleteCancelRequestedRef = useRef(false);
   const deleteAutoCloseTimerRef = useRef(null);
@@ -1044,6 +1046,33 @@ export default function DesignManager({
       cancelled: result.cancelled,
       completed: result.completed ?? ids.length,
     });
+  }
+
+  async function copySelectedToRedbubble() {
+    if (!requireUnlocked()) return;
+    if (selectedIds.length === 0 || isCopyingSelected) return;
+    const ids = [...selectedIds];
+    setIsCopyingSelected(true);
+    try {
+      const response = await copyDesignsToMarketplace(ids, "redbubble");
+      const copied = Number(response?.copied || 0);
+      const failed = Number(response?.failed || 0);
+      if (failed > 0) {
+        showToast(`Copied ${copied} designs. ${failed} failed.`, copied > 0 ? "warning" : "error");
+      } else {
+        showToast(`Copied ${copied} designs to Redbubble`);
+      }
+      setSelectedIds([]);
+      setConfirmCopy(null);
+      if (typeof onRefreshFromBackend === "function") {
+        onRefreshFromBackend();
+      }
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      showToast(typeof detail === "string" ? detail : error.message || "Could not copy selected designs.", "error");
+    } finally {
+      setIsCopyingSelected(false);
+    }
   }
 
   function toggleVisibleSelection() {
@@ -2418,6 +2447,18 @@ export default function DesignManager({
           />
         </label>
         <div className="manager-toolbar-actions">
+          {selectedIds.length > 0 && (
+            <LoadingButton
+              type="button"
+              className="copy-selected-button"
+              onClick={() => setConfirmCopy({ count: selectedIds.length })}
+              disabled={isCopyingSelected}
+              loading={isCopyingSelected}
+              loadingText="Copying..."
+            >
+              Copy to Redbubble
+            </LoadingButton>
+          )}
           <button
             type="button"
             className="danger-button"
@@ -2618,6 +2659,35 @@ export default function DesignManager({
           </button>
         </div>
       </div>
+      {confirmCopy && createPortal(
+        <div
+          className="pp-modal-overlay"
+          onClick={isCopyingSelected ? undefined : () => setConfirmCopy(null)}
+        >
+          <div className="pp-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <h3>Copy selected designs?</h3>
+            <p>
+              This will create new designs in Redbubble using the current image and listing data from the selected designs. The original designs will not be changed.
+            </p>
+            <div className="pp-modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setConfirmCopy(null)} disabled={isCopyingSelected}>
+                Cancel
+              </button>
+              <LoadingButton
+                type="button"
+                className="copy-selected-button"
+                onClick={copySelectedToRedbubble}
+                disabled={isCopyingSelected}
+                loading={isCopyingSelected}
+                loadingText="Copying..."
+              >
+                Copy designs
+              </LoadingButton>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {/* Delete confirmation modal */}
       {confirmDelete && createPortal(
         <div

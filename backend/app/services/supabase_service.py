@@ -385,6 +385,43 @@ def insert_designs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return inserted
 
 
+def get_r2_key_reference_counts(
+    keys: Iterable[str],
+    *,
+    exclude_design_ids: Optional[Iterable[str]] = None,
+) -> dict[str, int]:
+    """Count design rows that still reference each R2 key.
+
+    Used before deleting shared R2 objects. Copied cross-marketplace designs can
+    intentionally reuse the same image/thumbnail keys, so storage deletion must
+    be reference-aware instead of assuming one row owns one object.
+    """
+    key_set = {str(key or "").strip() for key in keys if str(key or "").strip()}
+    if not key_set:
+        return {}
+
+    exclude_ids = {str(design_id or "").strip() for design_id in (exclude_design_ids or []) if str(design_id or "").strip()}
+    cols = ["id", "image_r2_key", "thumbnail_r2_key", "excel_r2_key"]
+    if _probe_ai_preview_column():
+        cols.append("ai_preview_r2_key")
+
+    response = _admin.table(DESIGN_TABLE).select(",".join(cols)).execute()
+    counts = {key: 0 for key in key_set}
+    for row in list(response.data or []):
+        if str(row.get("id") or "") in exclude_ids:
+            continue
+        seen_in_row: set[str] = set()
+        for column in cols:
+            if column == "id":
+                continue
+            key = str(row.get(column) or "").strip()
+            if key in key_set:
+                seen_in_row.add(key)
+        for key in seen_in_row:
+            counts[key] += 1
+    return counts
+
+
 def list_designs_for_user(
     user_id: str,
     marketplace: Optional[str] = None,

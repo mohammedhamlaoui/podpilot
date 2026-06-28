@@ -354,6 +354,14 @@ export async function batchDeleteDesigns(designIds) {
   return response.data;
 }
 
+export async function copyDesignsToMarketplace(designIds, targetMarketplace) {
+  const response = await api.post("/designs/copy-to-marketplace", {
+    design_ids: Array.isArray(designIds) ? designIds : [],
+    target_marketplace: targetMarketplace,
+  });
+  return response.data;
+}
+
 export async function uploadDesignImage(designId, file, onUploadProgress = null) {
   const formData = new FormData();
   formData.append("file", file);

@@ -88,6 +88,11 @@ class DesignBatchDeleteIn(BaseModel):
     design_ids: list[str] = Field(default_factory=list)
 
 
+class DesignCopyToMarketplaceIn(BaseModel):
+    design_ids: list[str] = Field(default_factory=list)
+    target_marketplace: str = Field(pattern="^(redbubble|teepublic)$")
+
+
 class UploadSessionCreateIn(BaseModel):
     design_ids: list[str] = Field(default_factory=list)
 
@@ -509,6 +514,67 @@ def _design_to_upload_queue_item(row: dict[str, Any], marketplace: str) -> dict[
         "upload_ready": upload_ready,
         "status": "ready" if upload_ready else "preparing",
         "updated_at": row.get("updated_at"),
+    }
+
+
+def _collect_design_r2_keys(row: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for key_name in ("image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key"):
+        key = str(row.get(key_name) or "").strip()
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def _delete_unshared_design_r2_keys(
+    design: dict[str, Any],
+    *,
+    exclude_design_ids: list[str],
+    log_prefix: str,
+) -> dict[str, list[str]]:
+    deleted_r2_keys: list[str] = []
+    missing_r2_keys: list[str] = []
+    skipped_shared_r2_keys: list[str] = []
+    storage_warnings: list[str] = []
+    keys = _collect_design_r2_keys(design)
+    reference_counts = supabase_service.get_r2_key_reference_counts(
+        keys,
+        exclude_design_ids=exclude_design_ids,
+    )
+
+    for key in keys:
+        if reference_counts.get(key, 0) > 0:
+            skipped_shared_r2_keys.append(key)
+            logger.info(
+                "%s skipped shared R2 key %s remaining_refs=%d",
+                log_prefix,
+                _safe_r2_key_for_log(key),
+                reference_counts.get(key, 0),
+            )
+            continue
+        try:
+            existed = r2_service.delete_object(key)
+            if existed:
+                deleted_r2_keys.append(key)
+            else:
+                missing_r2_keys.append(key)
+                logger.info("%s storage missing but ignored key=%s", log_prefix, _safe_r2_key_for_log(key))
+        except r2_service.R2Error as err:
+            storage_warnings.append(_safe_error_type(err))
+            logger.warning(
+                "%s storage delete failed key=%s error_type=%s",
+                log_prefix,
+                _safe_r2_key_for_log(key),
+                _safe_error_type(err),
+            )
+
+    return {
+        "deleted_r2_keys": deleted_r2_keys,
+        "missing_r2_keys": missing_r2_keys,
+        "skipped_shared_r2_keys": skipped_shared_r2_keys,
+        "storage_warnings": storage_warnings,
     }
 
 
@@ -1081,6 +1147,133 @@ def batch_update_designs(
     return {"updated": updated_count, "designs": results}
 
 
+def _copy_design_row_for_marketplace(source: dict[str, Any], *, user_id: str, target_marketplace: str) -> dict[str, Any]:
+    primary_tag = str(source.get("primary_tag") or source.get("main_tag") or "").strip()
+    row: dict[str, Any] = {
+        "user_id": user_id,
+        "marketplace": target_marketplace,
+        "filename": str(source.get("filename") or "design.png").strip() or "design.png",
+        "title": str(source.get("title") or "").strip(),
+        "description": str(source.get("description") or "").strip(),
+        "primary_tag": primary_tag,
+        "supporting_tags": source.get("supporting_tags") or [],
+        "copy_link": "",
+        "image_r2_key": source.get("image_r2_key") or None,
+        "thumbnail_r2_key": source.get("thumbnail_r2_key") or None,
+        "adult_content": bool(source.get("adult_content")) if source.get("adult_content") is not None else None,
+        "status": "not_uploaded",
+        "uploaded_at": None,
+        "error_message": None,
+    }
+    if target_marketplace == "teepublic":
+        if isinstance(source.get("color_settings"), dict):
+            row["color_settings"] = source.get("color_settings")
+        if isinstance(source.get("product_settings"), dict):
+            row["product_settings"] = source.get("product_settings")
+    return row
+
+
+def _verify_copyable_image_references(source: dict[str, Any]) -> Optional[str]:
+    for column in ("image_r2_key", "thumbnail_r2_key"):
+        key = str(source.get(column) or "").strip()
+        if not key:
+            continue
+        try:
+            obj = r2_service.get_object_stream(key)
+            body = obj.get("body")
+            close = getattr(body, "close", None)
+            if callable(close):
+                close()
+        except r2_service.R2NotFound:
+            return f"{column} no longer exists in storage."
+        except r2_service.R2Error:
+            return f"Could not verify {column} in storage."
+    return None
+
+
+@router.post("/designs/copy-to-marketplace")
+def copy_designs_to_marketplace(
+    payload: DesignCopyToMarketplaceIn,
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    target_marketplace = _validate_marketplace(payload.target_marketplace)
+    _require_marketplace_access(user.id, target_marketplace)
+
+    design_ids: list[str] = []
+    seen = set()
+    for raw_id in payload.design_ids:
+        design_id = str(raw_id or "").strip()
+        if not design_id or design_id in seen:
+            continue
+        seen.add(design_id)
+        design_ids.append(design_id)
+    if not design_ids:
+        raise HTTPException(status_code=400, detail="Select at least one design to copy.")
+
+    created_rows: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+    for design_id in design_ids:
+        source = supabase_service.get_design_for_user(design_id, user.id)
+        if source is None:
+            results.append({"design_id": design_id, "success": False, "reason": "Design not found."})
+            continue
+        source_marketplace = _validate_marketplace(source.get("marketplace") or "redbubble")
+        try:
+            _require_marketplace_access(user.id, source_marketplace)
+        except HTTPException as error:
+            results.append({"design_id": design_id, "success": False, "reason": str(error.detail)})
+            continue
+        if source_marketplace == target_marketplace:
+            results.append({
+                "design_id": design_id,
+                "success": False,
+                "reason": "Target marketplace must be different from the source marketplace.",
+            })
+            continue
+        image_reference_error = _verify_copyable_image_references(source)
+        if image_reference_error:
+            results.append({"design_id": design_id, "success": False, "reason": image_reference_error})
+            continue
+
+        try:
+            inserted = supabase_service.insert_designs([
+                _copy_design_row_for_marketplace(
+                    source,
+                    user_id=user.id,
+                    target_marketplace=target_marketplace,
+                )
+            ])
+        except Exception as error:
+            logger.warning(
+                "design_copy_failed user=%s design_id=%s target=%s error_type=%s",
+                short_user_id(user.id),
+                short_id(design_id),
+                target_marketplace,
+                safe_error_type(error),
+            )
+            results.append({"design_id": design_id, "success": False, "reason": safe_error_type(error)})
+            continue
+
+        if not inserted:
+            results.append({"design_id": design_id, "success": False, "reason": "Could not create copied design."})
+            continue
+        created = inserted[0]
+        created_rows.append(created)
+        results.append({
+            "design_id": design_id,
+            "created_design_id": str(created.get("id") or ""),
+            "success": True,
+        })
+
+    return {
+        "target_marketplace": target_marketplace,
+        "copied": len(created_rows),
+        "failed": sum(1 for result in results if not result.get("success")),
+        "designs": [_design_with_file_urls(row) for row in created_rows],
+        "results": results,
+    }
+
+
 def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, Any]:
     delete_logger = logging.getLogger("podpilot.delete")
     result: dict[str, Any] = {
@@ -1103,29 +1296,15 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
         delete_logger.info("[Delete] failed design_id=%s reason=%s", short_id(design_id), result["reason"])
         return result
 
-    deleted_r2_keys: list[str] = []
-    missing_r2_keys: list[str] = []
-    storage_warnings: list[str] = []
-
-    for key_name in ("image_r2_key", "thumbnail_r2_key", "excel_r2_key", "ai_preview_r2_key"):
-        key = design.get(key_name)
-        if not key:
-            continue
-        try:
-            existed = r2_service.delete_object(key)
-            if existed:
-                deleted_r2_keys.append(key)
-            else:
-                missing_r2_keys.append(key)
-                delete_logger.info("[Delete] storage missing but ignored design_id=%s", short_id(design_id))
-        except r2_service.R2Error as err:
-            storage_warnings.append(_safe_error_type(err))
-            delete_logger.warning(
-                "[Delete] storage delete failed but db delete will continue design_id=%s key=%s error_type=%s",
-                short_id(design_id),
-                _safe_r2_key_for_log(key),
-                _safe_error_type(err),
-            )
+    storage_result = _delete_unshared_design_r2_keys(
+        design,
+        exclude_design_ids=[design_id],
+        log_prefix="[Delete]",
+    )
+    deleted_r2_keys = storage_result["deleted_r2_keys"]
+    missing_r2_keys = storage_result["missing_r2_keys"]
+    skipped_shared_r2_keys = storage_result["skipped_shared_r2_keys"]
+    storage_warnings = storage_result["storage_warnings"]
 
     deleted_logs = 0
     try:
@@ -1160,6 +1339,7 @@ def _delete_design_for_user_result(design_id: str, user: AuthUser) -> dict[str, 
         "deleted_design_id": design_id,
         "deleted_r2_keys": deleted_r2_keys,
         "missing_r2_keys": missing_r2_keys,
+        "skipped_shared_r2_keys": skipped_shared_r2_keys,
         "deleted_logs": deleted_logs,
     })
     if storage_warnings:
@@ -2304,109 +2484,24 @@ def cleanup_old_designs(
     deleted_r2_keys = []
     warnings = []
 
-    # Use a set to track already deleted/attempted R2 keys in this batch (specifically for shared excel sheets)
-    attempted_r2_keys = set()
-
     for design in eligible_designs:
         design_id = design.get("id")
-        user_id = design.get("user_id")
-        title = design.get("title") or ""
         storage_failed = False
         if not design_id:
             continue
 
         try:
-            # 1. Delete image R2 key if present
-            image_key = design.get("image_r2_key")
-            if image_key:
-                if image_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(image_key)
-                    try:
-                        existed = r2_service.delete_object(image_key)
-                        if existed:
-                            deleted_r2_keys.append(image_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(image_key))
-                        else:
-                            logger.info("[Cleanup] R2 key not found (already gone): %s", _safe_r2_key_for_log(image_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete image R2 key {image_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
-                            _safe_r2_key_for_log(image_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(image_key))
-
-            # 2. Delete thumbnail R2 key if present
-            thumbnail_key = design.get("thumbnail_r2_key")
-            if thumbnail_key:
-                if thumbnail_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(thumbnail_key)
-                    try:
-                        existed = r2_service.delete_object(thumbnail_key)
-                        if existed:
-                            deleted_r2_keys.append(thumbnail_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(thumbnail_key))
-                        else:
-                            logger.info("[Cleanup] R2 thumbnail key not found (already gone): %s", _safe_r2_key_for_log(thumbnail_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete thumbnail R2 key {thumbnail_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED (thumbnail): %s error_type=%s",
-                            _safe_r2_key_for_log(thumbnail_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(thumbnail_key))
-
-            # 3. Delete excel R2 key if present
-            excel_key = design.get("excel_r2_key")
-            if excel_key:
-                if excel_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(excel_key)
-                    try:
-                        existed = r2_service.delete_object(excel_key)
-                        if existed:
-                            deleted_r2_keys.append(excel_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(excel_key))
-                        else:
-                            logger.info("[Cleanup] R2 excel key not found (already gone): %s", _safe_r2_key_for_log(excel_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete excel R2 key {excel_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
-                            _safe_r2_key_for_log(excel_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(excel_key))
-
-            # 4. Delete AI preview R2 key if present
-            ai_preview_key = design.get("ai_preview_r2_key")
-            if ai_preview_key:
-                if ai_preview_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(ai_preview_key)
-                    try:
-                        existed = r2_service.delete_object(ai_preview_key)
-                        if existed:
-                            deleted_r2_keys.append(ai_preview_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(ai_preview_key))
-                        else:
-                            logger.info("[Cleanup] R2 AI preview key not found (already gone): %s", _safe_r2_key_for_log(ai_preview_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete AI preview R2 key {ai_preview_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED (AI preview): %s error_type=%s",
-                            _safe_r2_key_for_log(ai_preview_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(ai_preview_key))
+            storage_result = _delete_unshared_design_r2_keys(
+                design,
+                exclude_design_ids=[str(design_id)],
+                log_prefix="[Cleanup]",
+            )
+            deleted_r2_keys.extend(storage_result["deleted_r2_keys"])
+            for skipped_key in storage_result["skipped_shared_r2_keys"]:
+                warnings.append(f"Skipped shared R2 key for design {design_id}: {skipped_key}")
+            if storage_result["storage_warnings"]:
+                storage_failed = True
+                warnings.append(f"Failed to delete one or more unshared R2 keys for design {design_id}.")
 
             if storage_failed:
                 failed_count += 1
@@ -2551,109 +2646,24 @@ def cleanup_old_designs(
     deleted_r2_keys = []
     warnings = []
 
-    # Use a set to track already deleted/attempted R2 keys in this batch (specifically for shared excel sheets)
-    attempted_r2_keys = set()
-
     for design in eligible_designs:
         design_id = design.get("id")
-        user_id = design.get("user_id")
-        title = design.get("title") or ""
         storage_failed = False
         if not design_id:
             continue
 
         try:
-            # 1. Delete image R2 key if present
-            image_key = design.get("image_r2_key")
-            if image_key:
-                if image_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(image_key)
-                    try:
-                        existed = r2_service.delete_object(image_key)
-                        if existed:
-                            deleted_r2_keys.append(image_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(image_key))
-                        else:
-                            logger.info("[Cleanup] R2 key not found (already gone): %s", _safe_r2_key_for_log(image_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete image R2 key {image_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
-                            _safe_r2_key_for_log(image_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(image_key))
-
-            # 2. Delete thumbnail R2 key if present
-            thumbnail_key = design.get("thumbnail_r2_key")
-            if thumbnail_key:
-                if thumbnail_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(thumbnail_key)
-                    try:
-                        existed = r2_service.delete_object(thumbnail_key)
-                        if existed:
-                            deleted_r2_keys.append(thumbnail_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(thumbnail_key))
-                        else:
-                            logger.info("[Cleanup] R2 thumbnail key not found (already gone): %s", _safe_r2_key_for_log(thumbnail_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete thumbnail R2 key {thumbnail_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED (thumbnail): %s error_type=%s",
-                            _safe_r2_key_for_log(thumbnail_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(thumbnail_key))
-
-            # 3. Delete excel R2 key if present
-            excel_key = design.get("excel_r2_key")
-            if excel_key:
-                if excel_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(excel_key)
-                    try:
-                        existed = r2_service.delete_object(excel_key)
-                        if existed:
-                            deleted_r2_keys.append(excel_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(excel_key))
-                        else:
-                            logger.info("[Cleanup] R2 excel key not found (already gone): %s", _safe_r2_key_for_log(excel_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete excel R2 key {excel_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED: %s error_type=%s",
-                            _safe_r2_key_for_log(excel_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(excel_key))
-
-            # 4. Delete AI preview R2 key if present
-            ai_preview_key = design.get("ai_preview_r2_key")
-            if ai_preview_key:
-                if ai_preview_key not in attempted_r2_keys:
-                    attempted_r2_keys.add(ai_preview_key)
-                    try:
-                        existed = r2_service.delete_object(ai_preview_key)
-                        if existed:
-                            deleted_r2_keys.append(ai_preview_key)
-                            logger.info("[Cleanup] deleted R2 key %s", _safe_r2_key_for_log(ai_preview_key))
-                        else:
-                            logger.info("[Cleanup] R2 AI preview key not found (already gone): %s", _safe_r2_key_for_log(ai_preview_key))
-                    except Exception as err:
-                        warnings.append(f"Failed to delete AI preview R2 key {ai_preview_key} for design {design_id}: {err}")
-                        storage_failed = True
-                        logger.warning(
-                            "[Cleanup] R2 DELETE FAILED (AI preview): %s error_type=%s",
-                            _safe_r2_key_for_log(ai_preview_key),
-                            _safe_error_type(err),
-                        )
-                else:
-                    logger.info("[Cleanup] R2 key already handled in this batch: %s", _safe_r2_key_for_log(ai_preview_key))
+            storage_result = _delete_unshared_design_r2_keys(
+                design,
+                exclude_design_ids=[str(design_id)],
+                log_prefix="[Cleanup]",
+            )
+            deleted_r2_keys.extend(storage_result["deleted_r2_keys"])
+            for skipped_key in storage_result["skipped_shared_r2_keys"]:
+                warnings.append(f"Skipped shared R2 key for design {design_id}: {skipped_key}")
+            if storage_result["storage_warnings"]:
+                storage_failed = True
+                warnings.append(f"Failed to delete one or more unshared R2 keys for design {design_id}.")
 
             if storage_failed:
                 failed_count += 1

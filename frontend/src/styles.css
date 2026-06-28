@@ -381,7 +381,7 @@ a:hover { text-decoration: underline; }
 }
 .pp-sidebar:hover .pp-sidebar-label { opacity: 1; }
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
-.primary-button, .secondary-button, .danger-button {
+.primary-button, .secondary-button, .danger-button, .copy-selected-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -399,8 +399,17 @@ a:hover { text-decoration: underline; }
 .secondary-button { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .secondary-button:hover:not(:disabled) { background: var(--surface-strong); transform: translateY(-1px); }
 .danger-button { background: var(--danger-soft); color: var(--danger); }
+.copy-selected-button {
+  border: 1px solid #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+.copy-selected-button:hover:not(:disabled) {
+  background: #ede9fe;
+  transform: translateY(-1px);
+}
 .danger-button:hover:not(:disabled) { transform: translateY(-1px); }
-.primary-button:disabled, .secondary-button:disabled, .danger-button:disabled { cursor: not-allowed; opacity: 0.54; }
+.primary-button:disabled, .secondary-button:disabled, .danger-button:disabled, .copy-selected-button:disabled { cursor: not-allowed; opacity: 0.54; }
 .icon-button {
   min-height: 32px;
   padding: 0 10px;
@@ -2487,7 +2496,7 @@ body { background: var(--pp-bg); }
 .empty-state span { font-size: 14px; color: var(--pp-text-muted); }
 
 /* ── Buttons polish ──────────────────────────────────────────────────────── */
-.primary-button, .secondary-button, .danger-button {
+.primary-button, .secondary-button, .danger-button, .copy-selected-button {
   min-height: 38px;
   padding: 0 14px;
   border-radius: 10px;
@@ -2519,6 +2528,16 @@ body { background: var(--pp-bg); }
   color: var(--pp-danger);
 }
 .danger-button:hover:not(:disabled) { background: #fecaca; transform: none; }
+.copy-selected-button {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  color: #6d28d9;
+}
+.copy-selected-button:hover:not(:disabled) {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  transform: none;
+}
 /* Input polish */
 .search-field input,
 .edit-grid input,

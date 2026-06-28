@@ -134,6 +134,19 @@ def collect_r2_keys(design: dict[str, Any]) -> list[str]:
     return keys
 
 
+def r2_reference_counts(
+    supabase_service: Any,
+    keys: list[str],
+    *,
+    exclude_design_ids: list[str],
+) -> dict[str, int]:
+    if not keys:
+        return {}
+    if hasattr(supabase_service, "get_r2_key_reference_counts"):
+        return supabase_service.get_r2_key_reference_counts(keys, exclude_design_ids=exclude_design_ids)
+    return {key: 0 for key in keys}
+
+
 def print_summary(summary: dict[str, Any], *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(summary, indent=2, sort_keys=True))
@@ -147,6 +160,7 @@ def print_summary(summary: dict[str, Any], *, as_json: bool) -> None:
     print(f"db_rows_deleted={summary['db_rows_deleted']}")
     print(f"r2_objects_deleted={summary['r2_objects_deleted']}")
     print(f"r2_objects_missing={summary['r2_objects_missing']}")
+    print(f"r2_objects_skipped_shared={summary.get('r2_objects_skipped_shared', 0)}")
     print(f"storage_failures={summary['storage_failures']}")
     print(f"db_failures={summary['db_failures']}")
     if summary.get("message"):
@@ -182,6 +196,7 @@ def main() -> int:
         "db_rows_deleted": 0,
         "r2_objects_deleted": 0,
         "r2_objects_missing": 0,
+        "r2_objects_skipped_shared": 0,
         "storage_failures": 0,
         "db_failures": 0,
         "failures": [],
@@ -255,7 +270,16 @@ def main() -> int:
             continue
 
         storage_failed = False
+        reference_counts = r2_reference_counts(
+            supabase_service,
+            keys,
+            exclude_design_ids=[design_id],
+        )
         for key in keys:
+            if reference_counts.get(key, 0) > 0:
+                base_summary.setdefault("r2_objects_skipped_shared", 0)
+                base_summary["r2_objects_skipped_shared"] += 1
+                continue
             try:
                 if r2_service.delete_object(key):
                     base_summary["r2_objects_deleted"] += 1
