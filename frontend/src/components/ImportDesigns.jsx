@@ -17,6 +17,7 @@ const REQUIRED_COLUMNS = [
   "supporting_tags",
   "copy_link"
 ];
+const REDBUBBLE_GUIDE_URL = "/guides/podpilot-redbubble-copy-link-guide.pdf";
 
 function stripExtension(fileName) {
   return String(fileName ?? "").replace(/\.[^/.]+$/, "");
@@ -737,10 +738,15 @@ export default function ImportDesigns({ onImportComplete, onBackToDesigns, exist
             <Icon name="arrowLeft" />
             <span>Back to Designs</span>
           </button>
-          <button type="button" className="secondary-button">
+          <a
+            className="secondary-button"
+            href={REDBUBBLE_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <Icon name="book" />
             <span>View Guide</span>
-          </button>
+          </a>
           <button type="button" className="secondary-button" onClick={downloadTemplate}>
             <Icon name="download" />
             <span>Download Template</span>

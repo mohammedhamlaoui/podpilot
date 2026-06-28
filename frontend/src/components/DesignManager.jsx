@@ -2845,7 +2845,7 @@ export default function DesignManager({
                 <span className="copy-link-label">
                   Copy Link <span className="req-asterisk">*</span>
                   <a
-                    href="https://help.redbubble.com/hc/en-us/articles/4419104213517"
+                    href="/guides/podpilot-redbubble-copy-link-guide.pdf"
                     target="_blank"
                     rel="noreferrer noopener"
                     className="copy-link-help"
