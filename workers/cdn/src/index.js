@@ -6,6 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 
 const CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
 const ALLOWED_MARKETPLACES = new Set(["redbubble", "teepublic"]);
+const RESERVED_KEY_SEGMENTS = new Set(["imports", "tmp", "temp", "backup", "backups", "thumbnails"]);
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
@@ -71,19 +72,37 @@ function hasEncodedTraversal(key) {
   return /%(?:2e|2f|5c)/i.test(key);
 }
 
-function parseDesignImageKey(key) {
+function parseDesignAssetKey(key, assetType) {
   if (!key || key.startsWith("/") || key.includes("\\") || key.includes("\0")) return false;
   if (hasEncodedTraversal(key)) return false;
   const parts = key.split("/");
   if (parts.some((part) => !part || part === "." || part === "..")) return false;
-  if (parts.length !== 5 || parts[0] !== "users") return false;
-  const [, userId, marketplace, designId, filename] = parts;
-  if (!userId || !filename || !ALLOWED_MARKETPLACES.has(marketplace)) return false;
-  return { userId, marketplace, designId, filename };
+  if (parts[0] !== "users" || parts.length < 5) return false;
+
+  const [, userId, marketplace] = parts;
+  if (!userId || !ALLOWED_MARKETPLACES.has(marketplace)) return false;
+
+  if (assetType === "image") {
+    if (parts.length !== 5) return false;
+    const objectId = parts[3];
+    const filename = parts[4];
+    if (!objectId || !filename || RESERVED_KEY_SEGMENTS.has(objectId.toLowerCase())) return false;
+    return { assetType, userId, marketplace, objectId, filename };
+  }
+
+  if (assetType === "thumbnail") {
+    if (parts.length !== 6 || parts[4] !== "thumbnails") return false;
+    const designId = parts[3];
+    const filename = parts[5];
+    if (!designId || !filename || RESERVED_KEY_SEGMENTS.has(designId.toLowerCase())) return false;
+    return { assetType, userId, marketplace, designId, filename };
+  }
+
+  return false;
 }
 
 function parseSignedPayload(url, request) {
-  const pathMatch = url.pathname.match(/^\/designs\/([^/]+)\/image$/);
+  const pathMatch = url.pathname.match(/^\/designs\/([^/]+)\/(image|thumbnail)$/);
   if (!pathMatch) return { error: jsonError("Not found", 404, request) };
 
   const token = url.searchParams.get("token") || "";
@@ -97,24 +116,30 @@ function parseSignedPayload(url, request) {
     return { error: jsonError("Forbidden", 403, request) };
   }
 
+  const assetType = String(payload.asset_type || "").trim();
   const designId = String(payload.design_id || "").trim();
   const marketplace = String(payload.marketplace || "").trim();
+  const userId = String(payload.user_id || "").trim();
   const key = String(payload.key || "").trim();
   const version = String(payload.v || "").trim();
   const expires = Number(payload.exp || 0);
   const pathDesignId = decodeURIComponent(pathMatch[1]);
+  const pathAssetType = pathMatch[2];
 
-  if (!designId || designId !== pathDesignId || !marketplace || !key || !version || !Number.isFinite(expires)) {
+  if (!designId || designId !== pathDesignId || !assetType || assetType !== pathAssetType || !marketplace || !userId || !key || !version || !Number.isFinite(expires)) {
     return { error: jsonError("Forbidden", 403, request) };
   }
   if (expires <= Math.floor(Date.now() / 1000)) {
     return { error: jsonError("Forbidden", 403, request) };
   }
-  const keyParts = parseDesignImageKey(key);
-  if (!keyParts || keyParts.designId !== designId || keyParts.marketplace !== marketplace) {
+  const keyParts = parseDesignAssetKey(key, assetType);
+  if (!keyParts || keyParts.userId !== userId || keyParts.marketplace !== marketplace) {
     return { error: jsonError("Forbidden", 403, request) };
   }
-  return { payload: { designId, marketplace, key, version }, token, sig };
+  if (assetType === "thumbnail" && keyParts.designId !== designId) {
+    return { error: jsonError("Forbidden", 403, request) };
+  }
+  return { payload: { assetType, designId, marketplace, userId, key, version }, token, sig };
 }
 
 function cacheRequestFor(url, payload) {

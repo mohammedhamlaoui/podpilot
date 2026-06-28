@@ -353,7 +353,7 @@ def _design_file_proxy_url(row: dict[str, Any], kind: str) -> str:
 def _design_with_file_urls(row: dict) -> dict:
     image_key = row.get("image_r2_key")
     thumbnail_key = row.get("thumbnail_r2_key")
-    cdn_image_url = cdn_service.sign_design_image_url(row) if image_key else ""
+    cdn_image_url = cdn_service.sign_design_image_url(row)
 
     response = design_to_response(
         row,
@@ -462,7 +462,7 @@ def _design_to_upload_queue_item(row: dict[str, Any], marketplace: str) -> dict[
     thumbnail_key = str(row.get("thumbnail_r2_key") or "").strip()
     image_url = ""
     thumbnail_url = ""
-    cdn_image_url = cdn_service.sign_design_image_url(row) if image_key else ""
+    cdn_image_url = cdn_service.sign_design_image_url(row)
     if image_key:
         image_url = r2_service.signed_get_url(
             image_key,
