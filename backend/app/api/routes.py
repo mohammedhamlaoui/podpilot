@@ -1158,19 +1158,86 @@ def _copy_design_row_for_marketplace(source: dict[str, Any], *, user_id: str, ta
         "primary_tag": primary_tag,
         "supporting_tags": source.get("supporting_tags") or [],
         "copy_link": "",
-        "image_r2_key": source.get("image_r2_key") or None,
-        "thumbnail_r2_key": source.get("thumbnail_r2_key") or None,
-        "adult_content": bool(source.get("adult_content")) if source.get("adult_content") is not None else None,
-        "status": "not_uploaded",
-        "uploaded_at": None,
-        "error_message": None,
+        "status": "pending",
     }
+    if source.get("image_r2_key"):
+        row["image_r2_key"] = source.get("image_r2_key")
+    if source.get("thumbnail_r2_key"):
+        row["thumbnail_r2_key"] = source.get("thumbnail_r2_key")
+    if source.get("adult_content") is not None:
+        row["adult_content"] = bool(source.get("adult_content"))
     if target_marketplace == "teepublic":
         if isinstance(source.get("color_settings"), dict):
             row["color_settings"] = source.get("color_settings")
         if isinstance(source.get("product_settings"), dict):
             row["product_settings"] = source.get("product_settings")
     return row
+
+
+def _supabase_error_info(error: Exception) -> dict[str, Any]:
+    def safe_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value)
+        text = re.sub(r"users/[^\s,)\"]+", "users/[redacted-r2-key]", text)
+        text = re.sub(
+            r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
+            "[redacted-uuid]",
+            text,
+        )
+        return text[:1000]
+
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None) or getattr(error, "status_code", None)
+    info: dict[str, Any] = {
+        "status": status_code,
+        "message": safe_value(getattr(error, "message", None) or str(error)),
+        "code": safe_value(getattr(error, "code", None)),
+        "details": safe_value(getattr(error, "details", None)),
+        "hint": safe_value(getattr(error, "hint", None)),
+        "response_text": None,
+    }
+
+    for arg in getattr(error, "args", ()) or ():
+        if isinstance(arg, dict):
+            for key in ("message", "code", "details", "hint"):
+                if arg.get(key) and not info.get(key):
+                    info[key] = safe_value(arg.get(key))
+
+    if response is not None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        if isinstance(body, dict):
+            for key in ("message", "code", "details", "hint"):
+                if body.get(key):
+                    info[key] = safe_value(body.get(key))
+        else:
+            try:
+                text = response.text
+            except Exception:
+                text = None
+            if text:
+                info["response_text"] = safe_value(text)
+
+    return info
+
+
+def _supabase_error_reason(error: Exception) -> str:
+    info = _supabase_error_info(error)
+    parts = []
+    if info.get("code"):
+        parts.append(str(info["code"]))
+    if info.get("message"):
+        parts.append(str(info["message"]))
+    if info.get("details"):
+        parts.append(f"Details: {info['details']}")
+    if info.get("hint"):
+        parts.append(f"Hint: {info['hint']}")
+    if info.get("response_text") and not parts:
+        parts.append(str(info["response_text"]))
+    return " | ".join(parts) or safe_error_type(error)
 
 
 def _verify_copyable_image_references(source: dict[str, Any]) -> Optional[str]:
@@ -1235,23 +1302,35 @@ def copy_designs_to_marketplace(
             results.append({"design_id": design_id, "success": False, "reason": image_reference_error})
             continue
 
+        copy_row = _copy_design_row_for_marketplace(
+            source,
+            user_id=user.id,
+            target_marketplace=target_marketplace,
+        )
         try:
             inserted = supabase_service.insert_designs([
-                _copy_design_row_for_marketplace(
-                    source,
-                    user_id=user.id,
-                    target_marketplace=target_marketplace,
-                )
+                copy_row
             ])
         except Exception as error:
+            error_info = _supabase_error_info(error)
             logger.warning(
-                "design_copy_failed user=%s design_id=%s target=%s error_type=%s",
+                (
+                    "design_copy_failed user=%s design_id=%s target=%s error_type=%s "
+                    "status=%s code=%s message=%s details=%s hint=%s response_text=%s columns=%s"
+                ),
                 short_user_id(user.id),
                 short_id(design_id),
                 target_marketplace,
                 safe_error_type(error),
+                error_info.get("status"),
+                error_info.get("code"),
+                error_info.get("message"),
+                error_info.get("details"),
+                error_info.get("hint"),
+                error_info.get("response_text"),
+                sorted(copy_row.keys()),
             )
-            results.append({"design_id": design_id, "success": False, "reason": safe_error_type(error)})
+            results.append({"design_id": design_id, "success": False, "reason": _supabase_error_reason(error)})
             continue
 
         if not inserted:
@@ -1265,10 +1344,12 @@ def copy_designs_to_marketplace(
             "success": True,
         })
 
+    first_failure_reason = next((str(result.get("reason") or "") for result in results if not result.get("success")), "")
     return {
         "target_marketplace": target_marketplace,
         "copied": len(created_rows),
         "failed": sum(1 for result in results if not result.get("success")),
+        "first_failure_reason": first_failure_reason or None,
         "designs": [_design_with_file_urls(row) for row in created_rows],
         "results": results,
     }

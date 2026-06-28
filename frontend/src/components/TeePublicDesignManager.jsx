@@ -1057,8 +1057,9 @@ export default function DesignManager({
       const response = await copyDesignsToMarketplace(ids, "redbubble");
       const copied = Number(response?.copied || 0);
       const failed = Number(response?.failed || 0);
+      const firstReason = String(response?.first_failure_reason || response?.results?.find?.((result) => !result?.success)?.reason || "").trim();
       if (failed > 0) {
-        showToast(`Copied ${copied} designs. ${failed} failed.`, copied > 0 ? "warning" : "error");
+        showToast(`Copied ${copied} designs. ${failed} failed${firstReason ? `: ${firstReason}` : "."}`, copied > 0 ? "warning" : "error");
       } else {
         showToast(`Copied ${copied} designs to Redbubble`);
       }
