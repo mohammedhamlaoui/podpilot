@@ -5,6 +5,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -78,17 +79,20 @@ Current design context:
 Return ONLY valid JSON with this exact shape:
 {{
   "title": "short natural title, max 60 characters",
-  "description": "one natural sentence, max 160 characters",
-  "main_tag": "one broad searchable keyword",
+  "description": "3 to 4 short visible-content sentences",
+  "primary_tag": "1 to 2 word marketplace tag",
   "supporting_tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8"]
 }}
 
 Rules:
 - Title must describe the main subject clearly.
-- Description must mention visible elements only.
-- Main tag must be one simple buyer-search keyword.
-- Supporting tags must be relevant buyer-search terms.
+- Description should be 3 to 4 short sentences or lines when possible.
+- Description must mention visible subject, style, colors, mood, and likely buyer/use case only when supported by the image.
+- Primary tag must be 1 to 2 words maximum. Do not use a long hyphenated phrase.
+- Good primary tag examples: kitchen decor, tea lover, floral mug, coffee art.
+- Supporting tags must be 8 to 12 relevant buyer-search terms, minimum 7.
 - No duplicate tags.
+- No empty tags.
 - No made-up words.
 - No copyrighted names.
 - No celebrity/brand/team/movie/game references.
@@ -101,41 +105,41 @@ Examples of highly relevant listings:
 Example 1: Black and white line art cup image
 {{
   "title": "Floral Teacup Line Art",
-  "description": "A simple black line drawing of a patterned teacup and saucer.",
-  "main_tag": "teacup",
-  "supporting_tags": ["line art", "tea cup", "saucer", "floral pattern", "black and white", "minimal", "cozy", "drinkware"]
+  "description": "A simple black line drawing of a patterned teacup and saucer. The delicate floral details give it a cozy tea-time mood. This works well for tea lovers, kitchen decor fans, or anyone who likes minimal drinkware art.",
+  "primary_tag": "tea lover",
+  "supporting_tags": ["line art", "tea cup", "saucer", "floral pattern", "black and white", "minimal", "cozy", "drinkware", "kitchen decor"]
 }}
 
 Example 2: Cute animal line art
 {{
   "title": "Cute Sleeping Fox Line Art",
-  "description": "A minimalist black and white line drawing of a sleeping fox curled up in a circle.",
-  "main_tag": "fox",
-  "supporting_tags": ["sleeping fox", "line art", "minimalist fox", "woodland creature", "cute animal", "black and white", "minimal", "nursery art"]
+  "description": "A black and white line drawing of a sleeping fox curled into a soft circle. The simple style feels calm, cute, and gentle. It is a good fit for fox lovers, woodland decor, or cozy nursery-inspired gifts.",
+  "primary_tag": "fox art",
+  "supporting_tags": ["sleeping fox", "line art", "minimalist fox", "woodland creature", "cute animal", "black and white", "minimal", "nursery art", "cozy fox"]
 }}
 
 Example 3: Abstract pattern
 {{
   "title": "Retro Teal and Mustard Waves",
-  "description": "An abstract mid-century modern pattern featuring flowing wavy lines in teal, mustard yellow, and cream.",
-  "main_tag": "abstract pattern",
-  "supporting_tags": ["mid century modern", "wavy lines", "retro pattern", "teal and mustard", "geometric", "seamless pattern", "70s aesthetic", "groovy waves"]
+  "description": "An abstract pattern with flowing wavy lines in teal, mustard yellow, and cream. The rounded shapes create a retro mid-century mood. It suits buyers looking for colorful pattern art, decor accents, or groovy everyday accessories.",
+  "primary_tag": "retro pattern",
+  "supporting_tags": ["mid century modern", "wavy lines", "retro pattern", "teal and mustard", "geometric", "seamless pattern", "70s aesthetic", "groovy waves", "abstract decor"]
 }}
 
 Example 4: Flower/bouquet
 {{
   "title": "Wildflower Bouquet Watercolor",
-  "description": "A vibrant watercolor painting of a wildflower bouquet with lavender, daisies, and eucalyptus stems.",
-  "main_tag": "wildflowers",
-  "supporting_tags": ["watercolor bouquet", "floral art", "lavender", "daisies", "eucalyptus", "flower painting", "botanical art", "colorful flowers"]
+  "description": "A vibrant watercolor bouquet with lavender, daisies, eucalyptus stems, and soft colorful petals. The painting feels fresh, botanical, and cheerful. It is a natural fit for flower lovers, garden gifts, or spring-inspired decor.",
+  "primary_tag": "floral art",
+  "supporting_tags": ["watercolor bouquet", "floral art", "lavender", "daisies", "eucalyptus", "flower painting", "botanical art", "colorful flowers", "garden gift"]
 }}
 
 Example 5: Text-only design
 {{
   "title": "Inspirational Keep Going Quote",
-  "description": "A bold typography design featuring the motivational quote Keep Going in clean black lettering.",
-  "main_tag": "inspirational quote",
-  "supporting_tags": ["motivational quote", "typography", "keep going", "bold text", "minimalist quote", "black lettering", "positive vibes", "encouragement"]
+  "description": "A bold typography design featuring the motivational quote Keep Going in clean black lettering. The simple text layout feels positive, direct, and encouraging. It works well for buyers who like inspirational quotes, daily motivation, or uplifting gifts.",
+  "primary_tag": "motivational quote",
+  "supporting_tags": ["motivational quote", "typography", "keep going", "bold text", "minimalist quote", "black lettering", "positive vibes", "encouragement", "uplifting gift"]
 }}
 """.strip()
 
@@ -206,6 +210,17 @@ def _safe_trim(text: str, max_len: int) -> str:
     return truncated
 
 
+def _shorten_primary_tag(tag: str) -> str:
+    """Keep a model-provided primary tag to a gentle 1-2 word marketplace phrase."""
+    cleaned = re.sub(r"[_\-]+", " ", tag.lower()).strip()
+    for delimiter in [",", ";", "/", "\\", "|"]:
+        if delimiter in cleaned:
+            parts = [part.strip() for part in cleaned.split(delimiter) if part.strip()]
+            cleaned = parts[0] if parts else ""
+    words = re.findall(r"[a-z0-9]+", cleaned)
+    return " ".join(words[:2])
+
+
 def _is_forbidden_tag(tag: str) -> bool:
     """Check if a tag is empty, numeric, too long, or contains forbidden keywords."""
     tag_lower = tag.lower().strip()
@@ -231,7 +246,7 @@ def _is_forbidden_tag(tag: str) -> bool:
 def _clean_and_normalize_metadata(
     data: dict[str, Any], platform: str
 ) -> dict[str, str]:
-    """Normalize and validate all fields, raising AIListingError on failure."""
+    """Normalize model output gently while preserving safe user-facing metadata."""
     title = _stringify(data.get("title"))
     description = _stringify(data.get("description"))
     main_tag = _stringify(data.get("main_tag") or data.get("primary_tag"))
@@ -245,17 +260,13 @@ def _clean_and_normalize_metadata(
     else:
         raw_tags = []
 
-    # 1. Clean main tag: must be one short tag only.
-    main_tag_cleaned = main_tag.lower().strip()
-    for delimiter in [",", ";", "/", "\\"]:
-        if delimiter in main_tag_cleaned:
-            parts = [p.strip() for p in main_tag_cleaned.split(delimiter) if p.strip()]
-            main_tag_cleaned = parts[0] if parts else ""
+    # 1. Clean main tag: keep the best short 1-2 word phrase the model provided.
+    main_tag_cleaned = _shorten_primary_tag(main_tag)
             
     if _is_forbidden_tag(main_tag_cleaned):
         salvaged = False
         for tag in raw_tags:
-            candidate = tag.lower().strip()
+            candidate = _shorten_primary_tag(tag)
             if not _is_forbidden_tag(candidate):
                 main_tag_cleaned = candidate
                 salvaged = True
@@ -270,7 +281,7 @@ def _clean_and_normalize_metadata(
     
     cleaned_tags = []
     for tag in raw_tags:
-        cleaned_tag = tag.lower().strip()
+        cleaned_tag = re.sub(r"\s+", " ", str(tag).replace("#", "").lower()).strip(" ,;")
         if _is_forbidden_tag(cleaned_tag):
             continue
         if cleaned_tag in seen:
@@ -288,12 +299,7 @@ def _clean_and_normalize_metadata(
         raise AIListingError("No valid supporting tags were returned.")
 
     title_trimmed = _safe_trim(title, 60)
-    description_trimmed = _safe_trim(description, 160)
-
-    if is_teepublic:
-        sentences = [s.strip() for s in description_trimmed.split(".") if s.strip()]
-        if sentences:
-            description_trimmed = sentences[0] + "."
+    description_trimmed = _safe_trim(description, 420)
 
     if not title_trimmed or not description_trimmed:
         raise AIListingError("Title or description is missing or invalid.")
@@ -302,6 +308,7 @@ def _clean_and_normalize_metadata(
         "title": title_trimmed,
         "description": description_trimmed,
         "main_tag": main_tag_cleaned,
+        "primary_tag": main_tag_cleaned,
         "supporting_tags": ", ".join(cleaned_tags),
     }
 
@@ -353,6 +360,7 @@ async def generate_listing_content(
                 "title": result["title"],
                 "description": result["description"],
                 "main_tag": result["main_tag"],
+                "primary_tag": result.get("primary_tag") or result["main_tag"],
                 "supporting_tags": result["supporting_tags"],
             }
         except Exception as error:
