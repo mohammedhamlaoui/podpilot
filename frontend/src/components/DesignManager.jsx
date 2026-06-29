@@ -170,6 +170,7 @@ export default function DesignManager({
   onUploadImagesClick,
   onImagesUploaded,
   onRefreshFromBackend,
+  onDesignsCopied,
   editorMode = false,
   editorKind = "",
   selectedDesignIndex = 0,
@@ -1882,7 +1883,9 @@ export default function DesignManager({
       }
       setSelectedIds([]);
       setConfirmCopy(null);
-      if (typeof onRefreshFromBackend === "function") {
+      if (typeof onDesignsCopied === "function") {
+        onDesignsCopied("teepublic", Array.isArray(response?.designs) ? response.designs : []);
+      } else if (typeof onRefreshFromBackend === "function") {
         onRefreshFromBackend();
       }
     } catch (error) {

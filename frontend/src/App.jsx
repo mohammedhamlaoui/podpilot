@@ -1516,6 +1516,21 @@ export default function App() {
     });
   }
 
+  function handleDesignsCopied(targetMarketplace, copiedDesigns = []) {
+    if (!DESIGN_MARKETPLACES.includes(targetMarketplace)) return;
+    const incoming = Array.isArray(copiedDesigns) ? copiedDesigns.filter(Boolean) : [];
+    if (incoming.length > 0) {
+      prependMarketplaceDesigns(targetMarketplace, incoming);
+    }
+    void refreshDesigns({
+      force: true,
+      marketplaces: [targetMarketplace],
+      preserveCurrent: true,
+      dedupe: true,
+      reason: "cross-platform-copy",
+    });
+  }
+
   function setPlatformUnsaved(platform, isDirty) {
     if (!isPlatformRoute(platform)) return;
     const nextValue = Boolean(isDirty);
@@ -2004,6 +2019,7 @@ export default function App() {
                   onImportClick={() => redbubbleLocked ? openPricing() : handleTabChange("import")}
                   onUploadImagesClick={() => redbubbleLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                   onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })}
+                  onDesignsCopied={handleDesignsCopied}
                   onRefreshFromBackend={() => refreshDesigns({
                     force: true,
                     marketplaces: ["redbubble"],
@@ -2088,6 +2104,7 @@ export default function App() {
                       onImportClick={() => teepublicLocked ? openPricing() : handleTabChange("import")}
                       onUploadImagesClick={() => teepublicLocked ? openPricing() : setShowImagesPanel((c) => !c)}
                       onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })}
+                      onDesignsCopied={handleDesignsCopied}
                       onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "manual-refresh" })}
                       onEditDesign={(index, designId) => handleOpenEditor("teepublic", "design", index, designId)}
                       editorMode={editorPlatform === "teepublic"}

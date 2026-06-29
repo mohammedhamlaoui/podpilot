@@ -224,6 +224,7 @@ export default function DesignManager({
   onUploadImagesClick,
   onImagesUploaded,
   onRefreshFromBackend,
+  onDesignsCopied,
   onEditDesign,
   editorMode = false,
   editorKind = "",
@@ -1065,7 +1066,9 @@ export default function DesignManager({
       }
       setSelectedIds([]);
       setConfirmCopy(null);
-      if (typeof onRefreshFromBackend === "function") {
+      if (typeof onDesignsCopied === "function") {
+        onDesignsCopied("redbubble", Array.isArray(response?.designs) ? response.designs : []);
+      } else if (typeof onRefreshFromBackend === "function") {
         onRefreshFromBackend();
       }
     } catch (error) {
