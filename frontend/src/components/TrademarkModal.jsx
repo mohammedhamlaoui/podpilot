@@ -197,11 +197,6 @@ function MatchesBlock({ results, totalMatches, totalChecked, failed, phrase, onC
           <>{totalMatches} match{totalMatches === 1 ? "" : "es"} across {totalChecked} checked term{totalChecked === 1 ? "" : "s"}.</>
         )}
       </p>
-      <div className={`pp-tm-risk ${liveCount > 0 ? "pp-tm-risk-high" : "pp-tm-risk-review"}`}>
-        {liveCount > 0
-          ? `High risk: ${liveCount} live trademark match${liveCount === 1 ? "" : "es"} found`
-          : "Review: only dead matches found"}
-      </div>
       <div className="pp-tm-filter-pills" role="tablist" aria-label="Filter trademark results">
         <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>
           All <span>{totalMatches}</span>
