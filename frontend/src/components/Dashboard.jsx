@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Icon from "./Icon";
 import AiCreditsDashboardCard from "./AiCreditsDashboardCard";
 import ThemeToggle from "./ThemeToggle";
 import { getPricingUrl } from "../lib/subscriptionAccess";
+
+const EXTENSION_URL = "https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb";
 
 function percent(uploaded, total) {
   if (!total || total === 0) return 0;
@@ -43,6 +45,48 @@ function AiCreditsHeaderPill({ summary }) {
         <small>AI credits</small>
       </span>
     </a>
+  );
+}
+
+function ExtensionUpdateButton() {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="pp-extension-update-wrap">
+      <button
+        type="button"
+        className={`pp-extension-update-btn${isOpen ? " is-open" : ""}`}
+        onClick={() => setIsOpen((current) => !current)}
+        aria-label="New extension update available"
+        aria-expanded={isOpen}
+        aria-controls="pp-extension-update-popover"
+        title="New extension update available"
+      >
+        <img src="/icons/extension-update.svg" alt="" aria-hidden="true" />
+        <span className="pp-extension-update-pulse" aria-hidden="true" />
+      </button>
+
+      {isOpen && (
+        <div id="pp-extension-update-popover" className="pp-extension-update-popover" role="dialog" aria-label="Extension update">
+          <div className="pp-extension-update-head">
+            <span className="pp-extension-update-mark" aria-hidden="true">
+              <img src="/icons/extension-update.svg" alt="" />
+            </span>
+            <div>
+              <strong>New extension update available</strong>
+              <span>Update your browser extension</span>
+            </div>
+          </div>
+          <p>
+            A new PodPilot extension update is available. Update it now to get the latest upload fixes and the best automation experience.
+          </p>
+          <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" className="pp-extension-update-link">
+            <Icon name="download" strokeWidth="2.2" />
+            <span>Open extension update</span>
+          </a>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -89,6 +133,8 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
         <div className="pp-dash-header-right">
           <AiCreditsHeaderPill summary={subscriptionSummary} />
 
+          <ExtensionUpdateButton />
+
           <button
             type="button"
             className="pp-header-bell-btn"
@@ -111,7 +157,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
           </a>
 
           <a
-            href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb"
+            href={EXTENSION_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="pp-header-btn"

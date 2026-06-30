@@ -11838,6 +11838,165 @@ button.copy-link-open .pp-spinner-on-button {
   white-space: nowrap;
 }
 
+.pp-extension-update-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.pp-extension-update-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.96), rgba(255, 255, 255, 0.96));
+  color: #dc2626;
+  cursor: pointer;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease, border-color 0.16s ease;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08), 0 8px 18px rgba(239, 68, 68, 0.12);
+}
+
+.pp-extension-update-btn:hover,
+.pp-extension-update-btn.is-open {
+  transform: translateY(-1px);
+  border-color: rgba(239, 68, 68, 0.52);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12), 0 12px 24px rgba(239, 68, 68, 0.18);
+}
+
+.pp-extension-update-btn:focus-visible {
+  outline: 2px solid rgba(239, 68, 68, 0.38);
+  outline-offset: 3px;
+}
+
+.pp-extension-update-btn img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+}
+
+.pp-extension-update-pulse {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 2px solid var(--pp-card, #ffffff);
+  box-shadow: 0 0 0 rgba(239, 68, 68, 0.46);
+  animation: pp-extension-update-pulse 1.8s ease-out infinite;
+}
+
+@keyframes pp-extension-update-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.46);
+  }
+  72% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.pp-extension-update-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(330px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  background: var(--pp-card, #ffffff);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+  z-index: 1200;
+  text-align: left;
+  animation: pp-dropdown-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.pp-extension-update-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 12px;
+}
+
+.pp-extension-update-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  flex: 0 0 auto;
+}
+
+.pp-extension-update-mark img {
+  width: 21px;
+  height: 21px;
+  object-fit: contain;
+}
+
+.pp-extension-update-head strong {
+  display: block;
+  color: var(--pp-text, #0f172a);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.pp-extension-update-head span {
+  display: block;
+  color: var(--pp-text-muted, #64748b);
+  font-size: 12px;
+  font-weight: 650;
+  margin-top: 2px;
+}
+
+.pp-extension-update-popover p {
+  margin: 0 0 14px;
+  color: var(--pp-text-muted, #64748b);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pp-extension-update-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #fff7f7;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
+}
+
+.pp-extension-update-link:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pp-extension-update-pulse,
+  .pp-extension-update-popover {
+    animation: none;
+  }
+}
+
 .pp-header-bell-btn {
   position: relative;
   display: inline-flex;
@@ -11996,6 +12155,7 @@ button.copy-link-open .pp-spinner-on-button {
 /* OLED Contrast Dark Mode styles for Bell Dropdown & elements */
 [data-theme="dark"] .pp-header-btn,
 [data-theme="dark"] .pp-header-bell-btn,
+[data-theme="dark"] .pp-extension-update-btn,
 [data-theme="dark"] .pp-header-ai-credits,
 [data-theme="dark"] .pp-header-profile-btn {
   background: #0f0f10 !important;
@@ -12006,6 +12166,8 @@ button.copy-link-open .pp-spinner-on-button {
 
 [data-theme="dark"] .pp-header-btn:hover,
 [data-theme="dark"] .pp-header-bell-btn:hover,
+[data-theme="dark"] .pp-extension-update-btn:hover,
+[data-theme="dark"] .pp-extension-update-btn.is-open,
 [data-theme="dark"] .pp-header-ai-credits:hover,
 [data-theme="dark"] .pp-header-profile-btn:hover {
   border-color: #7C3AED !important;
@@ -12023,6 +12185,44 @@ button.copy-link-open .pp-spinner-on-button {
 
 [data-theme="dark"] .pp-bell-dot {
   border-color: #0f0f10 !important;
+}
+
+[data-theme="dark"] .pp-extension-update-btn {
+  border-color: rgba(239, 68, 68, 0.36) !important;
+  color: #f87171 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1), 0 8px 18px rgba(239, 68, 68, 0.18) !important;
+}
+
+[data-theme="dark"] .pp-extension-update-btn:hover,
+[data-theme="dark"] .pp-extension-update-btn.is-open {
+  border-color: rgba(239, 68, 68, 0.56) !important;
+  color: #fca5a5 !important;
+  background: #151012 !important;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.13), 0 12px 24px rgba(239, 68, 68, 0.22) !important;
+}
+
+[data-theme="dark"] .pp-extension-update-pulse {
+  border-color: #0f0f10 !important;
+}
+
+[data-theme="dark"] .pp-extension-update-popover {
+  background: #0f0f10 !important;
+  border-color: rgba(239, 68, 68, 0.32) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8) !important;
+}
+
+[data-theme="dark"] .pp-extension-update-mark {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.28) !important;
+}
+
+[data-theme="dark"] .pp-extension-update-head strong {
+  color: #f5f5f7 !important;
+}
+
+[data-theme="dark"] .pp-extension-update-head span,
+[data-theme="dark"] .pp-extension-update-popover p {
+  color: #a1a1aa !important;
 }
 
 [data-theme="dark"] .pp-bell-dropdown {
