@@ -48,6 +48,50 @@ function AiCreditsHeaderPill({ summary }) {
   );
 }
 
+function ExtensionUpdateGlyph({ className = "" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 3.75a8.25 8.25 0 1 0 7.42 4.62"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M19.7 4.2v4.35h-4.35"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 7.4v5.15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="m9.65 10.45 2.35 2.35 2.35-2.35"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.4 16.35h7.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ExtensionUpdateButton() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -62,7 +106,7 @@ function ExtensionUpdateButton() {
         aria-controls="pp-extension-update-popover"
         title="New extension update available"
       >
-        <img src="/icons/extension-update.svg" alt="" aria-hidden="true" />
+        <ExtensionUpdateGlyph className="pp-extension-update-glyph" />
         <span className="pp-extension-update-pulse" aria-hidden="true" />
       </button>
 
@@ -70,7 +114,7 @@ function ExtensionUpdateButton() {
         <div id="pp-extension-update-popover" className="pp-extension-update-popover" role="dialog" aria-label="Extension update">
           <div className="pp-extension-update-head">
             <span className="pp-extension-update-mark" aria-hidden="true">
-              <img src="/icons/extension-update.svg" alt="" />
+              <ExtensionUpdateGlyph className="pp-extension-update-glyph" />
             </span>
             <div>
               <strong>New extension update available</strong>
