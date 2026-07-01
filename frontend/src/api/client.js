@@ -432,7 +432,7 @@ export async function generateListingContent(designId, platform, currentMetadata
     platform,
     current_metadata: currentMetadata,
   }, {
-    timeout: 90000,
+    timeout: 0,
   });
   return response.data;
 }
@@ -445,7 +445,7 @@ export async function generateDraftListingContent(platform, currentMetadata = {}
 
   const response = await api.post("/api/ai/listing-content/draft", formData, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 90000,
+    timeout: 0,
   });
   return response.data;
 }

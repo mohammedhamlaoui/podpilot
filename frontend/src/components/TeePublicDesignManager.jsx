@@ -1957,6 +1957,18 @@ export default function DesignManager({
                           src={activeCreateImagePreview}
                           alt={activeCreateImage.name}
                         />
+                        <button
+                          type="button"
+                          className="design-preview-remove"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            clearCreatePreview(activeCreateImage.id);
+                          }}
+                          aria-label="Clear design preview"
+                          title="Change design image"
+                        >
+                          <Icon name="x" />
+                        </button>
                       </div>
                     ) : (
                       <button
@@ -2262,6 +2274,18 @@ export default function DesignManager({
                         alt={activeCreateImage.name}
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                       />
+                      <button
+                        type="button"
+                        className="design-preview-remove"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          clearCreatePreview(activeCreateImage.id);
+                        }}
+                        aria-label="Clear design preview"
+                        title="Change design image"
+                      >
+                        <Icon name="x" />
+                      </button>
                     </div>
                     
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

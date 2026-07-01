@@ -2417,6 +2417,18 @@ export default function DesignManager({
                           src={activeCreateImagePreview}
                           alt={activeCreateImage.name}
                         />
+                        <button
+                          type="button"
+                          className="design-preview-remove"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            clearCreatePreview(activeCreateImage.id);
+                          }}
+                          aria-label="Clear design preview"
+                          title="Change design image"
+                        >
+                          <Icon name="x" />
+                        </button>
                       </div>
                     ) : (
                       <button
@@ -3105,6 +3117,18 @@ export default function DesignManager({
                         src={activeCreateImage.previewUrl}
                         alt={activeCreateImage.name}
                       />
+                      <button
+                        type="button"
+                        className="design-preview-remove"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          clearCreatePreview(activeCreateImage.id);
+                        }}
+                        aria-label="Clear design preview"
+                        title="Change design image"
+                      >
+                        <Icon name="x" />
+                      </button>
                     </div>
                     <div className="edit-grid">
                       <label>

@@ -25,6 +25,7 @@ VALID_LISTING = {
     "title": "Floral Teacup Line Art",
     "description": "A simple black line drawing of a floral teacup.",
     "main_tag": "teacup",
+    "primary_tag": "teacup",
     "supporting_tags": "line art, floral pattern",
 }
 
@@ -76,7 +77,7 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
         openrouter_mock.assert_awaited_once()
         self.assertEqual(openrouter_mock.await_args.kwargs["model"], "paid/model")
         self.assertFalse(openrouter_mock.await_args.kwargs["structured_output"])
-        self.assertEqual(openrouter_mock.await_args.kwargs["timeout_seconds"], 60.0)
+        self.assertEqual(openrouter_mock.await_args.kwargs["timeout_seconds"], 180.0)
 
     async def test_openrouter_response_uses_compressed_image_payload(self):
         FakeAsyncClient.requests = []

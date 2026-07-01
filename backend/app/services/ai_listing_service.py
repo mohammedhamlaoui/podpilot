@@ -347,7 +347,7 @@ async def generate_listing_content(
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             model=OPENROUTER_MODEL,
-            timeout_seconds=75.0,
+            timeout_seconds=180.0,
             structured_output=False,
             require_tags_array=False,
             provider_label="edge",
