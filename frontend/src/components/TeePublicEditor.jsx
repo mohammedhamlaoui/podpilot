@@ -24,7 +24,7 @@ import {
   getDefaultColorSettings,
   getDefaultProductSettings,
 } from "../config/teepublicOptions";
-import { getColorCategory } from "../config/teepublicColorHex";
+import { getColorCategory, getColorHex } from "../config/teepublicColorHex";
 import {
   applyClipboardToDesign,
   copyAdultContentOnly,
@@ -412,6 +412,8 @@ export default function TeePublicEditor({
     });
     return match?.imageUrl || match?.previewUrl || null;
   }, [design, uploadedImages, replacementPreviewUrl, isPreviewCleared]);
+  const tshirtPreviewColor = form.color_settings?.tshirt || TEEPUBLIC_DEFAULT_COLORS.tshirt;
+  const tshirtPreviewBackground = getColorHex(tshirtPreviewColor);
 
   // ── Copy/Paste ──────────────────────────────────────────────────────────
   function normalizeAiListingResult(result, currentMetadata = {}) {
@@ -1710,7 +1712,10 @@ export default function TeePublicEditor({
             onChange={handleReplacementFileChange}
           />
           {currentImage ? (
-            <div className={`design-preview-frame${pendingReplacementFile ? " design-preview-pending" : ""}`}>
+            <div
+              className={`design-preview-frame teepublic-shirt-preview${pendingReplacementFile ? " design-preview-pending" : ""}`}
+              style={{ "--teepublic-shirt-preview-bg": tshirtPreviewBackground }}
+            >
               <CachedThumbnail
                 design={design}
                 userId={userId}
