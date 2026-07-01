@@ -948,7 +948,7 @@ export default function DesignManager({
       "image/jpeg": [".jpg", ".jpeg"]
     },
     multiple: true,
-    disabled: isCreateUploading,
+    noClick: true,
     noKeyboard: true
   });
 
@@ -2189,7 +2189,8 @@ export default function DesignManager({
           <div className="create-upload-card">
             <div
               {...createDropzone.getRootProps({
-                className: createDropzone.isDragActive ? "create-upload-drop create-upload-drop-active" : "create-upload-drop"
+                className: createDropzone.isDragActive ? "create-upload-drop create-upload-drop-active" : "create-upload-drop",
+                onClick: isCreateUploading ? undefined : createDropzone.open
               })}
             >
               <input {...createDropzone.getInputProps()} />
