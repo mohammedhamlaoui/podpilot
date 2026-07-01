@@ -15254,6 +15254,40 @@ button.copy-link-open .pp-spinner-on-button {
   min-width: 112px !important;
 }
 
+.tp-toolbar .tp-toolbar-btn:hover:not(:disabled),
+.create-command-bar .secondary-button:hover:not(:disabled),
+.edit-toolbar .secondary-button:hover:not(:disabled),
+.toolbar-menu-wrap > .secondary-button:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.08) !important;
+  border-color: var(--pp-accent, var(--accent, #7c3aed)) !important;
+  color: var(--pp-accent, var(--accent, #7c3aed)) !important;
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.08) !important;
+  cursor: pointer;
+}
+
+.tp-toolbar .tp-toolbar-btn:hover:not(:disabled) svg,
+.create-command-bar .secondary-button:hover:not(:disabled) svg,
+.edit-toolbar .secondary-button:hover:not(:disabled) svg,
+.toolbar-menu-wrap > .secondary-button:hover:not(:disabled) svg {
+  color: currentColor !important;
+}
+
+.toolbar-dropdown button:hover:not(:disabled),
+.tp-dropdown-menu button:hover:not(:disabled),
+.action-menu button:hover:not(:disabled),
+.edit-toolbar .toolbar-dropdown button:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.08) !important;
+  color: var(--pp-accent, var(--accent, #7c3aed)) !important;
+  cursor: pointer;
+}
+
+.toolbar-dropdown button:hover:not(:disabled) svg,
+.tp-dropdown-menu button:hover:not(:disabled) svg,
+.action-menu button:hover:not(:disabled) svg,
+.edit-toolbar .toolbar-dropdown button:hover:not(:disabled) svg {
+  color: currentColor !important;
+}
+
 .pp-trademark-btn {
   min-width: 165px !important;
 }
