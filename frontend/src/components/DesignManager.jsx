@@ -948,7 +948,7 @@ export default function DesignManager({
       "image/jpeg": [".jpg", ".jpeg"]
     },
     multiple: true,
-    noClick: true,
+    disabled: isCreateUploading,
     noKeyboard: true
   });
 
@@ -2202,7 +2202,6 @@ export default function DesignManager({
               <button
                 type="button"
                 className="secondary-button"
-                onClick={createDropzone.open}
                 disabled={isCreateUploading}
               >
                 <Icon name="images" />
