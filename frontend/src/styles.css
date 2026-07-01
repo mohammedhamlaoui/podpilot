@@ -640,6 +640,10 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
   background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
   background-color: #ffffff;
 }
+.create-preview.teepublic-shirt-preview,
+.design-preview-frame.teepublic-shirt-preview {
+  background: var(--teepublic-shirt-preview-bg, #ffffff);
+}
 .create-preview img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: transparent; }
 .create-preview .cached-thumb-placeholder,
 .design-preview-frame .cached-thumb-placeholder,

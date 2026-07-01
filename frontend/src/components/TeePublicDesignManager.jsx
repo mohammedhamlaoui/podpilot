@@ -41,7 +41,7 @@ import {
   getDefaultColorSettings,
   getDefaultProductSettings,
 } from "../config/teepublicOptions";
-import { getColorCategory } from "../config/teepublicColorHex";
+import { getColorCategory, getColorHex } from "../config/teepublicColorHex";
 import {
   applyClipboardToDesign,
   copyAdultContentOnly,
@@ -1115,6 +1115,10 @@ export default function DesignManager({
   const activeCreateDraft = activeCreateImage
     ? createDrafts[activeCreateImage.id] || makeCreateDraft(activeCreateImage)
     : makeCreateDraft(null);
+  const activeCreateTshirtColor =
+    (activeCreateDraft.colors || {}).tshirt ||
+    TEEPUBLIC_DEFAULT_COLORS.tshirt;
+  const activeCreateTshirtPreviewBackground = getColorHex(activeCreateTshirtColor);
   useEffect(() => {
     activeCreateAiDesignIdRef.current = activeCreateImage?.id || "";
   }, [activeCreateImage?.id]);
@@ -1928,8 +1932,8 @@ export default function DesignManager({
                     />
                     {activeCreateImagePreview ? (
                       <div
-                        className="create-preview create-sticker-preview"
-                        style={{ "--sticker-preview-color": activeStickerEnabled ? activeStickerColor : "#7d7d7d", position: 'relative' }}
+                        className="create-preview teepublic-shirt-preview"
+                        style={{ "--teepublic-shirt-preview-bg": activeCreateTshirtPreviewBackground, position: "relative" }}
                       >
                         <CachedThumbnail
                           design={{ id: activeCreateImage.id, image_r2_key: activeCreateImage.imagePath || activeCreateImage.image_r2_key }}
@@ -2224,7 +2228,20 @@ export default function DesignManager({
                   </div>
 
                   <div className="create-editor" style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-                    <div className="create-preview" style={{ width: '280px', flexShrink: 0, borderRadius: '8px', padding: '20px', aspectRatio: '1/1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div
+                      className="create-preview teepublic-shirt-preview"
+                      style={{
+                        "--teepublic-shirt-preview-bg": activeCreateTshirtPreviewBackground,
+                        width: '280px',
+                        flexShrink: 0,
+                        borderRadius: '8px',
+                        padding: '20px',
+                        aspectRatio: '1/1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
                       <CachedThumbnail
                         design={{ id: activeCreateImage.id, image_r2_key: activeCreateImage.imagePath || activeCreateImage.image_r2_key }}
                         userId={userId}
