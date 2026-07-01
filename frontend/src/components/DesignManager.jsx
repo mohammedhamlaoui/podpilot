@@ -2406,7 +2406,13 @@ export default function DesignManager({
                           src={activeCreateImagePreview}
                           alt={activeCreateImage.name}
                         />
-                        <button type="button" className="design-preview-remove" onClick={() => clearCreatePreview(activeCreateImage.id)} aria-label="Clear design preview">
+                        <button
+                          type="button"
+                          className="design-preview-remove"
+                          onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                          aria-label="Remove this design from this local session"
+                          title="Remove this design from this local session"
+                        >
                           <Icon name="x" />
                         </button>
                       </div>
@@ -3097,6 +3103,15 @@ export default function DesignManager({
                         src={activeCreateImage.previewUrl}
                         alt={activeCreateImage.name}
                       />
+                      <button
+                        type="button"
+                        className="design-preview-remove"
+                        onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                        aria-label="Remove this design from this local session"
+                        title="Remove this design from this local session"
+                      >
+                        <Icon name="x" />
+                      </button>
                     </div>
                     <div className="edit-grid">
                       <label>

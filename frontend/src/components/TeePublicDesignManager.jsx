@@ -1946,7 +1946,13 @@ export default function DesignManager({
                           src={activeCreateImagePreview}
                           alt={activeCreateImage.name}
                         />
-                        <button type="button" className="design-preview-remove" onClick={() => clearCreatePreview(activeCreateImage.id)} aria-label="Clear design preview">
+                        <button
+                          type="button"
+                          className="design-preview-remove"
+                          onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                          aria-label="Remove this design from this local session"
+                          title="Remove this design from this local session"
+                        >
                           <Icon name="x" />
                         </button>
                       </div>
@@ -2254,6 +2260,15 @@ export default function DesignManager({
                         alt={activeCreateImage.name}
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                       />
+                      <button
+                        type="button"
+                        className="design-preview-remove"
+                        onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                        aria-label="Remove this design from this local session"
+                        title="Remove this design from this local session"
+                      >
+                        <Icon name="x" />
+                      </button>
                     </div>
                     
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
