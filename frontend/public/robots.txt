@@ -1,36 +1,78 @@
+# PodPilot Robots.txt - Optimized for better indexing
+# https://podpilot.space
+
 User-agent: *
 Allow: /
+
+# High-priority public pages
 Allow: /pricing
-Allow: /blog
 Allow: /ai-listing-generator
 Allow: /redbubble-upload-automation
 Allow: /teepublic-upload-automation
-Allow: /contact
-Allow: /terms
-Allow: /privacy
-Allow: /help
-Allow: /refund-policy
-Allow: /security
+Allow: /blog
+Allow: /blog/
+Allow: /blog/*
 
+# Trust and support pages
+Allow: /contact
+Allow: /help
+Allow: /founder
+Allow: /security
+Allow: /privacy
+Allow: /terms
+Allow: /refund-policy
+
+# Essential public files
+Allow: /sitemap.xml
+Allow: /robots.txt
+Allow: /llms.txt
+Allow: /manifest.json
+Allow: /favicon.ico
+Allow: /brand/
+Allow: /blog/
+
+# Private app, account, checkout, and system routes
 Disallow: /dashboard
 Disallow: /dashboard/
+Disallow: /redbubble
+Disallow: /redbubble/
+Disallow: /teepublic
+Disallow: /teepublic/
 Disallow: /profile
 Disallow: /profile/
+Disallow: /billing
+Disallow: /billing/
+Disallow: /subscription
+Disallow: /subscription/
+Disallow: /settings
+Disallow: /settings/
+Disallow: /queue
+Disallow: /queue/
 Disallow: /checkout
 Disallow: /checkout/
 Disallow: /login
 Disallow: /login/
 Disallow: /signup
 Disallow: /signup/
-Disallow: /queue
-Disallow: /queue/
-Disallow: /settings
-Disallow: /settings/
-Disallow: /billing
-Disallow: /billing/
 Disallow: /reset-password
 Disallow: /email-confirmed
 Disallow: /extension-auth-success
 Disallow: /thank-you
+Disallow: /api/
+Disallow: /admin/
+
+# Block common AI training crawlers while keeping search crawlers open.
+User-agent: CCBot
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
 
 Sitemap: https://podpilot.space/sitemap.xml
+Host: https://podpilot.space
