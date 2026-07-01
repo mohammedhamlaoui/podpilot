@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import * as XLSX from "xlsx";
-import { createDesign, uploadStandaloneImages } from "../api/client";
+import { createDesign, getUploadTimeoutMs, uploadStandaloneImages } from "../api/client";
 import Icon from "./Icon";
 import { LoadingButton } from "./LoadingComponents";
 import ImportProgressModal from "./ImportProgressModal";
@@ -359,7 +359,7 @@ export default function TeePublicImport({ onImportComplete, onBackToDesigns, exi
             uploadStandaloneImages([entry.file], "teepublic", (progressEvent) => {
               updateOverallUploadProgress(entry.file.name, progressEvent.loaded);
             }),
-            120000,
+            getUploadTimeoutMs(entry.file),
             `${entry.file.name} upload timed out.`
           );
           updateOverallUploadProgress(entry.file.name, entry.file.size);

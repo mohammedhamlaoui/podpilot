@@ -23,6 +23,19 @@ const api = axios.create({
   timeout: 60000,
 });
 
+const UPLOAD_TIMEOUT_MIN_MS = 5 * 60 * 1000;
+const UPLOAD_TIMEOUT_MAX_MS = 20 * 60 * 1000;
+const UPLOAD_TIMEOUT_MS_PER_MB = 15 * 1000;
+const UPLOAD_TIMEOUT_MS_PER_FILE = 10 * 1000;
+
+export function getUploadTimeoutMs(files = []) {
+  const uploadFiles = Array.isArray(files) ? files : [files].filter(Boolean);
+  const totalBytes = uploadFiles.reduce((sum, file) => sum + Number(file?.size || 0), 0);
+  const totalMb = totalBytes / (1024 * 1024);
+  const estimatedMs = Math.ceil(totalMb * UPLOAD_TIMEOUT_MS_PER_MB) + (uploadFiles.length * UPLOAD_TIMEOUT_MS_PER_FILE);
+  return Math.min(UPLOAD_TIMEOUT_MAX_MS, Math.max(UPLOAD_TIMEOUT_MIN_MS, estimatedMs));
+}
+
 const AUTH_REQUIRED_EVENT = "podpilot:auth-required";
 const DEVICE_CONFLICT_EVENT = "podpilot:upload-device-conflict";
 const DEVICE_REVOKED_EVENT = "podpilot:device-session-revoked";
@@ -368,6 +381,7 @@ export async function uploadDesignImage(designId, file, onUploadProgress = null)
   const response = await api.post(`/designs/${designId}/image`, formData, {
     headers: { "Content-Type": "multipart/form-data" },
     onUploadProgress,
+    timeout: getUploadTimeoutMs(file),
   });
   return response.data;
 }
@@ -383,7 +397,7 @@ export async function importDesigns({ excelFile, imageFiles = [], marketplace = 
 
   const response = await api.post("/designs/import", formData, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 180000,
+    timeout: getUploadTimeoutMs([excelFile, ...imageFiles]),
   });
   return response.data;
 }
@@ -395,6 +409,7 @@ export async function uploadStandaloneImages(files, marketplace = "redbubble", o
   const response = await api.post("/designs/import/images", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     onUploadProgress,
+    timeout: getUploadTimeoutMs(files),
   });
   return response.data;
 }
