@@ -1915,15 +1915,26 @@ export default function DesignManager({
 
             {activeCreateImage ? (
               <div className="create-config-card">
-                <h3 style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  Design Configuration
-                  <span className="image-quality-info-tooltip-container">
-                    <Info className="image-quality-info-icon" size={16} />
-                    <span className="image-quality-info-tooltip-text">
-                      Fast preview only. Upload uses your original image quality.
+                <div className="create-config-card-heading">
+                  <h3 style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    Design Configuration
+                    <span className="image-quality-info-tooltip-container">
+                      <Info className="image-quality-info-icon" size={16} />
+                      <span className="image-quality-info-tooltip-text">
+                        Fast preview only. Upload uses your original image quality.
+                      </span>
                     </span>
-                  </span>
-                </h3>
+                  </h3>
+                  <button
+                    type="button"
+                    className="local-design-remove-button local-design-remove-button-header"
+                    onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
+                    aria-label="Remove this design from this local session"
+                    title="Remove this design from this local session"
+                  >
+                    <Icon name="x" />
+                  </button>
+                </div>
                 <div className="create-editor create-editor-polished">
                   <aside className="create-left-column">
                     <input
@@ -1946,15 +1957,6 @@ export default function DesignManager({
                           src={activeCreateImagePreview}
                           alt={activeCreateImage.name}
                         />
-                        <button
-                          type="button"
-                          className="design-preview-remove"
-                          onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
-                          aria-label="Remove this design from this local session"
-                          title="Remove this design from this local session"
-                        >
-                          <Icon name="x" />
-                        </button>
                       </div>
                     ) : (
                       <button
@@ -2260,15 +2262,6 @@ export default function DesignManager({
                         alt={activeCreateImage.name}
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                       />
-                      <button
-                        type="button"
-                        className="design-preview-remove"
-                        onClick={() => removeCreateDesignLocally(activeCreateImage.id)}
-                        aria-label="Remove this design from this local session"
-                        title="Remove this design from this local session"
-                      >
-                        <Icon name="x" />
-                      </button>
                     </div>
                     
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

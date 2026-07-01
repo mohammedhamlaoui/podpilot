@@ -623,6 +623,16 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .create-command-spacer { flex: 1; }
 .create-config-card { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .create-config-card h3 { margin: 0 0 14px; font-size: 16px; font-weight: 700; }
+.create-config-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.create-config-card-heading h3 {
+  margin: 0;
+}
 .create-editor { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
 .create-editor-polished { grid-template-columns: 220px 1fr; }
 .create-left-column { position: relative; display: flex; flex-direction: column; gap: 12px; }
