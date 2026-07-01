@@ -75,4 +75,5 @@ User-agent: Google-Extended
 Disallow: /
 
 Sitemap: https://podpilot.space/sitemap.xml
+LLMs: https://podpilot.space/llms.txt
 Host: https://podpilot.space
