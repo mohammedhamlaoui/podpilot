@@ -4999,6 +4999,28 @@ html, body { overflow-x: hidden; }
 }
 .edit-toolbar .toolbar-dropdown button:hover { background: #f1f5f9; }
 .edit-toolbar .toolbar-dropdown button svg { width: 16px; height: 16px; color: var(--pp-text-muted); flex-shrink: 0; }
+
+.toolbar-dropdown button:not(:disabled),
+.tp-dropdown-menu button:not(:disabled),
+.action-menu button:not(:disabled),
+.edit-toolbar .toolbar-dropdown button:not(:disabled) {
+  cursor: pointer;
+}
+
+.toolbar-dropdown button:hover:not(:disabled),
+.tp-dropdown-menu button:hover:not(:disabled),
+.action-menu button:hover:not(:disabled),
+.edit-toolbar .toolbar-dropdown button:hover:not(:disabled) {
+  background: var(--surface-strong, #f1f5f9);
+  cursor: pointer;
+}
+
+.toolbar-dropdown button:disabled,
+.tp-dropdown-menu button:disabled,
+.action-menu button:disabled,
+.edit-toolbar .toolbar-dropdown button:disabled {
+  cursor: not-allowed;
+}
 .edit-panel {
   display: flex;
   flex-direction: column;
