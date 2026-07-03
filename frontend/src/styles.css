@@ -619,8 +619,25 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .create-upload-drop span { margin-top: 4px; color: var(--muted); font-size: 14px; }
 .create-upload-drop small { margin-top: 8px; color: var(--accent); font-size: 13px; font-weight: 700; }
 .create-config-form { display: grid; gap: 16px; }
-.create-command-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.create-command-spacer { flex: 1; }
+.create-command-bar {
+  position: sticky;
+  top: 12px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--pp-border, var(--border));
+  border-radius: 14px;
+  background: var(--pp-card, var(--surface));
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+.create-command-bar > * {
+  flex-shrink: 0;
+}
+.create-command-spacer { flex: 1 1 auto; min-width: 12px; }
 .create-config-card { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .create-config-card h3 { margin: 0 0 14px; font-size: 16px; font-weight: 700; }
 .create-config-card-heading {
@@ -1685,8 +1702,26 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .tp-toast { position: fixed; top: 16px; right: 16px; z-index: 9999; padding: 10px 16px; border-radius: 6px; font-size: 14px; font-weight: 600; }
 .tp-toast-success { background: var(--success-soft); color: var(--success); }
 .tp-toast-error { background: var(--danger-soft); color: var(--danger); }
-.tp-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.tp-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tp-toolbar {
+  position: sticky;
+  top: 12px;
+  z-index: 46;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: nowrap;
+  background: var(--pp-card, var(--surface));
+}
+.tp-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
 .tp-btn-back { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
 .tp-btn-back:hover { background: var(--surface-strong); }
 .tp-btn-primary { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: none; border-radius: 6px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -1696,7 +1731,17 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .tp-btn-secondary:hover { background: var(--surface-strong); }
 .tp-nav-btn { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 16px; display: grid; place-items: center; cursor: pointer; }
 .tp-nav-btn:disabled { opacity: 0.4; }
-.tp-dots { display: flex; gap: 4px; }
+.tp-dots {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  max-width: min(180px, 22vw);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tp-dots::-webkit-scrollbar { display: none; }
 .tp-dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; cursor: pointer; }
 .tp-dot.active { background: var(--accent); }
 .tp-dropdown-wrap { position: relative; }
@@ -4921,13 +4966,17 @@ html, body { overflow-x: hidden; }
   box-shadow: var(--pp-shadow-sm);
 }
 .edit-page .create-page-header {
+  position: sticky;
+  top: 12px;
+  z-index: 46;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--pp-border);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  background: var(--pp-card);
 }
 .edit-page .create-page-header > div:first-child {
   display: flex;
@@ -4948,6 +4997,7 @@ html, body { overflow-x: hidden; }
   gap: 8px;
   flex-wrap: nowrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 .edit-toolbar .secondary-button {
   height: 36px;
@@ -4977,6 +5027,9 @@ html, body { overflow-x: hidden; }
   display: inline-flex;
   gap: 6px;
   margin-right: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .edit-toolbar .toolbar-menu-wrap { position: relative; display: inline-flex; }
 .edit-toolbar .toolbar-dropdown {
@@ -15300,6 +15353,48 @@ button.copy-link-open .pp-spinner-on-button {
 
 .pp-trademark-btn {
   min-width: 165px !important;
+}
+
+/* Keep editor command bars fixed and single-line even with many designs. */
+.create-command-bar,
+.edit-toolbar,
+.tp-toolbar,
+.tp-toolbar-right {
+  flex-wrap: nowrap !important;
+}
+
+.create-command-bar .create-nav-buttons,
+.edit-toolbar .create-nav-buttons,
+.tp-toolbar-right > *,
+.edit-toolbar > * {
+  flex-shrink: 0;
+}
+
+.edit-toolbar .tp-dots,
+.tp-toolbar .tp-dots,
+.create-command-bar .tp-dots {
+  flex: 0 1 auto;
+  max-width: min(180px, 22vw);
+  min-width: 36px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tp-dot {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 680px) {
+  .redbubble-edit-page .create-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .redbubble-edit-page .edit-toolbar,
+  .redbubble-edit-page .edit-toolbar .toolbar-menu-wrap,
+  .redbubble-edit-page .edit-toolbar .secondary-button {
+    width: auto;
+  }
 }
 
 /* Ensure the spinner doesn't affect button height or alignment */
