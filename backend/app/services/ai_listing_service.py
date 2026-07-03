@@ -81,17 +81,19 @@ Current design context:
 
 Return ONLY valid JSON with this exact shape:
 {{
-  "title": "short natural title, max 60 characters",
-  "description": "one natural sentence, max 160 characters",
+  "title": "natural marketplace title, 40 to 60 characters",
+  "description": "polished marketplace description, max 200 characters",
   "main_tag": "one broad searchable keyword",
-  "supporting_tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8"]
+  "supporting_tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14"]
 }}
 
 Rules:
-- Title must describe the main subject clearly.
-- Description must mention visible elements only.
+- Title must be 40 to 60 characters and describe the main subject clearly.
+- Description must be one natural, seller-ready paragraph up to 200 characters.
+- Description should sell the design's vibe and likely buyer use case without blandly listing only obvious objects.
 - Main tag must be one simple buyer-search keyword.
-- Supporting tags must be relevant buyer-search terms.
+- Supporting tags must be exactly 14 relevant buyer-search terms.
+- Supporting tags must not include the main tag.
 - No duplicate tags.
 - No made-up words.
 - No copyrighted names.
@@ -104,42 +106,42 @@ Examples of highly relevant listings:
 
 Example 1: Black and white line art cup image
 {{
-  "title": "Floral Teacup Line Art",
-  "description": "A simple black line drawing of a patterned teacup and saucer.",
+  "title": "Floral Teacup Line Art for Cozy Tea Lovers",
+  "description": "Elegant floral teacup line art with a soft cottage feel, made for tea lovers, kitchen decor fans, and cozy cafe-inspired product listings.",
   "main_tag": "teacup",
-  "supporting_tags": ["line art", "tea cup", "saucer", "floral pattern", "black and white", "minimal", "cozy", "drinkware"]
+  "supporting_tags": ["line art", "tea cup", "saucer", "floral pattern", "black and white", "minimal", "cozy", "drinkware", "tea lover", "kitchen decor", "cottage style", "cafe art", "vintage kitchen", "gift idea"]
 }}
 
 Example 2: Cute animal line art
 {{
-  "title": "Cute Sleeping Fox Line Art",
-  "description": "A minimalist black and white line drawing of a sleeping fox curled up in a circle.",
+  "title": "Cute Sleeping Fox Line Art Woodland Graphic",
+  "description": "Sweet sleeping fox line art with a calm woodland mood, ideal for cozy nursery decor, animal lovers, and simple nature-inspired gifts.",
   "main_tag": "fox",
-  "supporting_tags": ["sleeping fox", "line art", "minimalist fox", "woodland creature", "cute animal", "black and white", "minimal", "nursery art"]
+  "supporting_tags": ["sleeping fox", "line art", "minimalist fox", "woodland creature", "cute animal", "black and white", "minimal", "nursery art", "forest animal", "cozy decor", "nature lover", "animal gift", "simple drawing", "woodland art"]
 }}
 
 Example 3: Abstract pattern
 {{
-  "title": "Retro Teal and Mustard Waves",
-  "description": "An abstract mid-century modern pattern featuring flowing wavy lines in teal, mustard yellow, and cream.",
+  "title": "Retro Teal and Mustard Wavy Abstract Pattern",
+  "description": "Flowing teal and mustard abstract waves with a retro mid-century mood, suited for bold decor, apparel, stickers, and groovy pattern lovers.",
   "main_tag": "abstract pattern",
-  "supporting_tags": ["mid century modern", "wavy lines", "retro pattern", "teal and mustard", "geometric", "seamless pattern", "70s aesthetic", "groovy waves"]
+  "supporting_tags": ["mid century modern", "wavy lines", "retro pattern", "teal and mustard", "geometric", "seamless pattern", "70s aesthetic", "groovy waves", "bold pattern", "colorful decor", "mod style", "wave graphic", "retro decor", "statement print"]
 }}
 
 Example 4: Flower/bouquet
 {{
-  "title": "Wildflower Bouquet Watercolor",
-  "description": "A vibrant watercolor painting of a wildflower bouquet with lavender, daisies, and eucalyptus stems.",
+  "title": "Wildflower Bouquet Watercolor Botanical Art",
+  "description": "Soft wildflower watercolor bouquet with fresh botanical charm, perfect for floral decor lovers, spring gifts, stationery, and nature-inspired products.",
   "main_tag": "wildflowers",
-  "supporting_tags": ["watercolor bouquet", "floral art", "lavender", "daisies", "eucalyptus", "flower painting", "botanical art", "colorful flowers"]
+  "supporting_tags": ["watercolor bouquet", "floral art", "lavender", "daisies", "eucalyptus", "flower painting", "botanical art", "colorful flowers", "spring flowers", "garden lover", "nature art", "soft floral", "flower gift", "botanical decor"]
 }}
 
 Example 5: Text-only design
 {{
-  "title": "Inspirational Keep Going Quote",
-  "description": "A bold typography design featuring the motivational quote Keep Going in clean black lettering.",
+  "title": "Inspirational Keep Going Quote Typography",
+  "description": "Bold Keep Going quote typography with a clean motivational feel, made for encouragement gifts, daily reminders, stickers, shirts, and wall art.",
   "main_tag": "inspirational quote",
-  "supporting_tags": ["motivational quote", "typography", "keep going", "bold text", "minimalist quote", "black lettering", "positive vibes", "encouragement"]
+  "supporting_tags": ["motivational quote", "typography", "keep going", "bold text", "minimalist quote", "black lettering", "positive vibes", "encouragement", "daily reminder", "self motivation", "quote art", "inspiring words", "mindset gift", "simple typography"]
 }}
 """.strip()
 
@@ -283,22 +285,21 @@ def _clean_and_normalize_metadata(
         cleaned_tags.append(cleaned_tag)
         
     is_teepublic = (platform or "").lower().strip() == "teepublic"
-    if is_teepublic:
-        cleaned_tags = cleaned_tags[:15]
-    else:
-        cleaned_tags = cleaned_tags[:50]
+    cleaned_tags = cleaned_tags[:14]
 
     if not cleaned_tags:
         raise AIListingError("No valid supporting tags were returned.")
 
     title_trimmed = _safe_trim(title, 60)
-    description_trimmed = _safe_trim(description, 160)
+    description_trimmed = _safe_trim(description, 200)
 
     if is_teepublic:
         sentences = [s.strip() for s in description_trimmed.split(".") if s.strip()]
         if sentences:
             description_trimmed = sentences[0] + "."
 
+    if len(cleaned_tags) != 14:
+        raise AIListingError("AI returned an invalid number of supporting tags.")
     if not title_trimmed or not description_trimmed:
         raise AIListingError("Title or description is missing or invalid.")
 

@@ -20,6 +20,17 @@ class OpenRouterListingError(Exception):
 MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024
 AI_IMAGE_MAX_SIDE = 768
 AI_IMAGE_JPEG_QUALITY = 80
+LISTING_TITLE_MIN_CHARS = 40
+LISTING_TITLE_MAX_CHARS = 60
+LISTING_DESCRIPTION_MAX_CHARS = 200
+LISTING_EXACT_TAG_COUNT = 14
+TAG_MAX_CHARS = 34
+
+TAG_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
+    "in", "into", "is", "it", "its", "of", "on", "or", "that", "the",
+    "this", "to", "with", "your"
+}
 
 
 LISTING_JSON_SCHEMA = {
@@ -81,8 +92,9 @@ def _build_prompt(
     correction = f"\n\nCorrection request: {correction_instruction}" if correction_instruction else ""
     return f"""
 Generate marketplace listing metadata based only on what is visible in this image.
-Describe the actual subject, style, colors, text, and theme you can see.
-Do not invent objects that are not visible.
+Use the visible subject, style, colors, readable text, mood, and likely buyer intent to write a polished seller listing.
+Do not merely restate every obvious object or quote every small word in the image.
+Do not invent objects that are not visible, but write the listing in a natural marketplace style.
 Avoid generic phrases when possible.
 
 Platform: {platform}
@@ -101,12 +113,14 @@ Return ONLY valid JSON with this exact shape:
 }}
 
 Rules:
-- The title should be specific and sellable.
-- The description should be 3 to 4 short sentences or lines if possible.
-- Describe the visible subject, style, colors, mood, and likely buyer or use case only when supported by the image.
+- Title must be 40 to 60 characters, specific, readable, and sellable.
+- Description must be one natural paragraph up to 200 characters. Aim for 160 to 200 characters when possible.
+- Description should sell the design's vibe and use case without blandly saying only what is obvious.
+- Describe visible subject, style, colors, mood, and likely buyer or use case only when supported by the image.
 - The primary tag must be 1 to 2 words maximum. Do not use a long hyphenated phrase.
 - Good primary tag examples: kitchen decor, tea lover, floral mug, coffee art.
-- Supporting tags should be 8 to 12 useful marketplace search tags, minimum 7.
+- Supporting tags must contain exactly 14 useful marketplace search tags.
+- Supporting tags must not include or duplicate the primary tag.
 - Supporting tags must match visible content, with no empty tags or duplicates.
 - If the image has readable text, use the exact text when helpful.
 - Do not mention Redbubble or TeePublic.
@@ -150,6 +164,144 @@ def _safe_trim(text: str, max_len: int) -> str:
     return truncated
 
 
+def _normalize_phrase_key(text: str) -> str:
+    """Normalize a phrase for duplicate comparison."""
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _clean_tag_text(tag: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(tag).replace("#", " ").lower()).strip(" ,;.")
+    cleaned = _safe_trim(cleaned, TAG_MAX_CHARS).strip(" ,;.")
+    return cleaned
+
+
+def _title_case_phrase(text: str) -> str:
+    minor_words = {"and", "or", "of", "the", "in", "on", "for", "with", "to"}
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    if not words:
+        return ""
+    titled = []
+    for index, word in enumerate(words):
+        if index > 0 and word in minor_words:
+            titled.append(word)
+        else:
+            titled.append(word.capitalize())
+    return " ".join(titled)
+
+
+def _tag_candidate_words(*texts: str) -> list[str]:
+    source = " ".join(texts)
+    words = [
+        word.lower()
+        for word in re.findall(r"[a-zA-Z][a-zA-Z0-9]{2,}", source)
+        if word.lower() not in TAG_STOP_WORDS
+    ]
+    return list(dict.fromkeys(words))
+
+
+def _fallback_tag_candidates(
+    *,
+    title: str,
+    description: str,
+    main_tag: str,
+    metadata: dict[str, str],
+) -> list[str]:
+    words = _tag_candidate_words(
+        title,
+        description,
+        metadata.get("filename", ""),
+        metadata.get("title", ""),
+        metadata.get("description", ""),
+        metadata.get("supporting_tags", ""),
+    )
+    candidates: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = _clean_tag_text(value)
+        if cleaned and cleaned not in candidates:
+            candidates.append(cleaned)
+
+    for index in range(len(words) - 1):
+        add(f"{words[index]} {words[index + 1]}")
+    for word in words:
+        add(word)
+
+    main_words = _tag_candidate_words(main_tag)
+    if main_words:
+        subject = main_words[0]
+        add(f"{subject} lover")
+        add(f"{subject} decor")
+        add(f"{subject} gift")
+
+    for generic in [
+        "graphic art",
+        "wall art",
+        "sticker design",
+        "shirt graphic",
+        "print design",
+        "retro style",
+        "minimal style",
+        "gift idea",
+    ]:
+        add(generic)
+
+    return candidates
+
+
+def _normalize_title_length(
+    title: str,
+    *,
+    main_tag: str,
+    tags: list[str],
+    metadata: dict[str, str],
+) -> str:
+    normalized = re.sub(r"\s+", " ", title).strip()
+    normalized = _safe_trim(normalized, LISTING_TITLE_MAX_CHARS)
+    if len(normalized) >= LISTING_TITLE_MIN_CHARS:
+        return normalized
+
+    candidates = tags + [main_tag] + _fallback_tag_candidates(
+        title=normalized,
+        description="",
+        main_tag=main_tag,
+        metadata=metadata,
+    )
+    title_key = _normalize_phrase_key(normalized)
+    for candidate in candidates:
+        addition = _title_case_phrase(candidate)
+        if not addition:
+            continue
+        addition_key = _normalize_phrase_key(addition)
+        if addition_key and addition_key in title_key:
+            continue
+        proposed = f"{normalized} {addition}".strip()
+        if len(proposed) <= LISTING_TITLE_MAX_CHARS:
+            normalized = proposed
+            title_key = _normalize_phrase_key(normalized)
+        if len(normalized) >= LISTING_TITLE_MIN_CHARS:
+            break
+
+    if len(normalized) < LISTING_TITLE_MIN_CHARS:
+        for suffix in ["Art Print", "Graphic", "Illustration"]:
+            proposed = f"{normalized} {suffix}".strip()
+            if len(proposed) <= LISTING_TITLE_MAX_CHARS:
+                normalized = proposed
+            if len(normalized) >= LISTING_TITLE_MIN_CHARS:
+                break
+
+    return _safe_trim(normalized, LISTING_TITLE_MAX_CHARS)
+
+
+def _normalize_description_length(description: str) -> str:
+    normalized = re.sub(r"\s+", " ", description).strip()
+    normalized = _safe_trim(normalized, LISTING_DESCRIPTION_MAX_CHARS).strip()
+    if normalized and normalized[-1] not in ".!?":
+        normalized = f"{normalized}."
+        if len(normalized) > LISTING_DESCRIPTION_MAX_CHARS:
+            normalized = _safe_trim(normalized, LISTING_DESCRIPTION_MAX_CHARS).rstrip(".") + "."
+    return normalized
+
+
 def _shorten_primary_tag(tag: str) -> str:
     """Keep a model-provided primary tag to a gentle 1-2 word marketplace phrase."""
     cleaned = re.sub(r"[_\-]+", " ", tag.lower()).strip()
@@ -184,14 +336,19 @@ def _fallback_listing(metadata: dict[str, str]) -> dict[str, Any]:
     else:
         title = "Custom Visual Listing"
         main_keyword = "custom visual"
-        tags = ["custom visual", "visual art", "print ready", "seller listing", "creative graphic"]
+        tags = [
+            "custom visual", "visual art", "print ready", "seller listing",
+            "creative graphic", "wall art", "shirt graphic", "sticker design",
+            "gift idea", "graphic art", "print design", "digital artwork",
+            "decorative art", "marketplace art",
+        ]
 
     return {
         "title": title,
-        "description": f"{title} based on the uploaded filename; review the image before publishing.",
+        "description": f"{title} listing drafted from the uploaded file context; review the final title, tags, and description before publishing.",
         "main_tag": main_keyword,
-        "tags": tags[:12],
-        "supporting_tags": ", ".join(tags[:12]),
+        "tags": tags[:LISTING_EXACT_TAG_COUNT],
+        "supporting_tags": ", ".join(tags[:LISTING_EXACT_TAG_COUNT]),
         "fallback_used": True,
     }
 
@@ -232,43 +389,52 @@ def _clean_and_normalize_metadata(
         if not salvaged:
             raise OpenRouterListingError("Main tag is empty or invalid.")
 
-    # 2. Clean supporting tags
-    seen = set()
-    # Supporting tags should not repeat the main tag exactly.
-    seen.add(main_tag_cleaned)
-    
+    # 2. Clean supporting tags. The main tag must never appear in the
+    # supporting tag list because marketplaces treat it as its own field.
+    seen = {_normalize_phrase_key(main_tag_cleaned)}
     cleaned_tags = []
-    for tag in raw_tags:
-        cleaned_tag = re.sub(r"\s+", " ", str(tag).replace("#", "").lower()).strip(" ,;")
+    candidate_tags = raw_tags + _fallback_tag_candidates(
+        title=title,
+        description=description,
+        main_tag=main_tag_cleaned,
+        metadata=metadata,
+    )
+    for tag in candidate_tags:
+        cleaned_tag = _clean_tag_text(tag)
         if _is_forbidden_tag(cleaned_tag):
             continue
-        if cleaned_tag in seen:
+        tag_key = _normalize_phrase_key(cleaned_tag)
+        if not tag_key or tag_key in seen:
             continue
-        seen.add(cleaned_tag)
+        seen.add(tag_key)
         cleaned_tags.append(cleaned_tag)
+        if len(cleaned_tags) >= LISTING_EXACT_TAG_COUNT:
+            break
         
-    is_teepublic = (platform or "").lower().strip() == "teepublic"
-    if is_teepublic:
-        cleaned_tags = cleaned_tags[:15]
-    else:
-        cleaned_tags = cleaned_tags[:50]
+    if len(cleaned_tags) < LISTING_EXACT_TAG_COUNT:
+        raise OpenRouterListingError("AI returned too few usable supporting tags.")
 
-    if not cleaned_tags:
-        fallback_words = _clean_filename_words(metadata.get("filename", ""))
-        cleaned_tags = fallback_words[:8] or [main_tag_cleaned]
-
-    title_trimmed = _safe_trim(title, 60)
-    description_trimmed = _safe_trim(description, 420)
+    title_trimmed = _normalize_title_length(
+        title,
+        main_tag=main_tag_cleaned,
+        tags=cleaned_tags,
+        metadata=metadata,
+    )
+    description_trimmed = _normalize_description_length(description)
 
     if not title_trimmed or not description_trimmed:
         raise OpenRouterListingError("Title or description is missing or invalid.")
+    if len(title_trimmed) > LISTING_TITLE_MAX_CHARS:
+        raise OpenRouterListingError("Title is too long.")
+    if len(cleaned_tags) != LISTING_EXACT_TAG_COUNT:
+        raise OpenRouterListingError("AI returned an invalid tag count.")
 
     return {
         "title": title_trimmed,
         "description": description_trimmed,
         "main_tag": main_tag_cleaned,
         "primary_tag": main_tag_cleaned,
-        "tags": cleaned_tags,
+        "tags": cleaned_tags[:LISTING_EXACT_TAG_COUNT],
         "supporting_tags": ", ".join(cleaned_tags),
     }
 
@@ -407,7 +573,7 @@ async def generate_listing_openrouter(
             }
         ],
         "temperature": 0.2,
-        "max_tokens": 1024
+        "max_tokens": 1400
     }
     if structured_output:
         payload["response_format"] = {
@@ -465,7 +631,7 @@ async def generate_listing_openrouter(
                 platform,
                 metadata,
                 bool(image_payload_base64),
-                "Your previous listing did not match the visible image. Re-analyze the image and describe only visible objects.",
+                "Your previous listing failed validation. Return a 40 to 60 character title, one polished description under 200 characters, one primary tag, and exactly 14 supporting tags that do not include the primary tag.",
             )
             
             retry_content_list: list[dict[str, Any]] = [{"type": "text", "text": retry_prompt_str}]
@@ -486,7 +652,7 @@ async def generate_listing_openrouter(
                     }
                 ],
                 "temperature": 0.2,
-                "max_tokens": 1024
+                "max_tokens": 1400
             }
             
             # Retry without response_format so routed free models that do not
