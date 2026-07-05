@@ -1019,6 +1019,17 @@ export default function App() {
     userId,
   ]);
 
+  const refreshAfterUpload = useCallback((marketplace, reason = "upload-complete") => {
+    if (!DESIGN_MARKETPLACES.includes(marketplace)) return;
+    void refreshDesigns({
+      force: true,
+      marketplaces: [marketplace],
+      preserveCurrent: true,
+      dedupe: false,
+      reason,
+    });
+  }, [refreshDesigns]);
+
   useEffect(() => {
     if (!isAuthenticated || !userId) return;
     if (hasCheckoutSuccessFlag()) return;
@@ -2018,7 +2029,7 @@ export default function App() {
                   onDesignsChange={setRedbubbleDesignsCached}
                   onImportClick={() => redbubbleLocked ? openPricing() : handleTabChange("import")}
                   onUploadImagesClick={() => redbubbleLocked ? openPricing() : setShowImagesPanel((c) => !c)}
-                  onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })}
+                  onImagesUploaded={() => refreshAfterUpload("redbubble", "images-uploaded")}
                   onDesignsCopied={handleDesignsCopied}
                   onRefreshFromBackend={() => refreshDesigns({
                     force: true,
@@ -2049,7 +2060,7 @@ export default function App() {
                   isWorkspaceLocked={redbubbleLocked}
                   onLockedAction={openPricing}
                 />
-                {editorPlatform !== "redbubble" && showImagesPanel && <ImageGrid designs={redbubbleDesigns} uploadedImages={redbubbleImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["redbubble"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={redbubbleLocked} onLockedAction={openPricing} />}
+                {editorPlatform !== "redbubble" && showImagesPanel && <ImageGrid marketplace="redbubble" designs={redbubbleDesigns} uploadedImages={redbubbleImages} onImagesUploaded={() => refreshAfterUpload("redbubble", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={redbubbleLocked} onLockedAction={openPricing} />}
               </>
             )}
           </div>
@@ -2085,6 +2096,7 @@ export default function App() {
                       rememberPlatformNavigation("teepublic", { activeDesignId: designId });
                     }}
                     onDesignsChange={setTeepublicDesignsCached}
+                    onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")}
                     onBack={() => handleBackToDesigns("teepublic")}
                     onUnsavedChangesChange={(isDirty) => setPlatformUnsaved("teepublic", isDirty)}
                     unsavedResetToken={unsavedResetTokens.teepublic}
@@ -2103,7 +2115,7 @@ export default function App() {
                       onDesignsChange={setTeepublicDesignsCached}
                       onImportClick={() => teepublicLocked ? openPricing() : handleTabChange("import")}
                       onUploadImagesClick={() => teepublicLocked ? openPricing() : setShowImagesPanel((c) => !c)}
-                      onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })}
+                      onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")}
                       onDesignsCopied={handleDesignsCopied}
                       onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "manual-refresh" })}
                       onEditDesign={(index, designId) => handleOpenEditor("teepublic", "design", index, designId)}
@@ -2119,7 +2131,7 @@ export default function App() {
                       isWorkspaceLocked={teepublicLocked}
                       onLockedAction={openPricing}
                     />
-                    {editorPlatform !== "teepublic" && showImagesPanel && <ImageGrid designs={teepublicDesigns} uploadedImages={teepublicImages} onImagesUploaded={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "images-uploaded" })} userId={user?.id || ""} isWorkspaceLocked={teepublicLocked} onLockedAction={openPricing} />}
+                    {editorPlatform !== "teepublic" && showImagesPanel && <ImageGrid marketplace="teepublic" designs={teepublicDesigns} uploadedImages={teepublicImages} onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={teepublicLocked} onLockedAction={openPricing} />}
                   </>
                 </div>
               </>

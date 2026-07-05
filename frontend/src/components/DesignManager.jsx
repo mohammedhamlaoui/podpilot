@@ -1138,6 +1138,7 @@ export default function DesignManager({
         setSaveProgress(current => current ? { ...current, percent: 100, status: "Completed" } : null);
         revokeLocalDraftPreview(currentDesign);
         onDesignsChange((current) => [created, ...current.filter((design) => design.id !== editingId && design.id !== created.id)]);
+        if (fileToUpload) onImagesUploaded?.();
       } else {
         let imageUpdate = null;
         if (pendingReplacementFile) {
@@ -1171,6 +1172,7 @@ export default function DesignManager({
         });
         setSaveProgress(current => current ? { ...current, percent: 100, status: "Completed" } : null);
         onDesignsChange((current) => current.map((design) => (design.id === editingId ? { ...design, ...(imageUpdate || {}), ...updated } : design)));
+        if (pendingReplacementFile) onImagesUploaded?.();
       }
       cancelEdit(true); // silent=true: skip leave-warning, this is a successful save
     } catch (saveError) {
@@ -1794,6 +1796,7 @@ export default function DesignManager({
       setSessionImages([]);
       cancelEdit(true); // silent=true: skip leave-warning, this is a successful save
       setSaveProgress(current => current ? { ...current, percent: 100, status: "Completed" } : null);
+      if (created.length > 0 || filesToUpload.length > 0) onImagesUploaded?.();
     } catch (saveError) {
       logFailingRequest(saveError);
       console.error("[PodPilot] create designs error", saveError);

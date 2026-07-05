@@ -915,6 +915,7 @@ export default function DesignManager({
       setSessionImages([]);
       cancelEdit(true); // silent=true: skip leave-warning, this is a successful save
       setSaveProgress(current => current ? { ...current, percent: 100, status: "Completed" } : null);
+      if (created.length > 0 || filesToUpload.length > 0) onImagesUploaded?.();
     } catch (saveError) {
       logFailingRequest(saveError);
       console.error("[PodPilot] create designs error", saveError);

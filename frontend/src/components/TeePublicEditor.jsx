@@ -83,6 +83,7 @@ export default function TeePublicEditor({
   onActiveIndexChange,
   onActiveDesignIdChange,
   onDesignsChange,
+  onImagesUploaded,
   onBack,
   onUnsavedChangesChange,
   unsavedResetToken = 0,
@@ -945,6 +946,9 @@ export default function TeePublicEditor({
       setForm(buildForm(savedDesign));
       resetImageReplacementState();
       markClean();
+      if ((isLocalId(design.id) && (pendingReplacementFile || getLocalDraftFile(design))) || pendingReplacementFile) {
+        onImagesUploaded?.();
+      }
     } catch (err) {
       logFailingRequest(err);
       console.error("[PodPilot] save current error:", err);
@@ -1143,6 +1147,7 @@ export default function TeePublicEditor({
       resetImageReplacementState();
       showToast(`Saved ${designs.length} designs.`);
       markClean();
+      if (createdFromLocalDrafts.length > 0 || pendingReplacementFile) onImagesUploaded?.();
     } catch (err) {
       logFailingRequest(err);
       console.error("[PodPilot] save all error:", err);

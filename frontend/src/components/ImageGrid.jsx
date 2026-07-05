@@ -28,7 +28,7 @@ function findSavedFile(file, response) {
   return files.find((savedFile) => savedFile.original_name === file.name) || {};
 }
 
-export default function ImageGrid({ designs, uploadedImages, onImagesUploaded, userId = "", isWorkspaceLocked = false, onLockedAction }) {
+export default function ImageGrid({ marketplace = "redbubble", designs, uploadedImages, onImagesUploaded, userId = "", isWorkspaceLocked = false, onLockedAction }) {
   const [pendingFiles, setPendingFiles] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -91,7 +91,7 @@ export default function ImageGrid({ designs, uploadedImages, onImagesUploaded, u
     setSuccess("");
 
     try {
-      const response = await uploadStandaloneImages(pendingFiles, "redbubble");
+      const response = await uploadStandaloneImages(pendingFiles, marketplace);
       const nextImages = await Promise.all(pendingFiles.map(async (file) => {
         const savedFile = findSavedFile(file, response);
         const previewDataUrl = await createImagePreviewDataUrl(file);
