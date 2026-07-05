@@ -437,18 +437,37 @@ a:hover { text-decoration: underline; }
 .manager-header p { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
 .manager-actions { display: flex; align-items: center; gap: 10px; }
 .manager-refresh-action {
+  position: relative;
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
 }
-.manager-refresh-action small {
+.manager-refresh-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
   text-align: center;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.16s, transform 0.16s;
   white-space: nowrap;
+}
+.manager-refresh-action:hover .manager-refresh-tooltip,
+.manager-refresh-action:focus-within .manager-refresh-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 .manager-toolbar {
   display: flex;

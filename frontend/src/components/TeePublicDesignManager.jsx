@@ -2164,11 +2164,19 @@ export default function DesignManager({
             <span>Import</span>
           </button>
           <div className="manager-refresh-action">
-            <small>Click if you can&apos;t see your uploaded designs</small>
-            <button type="button" className="secondary-button" onClick={onRefreshFromBackend} disabled={isLoading}>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onRefreshFromBackend}
+              disabled={isLoading}
+              aria-describedby="teepublic-refresh-hint"
+            >
               <Icon name="refresh" />
               <span>{isLoading ? "Updating..." : "Refresh"}</span>
             </button>
+            <span id="teepublic-refresh-hint" className="manager-refresh-tooltip" role="tooltip">
+              Click if you can&apos;t see your uploaded designs
+            </span>
           </div>
           <button type="button" className="primary-button" onClick={startAdd}>
             <Icon name="add" />
