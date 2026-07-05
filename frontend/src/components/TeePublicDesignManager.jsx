@@ -2163,10 +2163,13 @@ export default function DesignManager({
             <Icon name="import" />
             <span>Import</span>
           </button>
-          <button type="button" className="secondary-button" onClick={onRefreshFromBackend} disabled={isLoading}>
-            <Icon name="refresh" />
-            <span>{isLoading ? "Updating..." : "Refresh"}</span>
-          </button>
+          <div className="manager-refresh-action">
+            <small>Click if you can&apos;t see your uploaded designs</small>
+            <button type="button" className="secondary-button" onClick={onRefreshFromBackend} disabled={isLoading}>
+              <Icon name="refresh" />
+              <span>{isLoading ? "Updating..." : "Refresh"}</span>
+            </button>
+          </div>
           <button type="button" className="primary-button" onClick={startAdd}>
             <Icon name="add" />
             <span>Add New</span>
