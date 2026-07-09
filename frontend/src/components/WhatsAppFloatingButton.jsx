@@ -2,11 +2,16 @@ import { useState } from "react";
 
 const WHATSAPP_NUMBER = "212752403965";
 const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
+const HIDDEN_PATHS = new Set([
+  "/compare/podpilot-vs-merchghost-vs-merchtitans",
+  "/customers/compare/podpilot-vs-merchghost-vs-merchtitans",
+]);
 
 export default function WhatsAppFloatingButton() {
   const [isHidden, setIsHidden] = useState(false);
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
 
-  if (isHidden) return null;
+  if (isHidden || HIDDEN_PATHS.has(pathname)) return null;
 
   return (
     <div className="pp-whatsapp-widget" aria-label="WhatsApp support">

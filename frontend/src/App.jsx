@@ -14,6 +14,7 @@ import LoginPage from "./components/LoginPage";
 import LandingPage from "./components/LandingPage";
 import PricingPage from "./components/PricingPage";
 import CheckoutPage from "./components/CheckoutPage";
+import ComparisonPage from "./components/ComparisonPage";
 import BlogPage from "./components/BlogPage";
 import ContactPage from "./components/ContactPage";
 import PrivacyPolicyPage from "./components/PrivacyPolicyPage";
@@ -228,6 +229,10 @@ const EDITOR_VIEW_KEYS = {
 const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
+const COMPARISON_ROUTES = [
+  "/compare/podpilot-vs-merchghost-vs-merchtitans",
+  "/customers/compare/podpilot-vs-merchghost-vs-merchtitans",
+];
 
 function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -507,6 +512,14 @@ function isValidRoute(pathname) {
     "extension-installed"
   ];
   
+  if (first === "compare") {
+    return segments.length === 2 && segments[1] === "podpilot-vs-merchghost-vs-merchtitans";
+  }
+
+  if (first === "customers") {
+    return segments.length === 3 && segments[1] === "compare" && segments[2] === "podpilot-vs-merchghost-vs-merchtitans";
+  }
+
   if (staticRoutes.includes(first)) {
     return first === "blog" ? segments.length <= 2 : segments.length === 1;
   }
@@ -574,6 +587,7 @@ export default function App() {
       "/terms-of-service",
       "/refund-policy",
       "/security",
+      ...COMPARISON_ROUTES,
     ];
     const publicPathPrefixes = ["/blog"];
     const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "profile"];
@@ -1269,6 +1283,7 @@ export default function App() {
       window.location.pathname === "/help-center" ||
       window.location.pathname === "/help" ||
       window.location.pathname === "/security" ||
+      COMPARISON_ROUTES.includes(window.location.pathname) ||
       window.location.pathname === "/email-confirmed" ||
       window.location.pathname === "/login" ||
       window.location.pathname === "/signup" ||
@@ -1844,6 +1859,10 @@ export default function App() {
 
   if (window.location.pathname === "/pricing") {
     return <PricingPage theme={theme} setTheme={setTheme} subscriptionSummary={subscriptionSummary} />;
+  }
+
+  if (COMPARISON_ROUTES.includes(window.location.pathname)) {
+    return <ComparisonPage theme={theme} setTheme={setTheme} />;
   }
 
   const seoRouteAliases = {

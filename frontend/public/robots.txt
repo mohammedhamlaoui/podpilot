@@ -12,6 +12,10 @@ Allow: /teepublic-upload-automation
 Allow: /blog
 Allow: /blog/
 Allow: /blog/*
+Allow: /compare
+Allow: /compare/
+Allow: /customers/compare
+Allow: /customers/compare/
 
 # Trust and support pages
 Allow: /contact
