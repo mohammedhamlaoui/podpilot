@@ -8144,16 +8144,15 @@ button.copy-link-open .pp-spinner-on-button {
   justify-content: center;
   width: 106px;
   height: 30px;
-  padding: 3px 5px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .landing-footer-badge:hover {
-  border-color: rgba(167, 139, 250, 0.56);
-  box-shadow: 0 14px 30px rgba(124, 58, 237, 0.22);
+  opacity: 0.86;
   transform: translateY(-1px);
 }
 .landing-footer-badge img {
