@@ -41,8 +41,7 @@ const pricingPlans = [
     name: "Redbubble + TeePublic",
     planId: "all_platforms",
     price: "$6.99/month",
-    badge: "Best for bulk sellers",
-    workflowBadge: "Faster bulk workflow",
+    badge: "Most Popular",
     details: [
       "Unlimited Redbubble and TeePublic upload automation",
       "Priority fast upload workflow for bulk sellers",
@@ -375,14 +374,9 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
               </button>
             </div>
             {billingInterval === "annual" && (
-              <>
-                <span className="landing-billing-toggle-badge">
-                  2 months free
-                </span>
-                <span className="landing-billing-toggle-badge">
-                  Best Value
-                </span>
-              </>
+              <span className="landing-billing-toggle-badge">
+                Most Popular
+              </span>
             )}
           </div>
 
@@ -438,39 +432,7 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
                       {plan.subtitle && <span className="landing-plan-subtitle">{plan.subtitle}</span>}
                     </div>
                     {plan.badge && (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-                        <span className="landing-plan-badge">{plan.badge}</span>
-                        {plan.planId === "all_platforms" && (
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", flexWrap: "wrap", maxWidth: "190px" }}>
-                            {plan.workflowBadge && (
-                              <span style={{
-                                fontSize: "10px",
-                                fontWeight: "700",
-                                color: "#6d28d9",
-                                backgroundColor: "rgba(124, 58, 237, 0.12)",
-                                border: "1px solid rgba(124, 58, 237, 0.25)",
-                                padding: "2px 8px",
-                                borderRadius: "9999px",
-                                whiteSpace: "nowrap",
-                              }}>
-                                {plan.workflowBadge}
-                              </span>
-                            )}
-                            <span style={{
-                              fontSize: "10px",
-                              fontWeight: "700",
-                              color: "#0d9488",
-                              backgroundColor: "rgba(13, 148, 136, 0.1)",
-                              border: "1px solid rgba(13, 148, 136, 0.25)",
-                              padding: "2px 8px",
-                              borderRadius: "9999px",
-                              whiteSpace: "nowrap",
-                            }}>
-                              Save vs separate plans
-                            </span>
-                          </div>
-                        )}
-                      </div>
+                      <span className="landing-plan-badge">{plan.badge}</span>
                     )}
                   </div>
                   <strong>{priceText}<span className="landing-price-period"> /month</span></strong>
