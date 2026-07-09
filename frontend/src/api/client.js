@@ -264,7 +264,7 @@ api.interceptors.response.use(
     const status = Number(error?.response?.status);
     const originalConfig = error?.config || {};
     const shouldRefresh =
-      (status === 401 || status === 403) &&
+      status === 401 &&
       !originalConfig._podpilotAuthRetry &&
       isProtectedApiRequest(originalConfig.url || "");
 

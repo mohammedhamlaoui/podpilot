@@ -139,10 +139,41 @@ const PLANS_INFO = {
   },
 };
 
+const AI_CREDIT_PACKS_INFO = {
+  250: {
+    id: "ai_credits_250",
+    name: "250 AI Credits",
+    price: "$1.99",
+    subtotal: "$1.99",
+    total: "$1.99",
+    dueInterval: "one-time",
+    billingPeriod: "one-time purchase",
+    features: [
+      "250 AI listing credits",
+      "Generate Redbubble listing drafts",
+      "Generate TeePublic listing drafts",
+      "Use with your existing PodPilot workflow",
+    ],
+  },
+};
+
 function readCheckoutParams() {
   const searchParams = new URLSearchParams(window.location.search);
   let planParam = searchParams.get("plan") || "all-platforms";
   let billingParam = searchParams.get("billing") || "annual";
+  const creditsParam = Number(searchParams.get("credits") || 250);
+
+  if (planParam === "ai-credits" || planParam === "ai_credits") {
+    const normalizedCredits = AI_CREDIT_PACKS_INFO[creditsParam] ? creditsParam : 250;
+    const pack = AI_CREDIT_PACKS_INFO[normalizedCredits];
+    return {
+      mode: "ai_credits",
+      plan: "ai-credits",
+      billing: "one_time",
+      credits: normalizedCredits,
+      creditPackId: pack.id,
+    };
+  }
 
   if (planParam === "all-platforms" || planParam === "all_platforms") {
     planParam = "all-platforms";
@@ -158,7 +189,7 @@ function readCheckoutParams() {
     billingParam = "annual";
   }
 
-  return { plan: planParam, billing: billingParam };
+  return { mode: "subscription", plan: planParam, billing: billingParam };
 }
 
 function checkoutMessageForError(error, fallback) {
@@ -250,7 +281,14 @@ export default function CheckoutPage({ theme, setTheme }) {
     setParams(readCheckoutParams());
   }, []);
 
-  const { plan, billing } = params;
+  const {
+    mode: checkoutMode = "subscription",
+    plan,
+    billing,
+    credits = 0,
+    creditPackId = "",
+  } = params;
+  const isAiCreditsCheckout = checkoutMode === "ai_credits";
   if (CHECKOUT_DEBUG) {
     // eslint-disable-next-line no-console
     console.log("[Checkout] plan=", plan);
@@ -264,9 +302,10 @@ export default function CheckoutPage({ theme, setTheme }) {
     window.location.href = "/login";
   }, [authLoading, billing, isAuthenticated, plan]);
 
-  const planInfo = PLANS_INFO[plan] || PLANS_INFO["all-platforms"];
-  const billingInfo = planInfo[billing] || planInfo.annual;
-  const isTrialEligible = !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
+  const aiCreditPackInfo = AI_CREDIT_PACKS_INFO[credits] || AI_CREDIT_PACKS_INFO[250];
+  const planInfo = isAiCreditsCheckout ? aiCreditPackInfo : (PLANS_INFO[plan] || PLANS_INFO["all-platforms"]);
+  const billingInfo = isAiCreditsCheckout ? aiCreditPackInfo : (planInfo[billing] || planInfo.annual);
+  const isTrialEligible = !isAiCreditsCheckout && !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
   const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
   const hasValidSelectedPriceId = isValidPaddlePriceId(selectedPriceId);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
@@ -277,7 +316,9 @@ export default function CheckoutPage({ theme, setTheme }) {
 
   useSeo({
     title: `Checkout - ${planInfo.name}`,
-    description: `Complete your checkout for the PodPilot ${planInfo.name}. Secure online payment processed via Paddle.`,
+    description: isAiCreditsCheckout
+      ? `Buy ${planInfo.name} for PodPilot AI listing generation. Secure online payment processed via Paddle.`
+      : `Complete your checkout for the PodPilot ${planInfo.name}. Secure online payment processed via Paddle.`,
     canonical: "/checkout",
     noindex: true,
   });
@@ -296,7 +337,12 @@ export default function CheckoutPage({ theme, setTheme }) {
       try {
         setCheckoutConfigLoading(true);
         setCheckoutConfigError("");
-        const data = await getCheckoutConfig(plan, billing);
+        const data = isAiCreditsCheckout
+          ? await getCheckoutConfig({
+              intent_type: "ai_credits",
+              credit_pack_id: creditPackId || aiCreditPackInfo.id,
+            })
+          : await getCheckoutConfig(plan, billing);
         if (active) {
           if (isTransientNoTrialState(data)) {
             setCheckoutNotice(null);
@@ -318,7 +364,7 @@ export default function CheckoutPage({ theme, setTheme }) {
     return () => {
       active = false;
     };
-  }, [billing, customerUserId, plan]);
+  }, [aiCreditPackInfo.id, billing, creditPackId, customerUserId, isAiCreditsCheckout, plan]);
 
   function getTrialDueDate() {
     const date = new Date();
@@ -412,7 +458,8 @@ export default function CheckoutPage({ theme, setTheme }) {
         checkoutConfig,
         checkoutIntentId,
         trialEligible: isTrialEligible,
-        plan,
+        plan: isAiCreditsCheckout ? (checkoutConfig?.credit_pack_id || creditPackId || aiCreditPackInfo.id) : plan,
+        creditPackId: isAiCreditsCheckout ? (checkoutConfig?.credit_pack_id || creditPackId || aiCreditPackInfo.id) : undefined,
         email: userEmail,
         countryCode: customerCountryCode,
         userId: customerUserId,
@@ -443,7 +490,7 @@ export default function CheckoutPage({ theme, setTheme }) {
       if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
       removePaddleListener?.();
     };
-  }, [billing, checkoutConfig, checkoutConfigLoading, checkoutIntentId, customerCountryCode, customerUserId, hasValidSelectedPriceId, inlineAttempt, isAuthenticated, isTrialEligible, paddleReady, plan, selectedPriceId, showInlineError, userEmail]);
+  }, [aiCreditPackInfo.id, billing, checkoutConfig, checkoutConfigLoading, checkoutIntentId, creditPackId, customerCountryCode, customerUserId, hasValidSelectedPriceId, inlineAttempt, isAiCreditsCheckout, isAuthenticated, isTrialEligible, paddleReady, plan, selectedPriceId, showInlineError, userEmail]);
 
   const handleInlineRetry = async () => {
     if (loadingPaddle) return;
@@ -461,7 +508,13 @@ export default function CheckoutPage({ theme, setTheme }) {
       <PublicHeader
         theme={theme}
         setTheme={setTheme}
-        guestCtaLabel={checkoutConfigLoading ? "Continue" : (isTrialEligible ? "Start your 7-day free trial" : "Subscribe now")}
+        guestCtaLabel={
+          checkoutConfigLoading
+            ? "Continue"
+            : isAiCreditsCheckout
+            ? "Buy AI credits"
+            : (isTrialEligible ? "Start your 7-day free trial" : "Subscribe now")
+        }
       />
 
       <section className="checkout-section">
@@ -473,12 +526,20 @@ export default function CheckoutPage({ theme, setTheme }) {
                 <div className="checkout-success-icon-wrapper">
                   <CheckCircle2 size={48} className="checkout-success-icon animate-scale-up" />
                 </div>
-                <h2>Subscription Activated!</h2>
+                <h2>{isAiCreditsCheckout ? "AI Credits Purchased!" : "Subscription Activated!"}</h2>
                 <p>
-                  Thank you for subscribing to the <strong>{planInfo.name}</strong> ({billing === "annual" ? "Annual" : "Monthly"}).
+                  {isAiCreditsCheckout ? (
+                    <>Thank you for buying <strong>{planInfo.name}</strong>.</>
+                  ) : (
+                    <>Thank you for subscribing to the <strong>{planInfo.name}</strong> ({billing === "annual" ? "Annual" : "Monthly"}).</>
+                  )}
                 </p>
                 <div className="checkout-success-details">
-                  <p>Our backend is currently verifying and configuring your workspace access. Paddle webhooks serve as the single secure source of truth.</p>
+                  <p>
+                    {isAiCreditsCheckout
+                      ? "Our backend is syncing your new AI credits. Paddle webhooks serve as the single secure source of truth."
+                      : "Our backend is currently verifying and configuring your workspace access. Paddle webhooks serve as the single secure source of truth."}
+                  </p>
                   <span className="checkout-success-badge">
                     <ShieldCheck size={14} />
                     Verified Checkout Origin
@@ -506,7 +567,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     <span className="checkout-price-vat"> inc. VAT</span>
                   </span>
                   <span className="checkout-price-period">
-                    {billing === "annual" ? "billed annually ⓘ" : "billed monthly ⓘ"}
+                    {isAiCreditsCheckout ? "one-time AI credit pack" : (billing === "annual" ? "billed annually ⓘ" : "billed monthly ⓘ")}
                   </span>
                   {isTrialEligible && (
                     <div className="checkout-trial-badge">
@@ -522,6 +583,8 @@ export default function CheckoutPage({ theme, setTheme }) {
                   <p className="checkout-billing-note">
                     {checkoutConfigLoading
                       ? "Confirming your offer..."
+                      : isAiCreditsCheckout
+                      ? `${planInfo.name} for ${billingInfo.total}.`
                       : isTrialEligible
                       ? `${DISPLAY_TRIAL_DAYS} days free, then ${billingInfo.total} ${billing === "annual" ? "annually" : "monthly"}.`
                       : `You will be charged ${billingInfo.total} today.`}
@@ -533,9 +596,10 @@ export default function CheckoutPage({ theme, setTheme }) {
                 <div className="checkout-plan-card">
                   <div className="checkout-plan-card-header">
                     <div className="checkout-plan-logo-wrap">
-                      {plan === "redbubble" && <Icon name="redbubble" className="checkout-plan-logo" />}
-                      {plan === "teepublic" && <Icon name="teepublic" className="checkout-plan-logo" />}
-                      {plan === "all-platforms" && (
+                      {isAiCreditsCheckout && <Sparkles className="checkout-plan-logo" size={32} />}
+                      {!isAiCreditsCheckout && plan === "redbubble" && <Icon name="redbubble" className="checkout-plan-logo" />}
+                      {!isAiCreditsCheckout && plan === "teepublic" && <Icon name="teepublic" className="checkout-plan-logo" />}
+                      {!isAiCreditsCheckout && plan === "all-platforms" && (
                         <div className="checkout-plan-logo-group">
                           <Icon name="redbubble" className="checkout-plan-logo" />
                           <Icon name="teepublic" className="checkout-plan-logo" />
@@ -545,7 +609,7 @@ export default function CheckoutPage({ theme, setTheme }) {
                     <div className="checkout-plan-title-group">
                       <h3>{planInfo.name}</h3>
                       <span>
-                        {`${billingInfo?.price || "—"} / month`}
+                        {isAiCreditsCheckout ? billingInfo.billingPeriod : `${billingInfo?.price || "—"} / month`}
                       </span>
                     </div>
                   </div>

@@ -70,6 +70,8 @@ PLAN_BILLING_CATALOG = {
 SUBSCRIPTION_REQUIRED_DETAIL = "Subscription required. Start your free trial to use this feature."
 PLATFORM_LOCKED_DETAIL = "This platform is locked for your current plan. Please upgrade."
 TRIAL_ALREADY_USED_DETAIL = "Free trial already used. Please choose a paid plan to continue."
+AI_TOKENS_EXHAUSTED_CODE = "AI_TOKENS_EXHAUSTED"
+AI_TOKENS_EXHAUSTED_MESSAGE = "You're out of AI tokens."
 
 TRIAL_ELIGIBLE = "eligible"
 TRIAL_ALREADY_USED = "trial_already_used"
@@ -147,6 +149,24 @@ def _raise_supabase_error(action: str, error: Exception) -> None:
         status_code=500,
         detail=f"Supabase query failed while {action}.",
     ) from error
+
+
+def _raise_ai_tokens_exhausted(
+    *,
+    message: str = AI_TOKENS_EXHAUSTED_MESSAGE,
+    available_credits: int = 0,
+    required_credits: int = 1,
+) -> None:
+    raise HTTPException(
+        status_code=402,
+        detail={
+            "code": AI_TOKENS_EXHAUSTED_CODE,
+            "message": AI_TOKENS_EXHAUSTED_MESSAGE,
+            "reason": message,
+            "available_credits": max(0, int(available_credits or 0)),
+            "required_credits": max(1, int(required_credits or 1)),
+        },
+    )
 
 
 def _log_optional_read_fallback(action: str, error: Exception, *, user_id: Optional[str] = None) -> None:
@@ -1619,7 +1639,7 @@ def check_ai_token_availability(user_id: str) -> tuple[str, int]:
     Returns a tuple: (token_source, total_remaining)
     Where token_source is "daily" or "extra".
     
-    If neither is available, raises a 403 Forbidden exception.
+    If neither is available, raises a 402 AI credits exception.
     """
     access = get_subscription_access(user_id)
     
@@ -1642,14 +1662,17 @@ def check_ai_token_availability(user_id: str) -> tuple[str, int]:
         return "extra", extra_tokens
     else:
         if daily_limit > 0:
-            raise HTTPException(
-                status_code=403,
-                detail=f"You have exhausted your daily AI token allowance ({daily_limit} tokens/day) and have no extra purchased AI tokens remaining. Please upgrade your plan or purchase a token pack."
+            _raise_ai_tokens_exhausted(
+                message=(
+                    f"You have exhausted your daily AI token allowance ({daily_limit} tokens/day) "
+                    "and have no extra purchased AI tokens remaining."
+                ),
+                available_credits=remaining_daily + extra_tokens,
             )
         else:
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have an active subscription or any extra purchased AI tokens. Please subscribe to a plan or purchase a token pack to use AI generation."
+            _raise_ai_tokens_exhausted(
+                message="You do not have an active subscription or any extra purchased AI tokens.",
+                available_credits=extra_tokens,
             )
 
 
@@ -1689,9 +1712,9 @@ def consume_ai_token_atomic(user_id: str) -> dict[str, Any]:
 
     rows = list(response.data or [])
     if not rows:
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have any AI tokens remaining. Please upgrade your plan or purchase a token pack to use AI generation.",
+        _raise_ai_tokens_exhausted(
+            message="You do not have any AI tokens remaining.",
+            available_credits=0,
         )
 
     consumed = dict(rows[0])

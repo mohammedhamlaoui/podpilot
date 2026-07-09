@@ -4,6 +4,8 @@ import { batchUpdateDesigns, checkCopyrightRisk, checkTrademarkForDesign, create
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
 import { clearCachedDesignImages } from "../utils/imageCache";
 import { validateAiListingQuality } from "../utils/aiListingQuality";
+import { AI_CREDITS_REQUIRED_MESSAGE, getApiErrorMessage, isAiCreditsError } from "../utils/aiCredits";
+import AiCreditsRequiredToast from "./AiCreditsRequiredToast";
 import CachedThumbnail from "./CachedThumbnail";
 import ColorDropdown from "./ColorDropdown";
 import CopyrightRiskModal from "./CopyrightRiskModal";
@@ -98,6 +100,7 @@ export default function TeePublicEditor({
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [pasteMenuOpen, setPasteMenuOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(null);
   const [aiResult, setAiResult] = useState(null);
@@ -118,6 +121,10 @@ export default function TeePublicEditor({
   const [imageReplacementError, setImageReplacementError] = useState("");
   const replacementInputRef = useRef(null);
   const localDraftPreviewUrlsRef = useRef(new Set());
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   function handleLockedAction() {
     showToast(PREMIUM_LOCK_MESSAGE, "error");
@@ -528,9 +535,7 @@ export default function TeePublicEditor({
       }
       setAiError("");
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      const finalMsg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
-      showToast(finalMsg, "error");
+      handleAiGenerationFailure(error);
       setAiError("");
     } finally {
       setIsAiGenerating(false);
@@ -597,8 +602,8 @@ export default function TeePublicEditor({
       
       setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'success' } : x));
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
+      const msg = isAiCreditsError(error) ? AI_CREDITS_REQUIRED_MESSAGE : getApiErrorMessage(error, "AI generation failed.");
+      if (isAiCreditsError(error)) showAiCreditsRequiredToast();
       setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'failed', error: msg } : x));
     }
   }
@@ -634,6 +639,7 @@ export default function TeePublicEditor({
     let successCount = 0;
     let failedCount = 0;
     let nextDesigns = designs;
+    let stoppedForCredits = false;
 
     for (let i = 0; i < total; i++) {
       if (stopGeneratingAllRef.current) {
@@ -696,14 +702,22 @@ export default function TeePublicEditor({
           break;
         }
         failedCount++;
-        const detail = error.response?.data?.detail;
-        const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
+        const creditsError = isAiCreditsError(error);
+        const msg = creditsError ? AI_CREDITS_REQUIRED_MESSAGE : getApiErrorMessage(error, "AI generation failed.");
         setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'failed', error: msg } : x));
+        if (creditsError) {
+          stoppedForCredits = true;
+          showAiCreditsRequiredToast();
+          setBatchItems(current => current.map(x => x.status === 'pending' ? { ...x, status: 'failed', error: msg } : x));
+          break;
+        }
       }
     }
 
     setIsGeneratingAll(false);
-    if (stopGeneratingAllRef.current) {
+    if (stoppedForCredits) {
+      setGeneratingAllError(`Generated ${successCount} of ${total} listings successfully. ${AI_CREDITS_REQUIRED_MESSAGE}`);
+    } else if (stopGeneratingAllRef.current) {
       setGeneratingAllError("Generation stopped by user.");
     } else if (failedCount === 0) {
       setShowBatchProgressModal(false);
@@ -1164,9 +1178,30 @@ export default function TeePublicEditor({
     }
   }
 
-  function showToast(msg, type = "success") {
+  function showToast(msg, type = "success", options = {}) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    if (!options.persist) {
+      toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+    }
+  }
+
+  function showAiCreditsRequiredToast() {
+    showToast(
+      <AiCreditsRequiredToast onDismiss={() => setToast(null)} />,
+      "error",
+      { persist: true },
+    );
+  }
+
+  function handleAiGenerationFailure(error) {
+    if (isAiCreditsError(error)) {
+      showAiCreditsRequiredToast();
+      return AI_CREDITS_REQUIRED_MESSAGE;
+    }
+    const msg = getApiErrorMessage(error, "AI generation failed.");
+    showToast(msg, "error");
+    return msg;
   }
 
   function buildTrademarkPayload(item, overrideForm = null) {

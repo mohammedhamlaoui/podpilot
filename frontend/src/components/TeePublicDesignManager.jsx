@@ -5,7 +5,9 @@ import { batchDeleteDesigns, checkCopyrightRisk, checkTrademarkForDesign, copyDe
 import { createImagePreviewDataUrl } from "../utils/imagePreview";
 import { deleteDesignBatch } from "../utils/designDeleteBatch";
 import { validateAiListingQuality } from "../utils/aiListingQuality";
+import { AI_CREDITS_REQUIRED_MESSAGE, getApiErrorMessage, isAiCreditsError } from "../utils/aiCredits";
 import { PREMIUM_LOCK_MESSAGE } from "../lib/subscriptionAccess";
+import AiCreditsRequiredToast from "./AiCreditsRequiredToast";
 import CachedThumbnail from "./CachedThumbnail";
 import DeleteProgressModal from "./DeleteProgressModal";
 
@@ -296,6 +298,7 @@ export default function DesignManager({
   useEffect(() => {
     return () => {
       if (deleteAutoCloseTimerRef.current) clearTimeout(deleteAutoCloseTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -310,6 +313,7 @@ export default function DesignManager({
 
   // Custom toast notification state
   const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   function markDirty() {
@@ -330,11 +334,32 @@ export default function DesignManager({
     markClean();
   }, [unsavedResetToken]);
   
-  function showToast(msg, type = "success") {
+  function showToast(msg, type = "success", options = {}) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
+    if (!options.persist) {
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null);
+      }, 4000);
+    }
+  }
+
+  function showAiCreditsRequiredToast() {
+    showToast(
+      <AiCreditsRequiredToast onDismiss={() => setToast(null)} />,
+      "error",
+      { persist: true },
+    );
+  }
+
+  function handleAiGenerationFailure(error) {
+    if (isAiCreditsError(error)) {
+      showAiCreditsRequiredToast();
+      return AI_CREDITS_REQUIRED_MESSAGE;
+    }
+    const msg = getApiErrorMessage(error, "AI generation failed.");
+    showToast(msg, "error");
+    return msg;
   }
 
   const [createImageReplacements, setCreateImageReplacements] = useState({});
@@ -1167,9 +1192,7 @@ export default function DesignManager({
       applyCreateAiListingResult(result);
       setAiError("");
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      const finalMsg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
-      showToast(finalMsg, "error");
+      handleAiGenerationFailure(error);
       setAiError("");
     } finally {
       setIsAiGenerating(false);
@@ -1234,8 +1257,8 @@ export default function DesignManager({
       
       setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'success' } : x));
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
+      const msg = isAiCreditsError(error) ? AI_CREDITS_REQUIRED_MESSAGE : getApiErrorMessage(error, "AI generation failed.");
+      if (isAiCreditsError(error)) showAiCreditsRequiredToast();
       setBatchItems(current => current.map(x => x.id === item.id ? { ...x, status: 'failed', error: msg } : x));
     }
   }
@@ -1268,6 +1291,7 @@ export default function DesignManager({
 
     let successCount = 0;
     let failedCount = 0;
+    let stoppedForCredits = false;
 
     for (let i = 0; i < total; i++) {
       if (stopGeneratingAllRef.current) {
@@ -1321,14 +1345,22 @@ export default function DesignManager({
           break;
         }
         failedCount++;
-        const detail = error.response?.data?.detail;
-        const msg = typeof detail === "string" ? detail : error.message || "AI generation failed.";
+        const creditsError = isAiCreditsError(error);
+        const msg = creditsError ? AI_CREDITS_REQUIRED_MESSAGE : getApiErrorMessage(error, "AI generation failed.");
         setBatchItems(current => current.map(item => item.id === image.id ? { ...item, status: 'failed', error: msg } : item));
+        if (creditsError) {
+          stoppedForCredits = true;
+          showAiCreditsRequiredToast();
+          setBatchItems(current => current.map(item => item.status === 'pending' ? { ...item, status: 'failed', error: msg } : item));
+          break;
+        }
       }
     }
 
     setIsGeneratingAll(false);
-    if (stopGeneratingAllRef.current) {
+    if (stoppedForCredits) {
+      setGeneratingAllError(`Generated ${successCount} of ${total} listings successfully. ${AI_CREDITS_REQUIRED_MESSAGE}`);
+    } else if (stopGeneratingAllRef.current) {
       setGeneratingAllError("Generation stopped by user.");
     } else if (failedCount === 0) {
       setShowBatchProgressModal(false);
