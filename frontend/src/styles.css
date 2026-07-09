@@ -8119,48 +8119,6 @@ button.copy-link-open .pp-spinner-on-button {
   color: #a78bfa;
   transform: translateX(2px);
 }
-.landing-footer-trust-badges {
-  margin-top: 22px;
-}
-.landing-footer-badges-title {
-  display: block;
-  margin-bottom: 10px;
-  color: #c4b5fd;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.landing-footer-badges-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  max-width: 290px;
-}
-.landing-footer-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 106px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.landing-footer-badge:hover {
-  opacity: 0.86;
-  transform: translateY(-1px);
-}
-.landing-footer-badge img {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
 .landing-footer-bottom {
   margin-top: 48px;
   padding-top: 24px;
@@ -8194,9 +8152,6 @@ button.copy-link-open .pp-spinner-on-button {
   }
   .landing-footer-disclaimer {
     text-align: left;
-  }
-  .landing-footer-badges-row {
-    max-width: none;
   }
 }
 .landing-step-card,
