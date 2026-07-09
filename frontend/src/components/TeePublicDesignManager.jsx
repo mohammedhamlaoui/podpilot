@@ -218,6 +218,26 @@ function findSavedFile(file, response) {
   return files.find((savedFile) => savedFile.original_name === file.name) || {};
 }
 
+function designSearchText(design) {
+  return [
+    design?.filename,
+    design?.title,
+    design?.description,
+    design?.primary_tag,
+    design?.main_tag,
+    design?.supporting_tags,
+  ].join(" ").toLowerCase();
+}
+
+function designMatchesQuery(design, value) {
+  const needle = String(value || "").trim().toLowerCase();
+  return !needle || designSearchText(design).includes(needle);
+}
+
+function stableDesignId(design) {
+  return String(design?.id || design?.design_id || "").trim();
+}
+
 export default function DesignManager({
   designs,
   uploadedImages,
@@ -243,6 +263,7 @@ export default function DesignManager({
   onLockedAction
 }) {
   const [query, setQuery] = useState("");
+  const [filterNotice, setFilterNotice] = useState("");
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -310,6 +331,7 @@ export default function DesignManager({
   const activeCreateAiDesignIdRef = useRef("");
   const [showBatchProgressModal, setShowBatchProgressModal] = useState(false);
   const [batchItems, setBatchItems] = useState([]);
+  const knownDesignIdsRef = useRef(new Set());
 
   // Custom toast notification state
   const [toast, setToast] = useState(null);
@@ -422,15 +444,7 @@ export default function DesignManager({
   }
 
   const filteredDesigns = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return designs;
-
-    return designs.filter((design) =>
-      [design.filename, design.title, design.description, design.primary_tag, design.supporting_tags]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    );
+    return designs.filter((design) => designMatchesQuery(design, query));
   }, [designs, query]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDesigns.length / rowsPerPage));
@@ -439,6 +453,34 @@ export default function DesignManager({
 
   const allVisibleSelected =
     visibleDesigns.length > 0 && visibleDesigns.every((design) => selectedIds.includes(design.id));
+
+  useEffect(() => {
+    const currentIds = new Set(designs.map(stableDesignId).filter(Boolean));
+    const knownIds = knownDesignIdsRef.current;
+    const addedDesigns = knownIds.size > 0
+      ? designs.filter((design) => {
+          const id = stableDesignId(design);
+          return id && !knownIds.has(id);
+        })
+      : [];
+
+    knownDesignIdsRef.current = currentIds;
+
+    if (!query.trim()) {
+      setFilterNotice("");
+      return;
+    }
+
+    if (addedDesigns.length > 0 && addedDesigns.every((design) => !designMatchesQuery(design, query))) {
+      setFilterNotice("Designs imported. Clear search to see all new items.");
+    }
+  }, [designs, query]);
+
+  async function refreshAfterMutation() {
+    if (typeof onRefreshFromBackend === "function") {
+      await onRefreshFromBackend();
+    }
+  }
 
   function updateForm(field, value) {
     markDirty();
@@ -740,6 +782,7 @@ export default function DesignManager({
         });
         onDesignsChange((current) => current.map((design) => (design.id === editingId ? { ...design, ...updated } : design)));
       }
+      await refreshAfterMutation();
       cancelEdit(true);
     } catch (saveError) {
       logFailingRequest(saveError);
@@ -938,6 +981,7 @@ export default function DesignManager({
       const createdIds = new Set(created.map((design) => design.id).filter(Boolean));
       onDesignsChange((current) => [...created, ...current.filter((design) => !createdIds.has(design.id))]);
       setSessionImages([]);
+      await refreshAfterMutation();
       cancelEdit(true); // silent=true: skip leave-warning, this is a successful save
       setSaveProgress(current => current ? { ...current, percent: 100, status: "Completed" } : null);
       if (created.length > 0 || filesToUpload.length > 0) onImagesUploaded?.();
@@ -973,6 +1017,7 @@ export default function DesignManager({
       }
       onDesignsChange((current) => current.filter((design) => design.id !== id));
       setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
+      await refreshAfterMutation();
       return { deletedIds: [id], failedIds: [] };
     } catch (error) {
       console.warn("[PodPilot] delete design failed:", error?.message || error);
@@ -1073,6 +1118,9 @@ export default function DesignManager({
       cancelled: result.cancelled,
       completed: result.completed ?? ids.length,
     });
+    if (result.deletedIds.length > 0) {
+      await refreshAfterMutation();
+    }
   }
 
   async function copySelectedToRedbubble() {
@@ -2217,6 +2265,22 @@ export default function DesignManager({
         </div>
       </div>
 
+      {filterNotice && (
+        <div className="manager-filter-notice" role="status">
+          <span>{filterNotice}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setPage(1);
+              setFilterNotice("");
+            }}
+          >
+            Clear search
+          </button>
+        </div>
+      )}
+
       {editingId === "new" && typeof onEditorOpen !== "function" && (
         <form className="edit-panel create-panel" onSubmit={saveCreatedDesigns}>
           <div className="edit-panel-heading">
@@ -2539,6 +2603,7 @@ export default function DesignManager({
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(1);
+              setFilterNotice("");
             }}
             placeholder="Search title, filename, tags..."
           />

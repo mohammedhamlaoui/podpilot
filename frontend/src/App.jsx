@@ -2116,6 +2116,13 @@ export default function App() {
                     }}
                     onDesignsChange={setTeepublicDesignsCached}
                     onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")}
+                    onRefreshFromBackend={() => refreshDesigns({
+                      force: true,
+                      marketplaces: ["teepublic"],
+                      preserveCurrent: true,
+                      dedupe: false,
+                      reason: "teepublic-editor-mutation",
+                    })}
                     onBack={() => handleBackToDesigns("teepublic")}
                     onUnsavedChangesChange={(isDirty) => setPlatformUnsaved("teepublic", isDirty)}
                     unsavedResetToken={unsavedResetTokens.teepublic}

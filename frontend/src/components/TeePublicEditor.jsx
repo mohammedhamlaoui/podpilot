@@ -86,6 +86,7 @@ export default function TeePublicEditor({
   onActiveDesignIdChange,
   onDesignsChange,
   onImagesUploaded,
+  onRefreshFromBackend,
   onBack,
   onUnsavedChangesChange,
   unsavedResetToken = 0,
@@ -138,6 +139,12 @@ export default function TeePublicEditor({
     if (!isWorkspaceLocked) return true;
     handleLockedAction();
     return false;
+  }
+
+  async function refreshAfterMutation() {
+    if (typeof onRefreshFromBackend === "function") {
+      await onRefreshFromBackend();
+    }
   }
   const replacementPreviewUrlRef = useRef("");
   const [trademarkMenuOpen, setTrademarkMenuOpen] = useState(false);
@@ -786,6 +793,7 @@ export default function TeePublicEditor({
           const next = [...designs];
           next[activeIndex] = { ...next[activeIndex], ...updated };
           onDesignsChange(next);
+          await refreshAfterMutation();
         }
 
         showToast(`Pasted ${getClipboardLabel(clip)} to current design.`);
@@ -817,6 +825,7 @@ export default function TeePublicEditor({
             onDesignsChange(updatedDesigns);
           }
         }
+        await refreshAfterMutation();
 
         showToast(`Pasted ${getClipboardLabel(clip)} to all ${designs.length} designs.`);
         markClean();
@@ -955,6 +964,7 @@ export default function TeePublicEditor({
       } else {
         onDesignsChange((current) => current.map((item) => (item.id === design.id ? savedDesign : item)));
       }
+      await refreshAfterMutation();
       // Rebuild the form from the just-saved row so anything the backend
       // normalised (e.g., trimmed whitespace) is reflected.
       setForm(buildForm(savedDesign));
@@ -1161,6 +1171,7 @@ export default function TeePublicEditor({
       resetImageReplacementState();
       showToast(`Saved ${designs.length} designs.`);
       markClean();
+      await refreshAfterMutation();
       if (createdFromLocalDrafts.length > 0 || pendingReplacementFile) onImagesUploaded?.();
     } catch (err) {
       logFailingRequest(err);

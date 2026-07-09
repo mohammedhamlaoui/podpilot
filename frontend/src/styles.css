@@ -9167,6 +9167,32 @@ button.copy-link-open .pp-spinner-on-button {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.manager-filter-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-purple-border, #ddd6fe);
+  border-radius: 12px;
+  background: var(--pp-accent-soft, #f5f3ff);
+  color: var(--pp-text, #0f172a);
+  font-size: 13px;
+  font-weight: 600;
+}
+.manager-filter-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--pp-accent-strong, #6d28d9);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.manager-filter-notice button:hover {
+  text-decoration: underline;
+}
 .marketplace-manager .search-field span {
   display: block;
   color: var(--pp-text-muted, #64748b);
