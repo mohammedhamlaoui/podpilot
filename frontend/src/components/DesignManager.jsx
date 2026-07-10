@@ -1258,41 +1258,50 @@ export default function DesignManager({
     }
   }
 
-  async function saveCopyLinkToAllDesigns() {
+  async function saveAllDesigns() {
     if (!requireUnlocked() || isSavingDesign || isSavingAllCopyLinks) return;
-    const copyLink = form.copy_link.trim();
-    if (!copyLink || !isValidUrlString(copyLink)) {
-      showToast("Enter a valid copy link starting with http:// or https://.", "error");
+    const currentDesign = designs.find((design) => design.id === editingId);
+    if (!currentDesign) {
+      showToast("Choose a design before saving all.", "error");
       return;
     }
 
-    const wouldOverwriteLinks = designs.some((design) => String(design.copy_link || "").trim() !== copyLink);
-    if (wouldOverwriteLinks && !window.confirm("Apply this copy link to all Redbubble designs?")) return;
-
-    const backendDesigns = designs.filter((design) => design?.id && !isLocalId(design.id));
+    const designsToSave = designs.map((design) => (
+      design.id === editingId ? mergeFormIntoDesign(design) : design
+    ));
+    const backendDesigns = designsToSave.filter((design) => design?.id && !isLocalId(design.id));
     setIsSavingAllCopyLinks(true);
     setCreateError("");
     setSaveProgress({
       percent: 20,
       loadedBytes: 0,
       totalBytes: 0,
-      currentFileName: `Updating ${designs.length} designs...`,
+      currentFileName: `Saving ${designsToSave.length} designs...`,
       status: "Processing"
     });
 
     try {
       const result = backendDesigns.length > 0
-        ? await batchUpdateDesigns(backendDesigns.map((design) => ({ id: design.id, copy_link: copyLink })))
+        ? await batchUpdateDesigns(backendDesigns.map((design) => ({
+            id: design.id,
+            title: String(design.title || "").trim(),
+            description: String(design.description || "").trim(),
+            primary_tag: String(design.main_tag || design.primary_tag || "").trim(),
+            main_tag: String(design.main_tag || design.primary_tag || "").trim(),
+            supporting_tags: design.supporting_tags || "",
+            copy_link: String(design.copy_link || "").trim(),
+          })))
         : { updated: 0, designs: [] };
+      const draftById = new Map(designsToSave.map((design) => [design.id, design]));
       const updatedById = new Map((result?.designs || []).map((design) => [design.id, design]));
       const updatedBackendCount = Number(result?.updated || 0);
 
       onDesignsChange((current) => current.map((design) => {
-        if (isLocalId(design.id)) return { ...design, copy_link: copyLink };
+        const draft = draftById.get(design.id);
         const updated = updatedById.get(design.id);
-        return updated ? { ...design, ...updated } : design;
+        return updated ? { ...design, ...(draft || {}), ...updated } : { ...design, ...(draft || {}) };
       }));
-      setForm((current) => ({ ...current, copy_link: copyLink }));
+      markClean();
       setSaveProgress({
         percent: 100,
         loadedBytes: 0,
@@ -1302,15 +1311,15 @@ export default function DesignManager({
       });
 
       if (updatedBackendCount !== backendDesigns.length) {
-        showToast(`Saved ${updatedBackendCount} of ${backendDesigns.length} existing designs. Some links could not be updated.`, "error");
+        showToast(`Saved ${updatedBackendCount} of ${backendDesigns.length} existing designs. Some designs could not be updated.`, "error");
       } else {
-        showToast(`Applied the copy link to all ${designs.length} Redbubble designs.`);
+        showToast(`Saved ${designsToSave.length} Redbubble designs.`);
       }
       await refreshAfterMutation();
     } catch (error) {
       logFailingRequest(error);
-      const message = error?.response?.data?.detail || error?.message || "Could not save the copy link to all designs.";
-      showToast(typeof message === "string" ? message : "Could not save the copy link to all designs.", "error");
+      const message = error?.response?.data?.detail || error?.message || "Could not save all designs.";
+      showToast(typeof message === "string" ? message : "Could not save all designs.", "error");
     } finally {
       setIsSavingAllCopyLinks(false);
       setSaveProgress(null);
@@ -2984,7 +2993,7 @@ export default function DesignManager({
                 {copyLinkInvalid && (
                   <small className="field-error">Enter a valid URL starting with http:// or https://</small>
                 )}
-                <small className="form-hint">Save All Designs applies this copy link to every Redbubble design after confirmation.</small>
+                <small className="form-hint">Save All Designs keeps each Redbubble design's own copy link.</small>
               </label>
             </div>
           </div>
@@ -2995,11 +3004,11 @@ export default function DesignManager({
             <LoadingButton
               type="button"
               className="secondary-button"
-              onClick={saveCopyLinkToAllDesigns}
-              disabled={!copyLinkRaw || copyLinkInvalid || designs.length === 0 || isSavingDesign}
+              onClick={saveAllDesigns}
+              disabled={!canUpdateDesign || designs.length === 0 || isSavingDesign}
               loading={isSavingAllCopyLinks}
               loadingText="Saving All..."
-              title={!copyLinkRaw || copyLinkInvalid ? "Enter a valid copy link first" : "Apply this copy link to all Redbubble designs"}
+              title={!canUpdateDesign ? "Fill all required fields with a valid copy link" : "Save all Redbubble designs"}
             >
               Save All Designs
             </LoadingButton>
@@ -3018,7 +3027,7 @@ export default function DesignManager({
         <SavingOverlay
           show={isSavingDesign || isSavingAllCopyLinks}
           message={isSavingAllCopyLinks ? "Saving all Redbubble designs..." : "Saving Redbubble design..."}
-          subtext={isSavingAllCopyLinks ? "Applying the confirmed copy link across your Redbubble designs." : "Updating your design metadata and image changes. Please keep this page open."}
+          subtext={isSavingAllCopyLinks ? "Saving each design with its own copy link. Please keep this page open." : "Updating your design metadata and image changes. Please keep this page open."}
           progress={saveProgress}
         />
       </section>
