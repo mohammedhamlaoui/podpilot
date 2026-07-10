@@ -1258,41 +1258,141 @@ export default function DesignManager({
     }
   }
 
-  async function saveCopyLinkToAllDesigns() {
+  async function saveAllDesigns() {
     if (!requireUnlocked() || isSavingDesign || isSavingAllCopyLinks) return;
-    const copyLink = form.copy_link.trim();
-    if (!copyLink || !isValidUrlString(copyLink)) {
-      showToast("Enter a valid copy link starting with http:// or https://.", "error");
+    const currentDesign = designs.find((design) => design.id === editingId);
+    if (!currentDesign) {
+      showToast("Choose a design before saving all.", "error");
       return;
     }
 
-    const wouldOverwriteLinks = designs.some((design) => String(design.copy_link || "").trim() !== copyLink);
-    if (wouldOverwriteLinks && !window.confirm("Apply this copy link to all Redbubble designs?")) return;
+    const designSnapshot = designs.map((design) => (
+      design.id === editingId ? mergeFormIntoDesign(design) : design
+    ));
+    const invalidDesign = designSnapshot.find((design) => {
+      const copyLink = String(design.copy_link || "").trim();
+      return !String(design.title || "").trim()
+        || !String(design.description || "").trim()
+        || !String(design.main_tag || design.primary_tag || "").trim()
+        || !String(design.supporting_tags || "").trim()
+        || !isValidUrlString(copyLink);
+    });
+    if (invalidDesign) {
+      showToast(`Fix required fields and copy link for ${invalidDesign.filename || invalidDesign.title || "one design"} before saving all.`, "error");
+      return;
+    }
 
-    const backendDesigns = designs.filter((design) => design?.id && !isLocalId(design.id));
     setIsSavingAllCopyLinks(true);
     setCreateError("");
     setSaveProgress({
       percent: 20,
       loadedBytes: 0,
       totalBytes: 0,
-      currentFileName: `Updating ${designs.length} designs...`,
+      currentFileName: `Saving ${designSnapshot.length} designs...`,
       status: "Processing"
     });
 
     try {
+      let nextDesigns = [...designSnapshot];
+      const localDraftsToRevoke = [];
+      const activeStartedAsLocalDraft = isLocalId(currentDesign.id);
+      let activeSavedId = currentDesign.id;
+
+      for (let index = 0; index < nextDesigns.length; index += 1) {
+        const design = nextDesigns[index];
+        if (!isLocalId(design.id)) continue;
+
+        const fileToUpload = design.id === editingId
+          ? pendingReplacementFile || getLocalDraftFile(design)
+          : getLocalDraftFile(design);
+        let savedKey = design.image_r2_key || "";
+        if (fileToUpload) {
+          setSaveProgress({
+            percent: 35,
+            loadedBytes: 0,
+            totalBytes: fileToUpload.size,
+            currentFileName: fileToUpload.name,
+            status: "Uploading"
+          });
+          const uploadResp = await uploadStandaloneImages([fileToUpload], "redbubble");
+          const saved = Array.isArray(uploadResp?.files) ? uploadResp.files[0] : {};
+          savedKey = saved?.image_r2_key || savedKey;
+        }
+
+        const created = await createDesign({
+          filename: fileToUpload ? fileToUpload.name : design.filename || "design.png",
+          marketplace: "redbubble",
+          title: String(design.title || "").trim(),
+          description: String(design.description || "").trim(),
+          primary_tag: String(design.main_tag || design.primary_tag || "").trim(),
+          main_tag: String(design.main_tag || design.primary_tag || "").trim(),
+          supporting_tags: String(design.supporting_tags || "").trim(),
+          copy_link: String(design.copy_link || "").trim(),
+          image_r2_key: savedKey || undefined,
+        });
+        nextDesigns[index] = created;
+        localDraftsToRevoke.push(design);
+        if (design.id === editingId) activeSavedId = created.id;
+      }
+
+      let imageUpdate = null;
+      if (!activeStartedAsLocalDraft && pendingReplacementFile) {
+        await clearCachedDesignImages(currentDesign, userId);
+        setSaveProgress({
+          percent: 55,
+          loadedBytes: 0,
+          totalBytes: pendingReplacementFile.size,
+          currentFileName: pendingReplacementFile.name,
+          status: "Uploading"
+        });
+        imageUpdate = await uploadDesignImage(currentDesign.id, pendingReplacementFile);
+      }
+
+      setSaveProgress({
+        percent: 75,
+        loadedBytes: 0,
+        totalBytes: 0,
+        currentFileName: "Saving metadata...",
+        status: "Processing"
+      });
+
+      const backendDesigns = nextDesigns.filter((design) => design?.id && !isLocalId(design.id));
       const result = backendDesigns.length > 0
-        ? await batchUpdateDesigns(backendDesigns.map((design) => ({ id: design.id, copy_link: copyLink })))
+        ? await batchUpdateDesigns(backendDesigns.map((design) => ({
+            id: design.id,
+            title: String(design.title || "").trim(),
+            description: String(design.description || "").trim(),
+            primary_tag: String(design.main_tag || design.primary_tag || "").trim(),
+            main_tag: String(design.main_tag || design.primary_tag || "").trim(),
+            supporting_tags: String(design.supporting_tags || "").trim(),
+            copy_link: String(design.copy_link || "").trim(),
+          })))
         : { updated: 0, designs: [] };
       const updatedById = new Map((result?.designs || []).map((design) => [design.id, design]));
-      const updatedBackendCount = Number(result?.updated || 0);
-
-      onDesignsChange((current) => current.map((design) => {
-        if (isLocalId(design.id)) return { ...design, copy_link: copyLink };
+      nextDesigns = nextDesigns.map((design) => {
         const updated = updatedById.get(design.id);
-        return updated ? { ...design, ...updated } : design;
-      }));
-      setForm((current) => ({ ...current, copy_link: copyLink }));
+        const withBackend = updated ? { ...design, ...updated } : design;
+        return design.id === currentDesign.id && imageUpdate ? { ...withBackend, ...imageUpdate } : withBackend;
+      });
+      localDraftsToRevoke.forEach(revokeLocalDraftPreview);
+      onDesignsChange(nextDesigns);
+      const activeSavedDesign = nextDesigns.find((design) => design.id === activeSavedId) || nextDesigns.find((design) => design.id === currentDesign.id);
+      if (activeSavedDesign) {
+        setEditingId(activeSavedDesign.id);
+        setForm({
+          filename: activeSavedDesign.filename || "",
+          title: activeSavedDesign.title || "",
+          description: activeSavedDesign.description || "",
+          main_tag: activeSavedDesign.main_tag || activeSavedDesign.primary_tag || "",
+          supporting_tags: activeSavedDesign.supporting_tags || "",
+          copy_link: activeSavedDesign.copy_link || "",
+          sticker_color: activeSavedDesign.sticker_color || "",
+          stickers_color_enabled: activeSavedDesign.stickers_color_enabled || "Off",
+        });
+        onSelectedDesignIdChange?.(activeSavedDesign.id || "");
+      }
+      resetImageReplacementState();
+      markClean();
       setSaveProgress({
         percent: 100,
         loadedBytes: 0,
@@ -1301,16 +1401,13 @@ export default function DesignManager({
         status: "Completed"
       });
 
-      if (updatedBackendCount !== backendDesigns.length) {
-        showToast(`Saved ${updatedBackendCount} of ${backendDesigns.length} existing designs. Some links could not be updated.`, "error");
-      } else {
-        showToast(`Applied the copy link to all ${designs.length} Redbubble designs.`);
-      }
+      showToast(`Saved ${nextDesigns.length} Redbubble designs.`);
+      if (localDraftsToRevoke.length > 0 || pendingReplacementFile) onImagesUploaded?.();
       await refreshAfterMutation();
     } catch (error) {
       logFailingRequest(error);
-      const message = error?.response?.data?.detail || error?.message || "Could not save the copy link to all designs.";
-      showToast(typeof message === "string" ? message : "Could not save the copy link to all designs.", "error");
+      const message = error?.response?.data?.detail || error?.message || "Could not save all designs.";
+      showToast(typeof message === "string" ? message : "Could not save all designs.", "error");
     } finally {
       setIsSavingAllCopyLinks(false);
       setSaveProgress(null);
@@ -2984,7 +3081,7 @@ export default function DesignManager({
                 {copyLinkInvalid && (
                   <small className="field-error">Enter a valid URL starting with http:// or https://</small>
                 )}
-                <small className="form-hint">Save All Designs applies this copy link to every Redbubble design after confirmation.</small>
+                <small className="form-hint">Save All Designs keeps each Redbubble design's own copy link.</small>
               </label>
             </div>
           </div>
@@ -2995,11 +3092,11 @@ export default function DesignManager({
             <LoadingButton
               type="button"
               className="secondary-button"
-              onClick={saveCopyLinkToAllDesigns}
-              disabled={!copyLinkRaw || copyLinkInvalid || designs.length === 0 || isSavingDesign}
+              onClick={saveAllDesigns}
+              disabled={!canUpdateDesign || designs.length === 0 || isSavingDesign}
               loading={isSavingAllCopyLinks}
               loadingText="Saving All..."
-              title={!copyLinkRaw || copyLinkInvalid ? "Enter a valid copy link first" : "Apply this copy link to all Redbubble designs"}
+              title={!canUpdateDesign ? "Fill all required fields with a valid copy link" : "Save all Redbubble designs with their own copy links"}
             >
               Save All Designs
             </LoadingButton>
@@ -3018,7 +3115,7 @@ export default function DesignManager({
         <SavingOverlay
           show={isSavingDesign || isSavingAllCopyLinks}
           message={isSavingAllCopyLinks ? "Saving all Redbubble designs..." : "Saving Redbubble design..."}
-          subtext={isSavingAllCopyLinks ? "Applying the confirmed copy link across your Redbubble designs." : "Updating your design metadata and image changes. Please keep this page open."}
+          subtext={isSavingAllCopyLinks ? "Saving each design with its own copy link. Please keep this page open." : "Updating your design metadata and image changes. Please keep this page open."}
           progress={saveProgress}
         />
       </section>
