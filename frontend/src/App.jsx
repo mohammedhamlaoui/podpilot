@@ -30,6 +30,7 @@ import ExtensionAuthSuccess from "./components/ExtensionAuthSuccess";
 import NotFoundPage from "./components/NotFoundPage";
 import ThankYouPage from "./components/ThankYouPage";
 import PreviewModeBanner from "./components/PreviewModeBanner";
+import PaymentRecoveryBanner from "./components/PaymentRecoveryBanner";
 import DesignRetentionNotice, {
   acknowledgeDesignRetentionNotice,
 } from "./components/DesignRetentionNotice";
@@ -40,6 +41,7 @@ import {
   getMyPlatformAccess,
   getMySubscription,
   getTrialEligibility,
+  createBillingPortalSession,
   switchDevice,
   listDesigns,
   updateDesignStatus,
@@ -136,6 +138,15 @@ function normalizePlatformAccess(access) {
     plan: access?.plan || null,
     redbubble: Boolean(access?.redbubble),
     teepublic: Boolean(access?.teepublic),
+    status: access?.status || access?.subscription_status || "inactive",
+    subscription_status: access?.subscription_status || access?.status || "inactive",
+    payment_status: access?.payment_status || access?.status || "inactive",
+    is_past_due: access?.is_past_due === true,
+    past_due_grace_active: access?.past_due_grace_active === true,
+    past_due_grace_days: Number(access?.past_due_grace_days ?? 3),
+    past_due_lock_after: access?.past_due_lock_after || null,
+    payment_recovery_required: access?.payment_recovery_required === true,
+    payment_recovery_message: access?.payment_recovery_message || null,
   };
 }
 
@@ -1959,6 +1970,24 @@ export default function App() {
   );
   const redbubbleLocked = subscriptionLoaded && !subscriptionLoading && !isLoadingPlatformAccess && !platformAccess?.redbubble;
   const teepublicLocked = subscriptionLoaded && !subscriptionLoading && !isLoadingPlatformAccess && !platformAccess?.teepublic;
+  const isPastDue = subscriptionSummary?.is_past_due === true || subscriptionSummary?.status === "past_due";
+  const paymentRecoveryRequired = isPastDue && subscriptionSummary?.past_due_grace_active !== true;
+  const openPaymentRecovery = async () => {
+    const data = await createBillingPortalSession();
+    if (!data?.url) throw new Error("Paddle did not return a portal URL.");
+    window.open(data.url, "_blank", "noopener,noreferrer");
+  };
+  const handleLockedPaidFeature = paymentRecoveryRequired
+    ? () => openPaymentRecovery().catch((error) => {
+        const detail = error?.response?.data?.detail;
+        setDashboardToast({
+          type: "error",
+          message: typeof detail === "string" && detail
+            ? detail
+            : "Could not open the billing portal. Please try again.",
+        });
+      })
+    : openPricing;
   debugSubscriptionLog(`route decision route=${activeRoute} workspaceLocked=${workspaceLocked} platformLocked=${activePlatformLocked}`);
 
   return (
@@ -2005,7 +2034,14 @@ export default function App() {
           </div>
         )}
 
-        {(activeRoute === "dashboard" || isPlatformRoute(activeRoute)) && workspaceLocked && (
+        {(activeRoute === "dashboard" || isPlatformRoute(activeRoute)) && isPastDue && (
+          <PaymentRecoveryBanner
+            summary={subscriptionSummary}
+            onRecoverPayment={openPaymentRecovery}
+          />
+        )}
+
+        {(activeRoute === "dashboard" || isPlatformRoute(activeRoute)) && workspaceLocked && !isPastDue && (
           <PreviewModeBanner trialEligibility={trialEligibility} />
         )}
 
@@ -2038,7 +2074,7 @@ export default function App() {
                 onBackToDesigns={() => handleTabChange("designs")}
                 existingDesigns={redbubbleDesigns}
                 isWorkspaceLocked={redbubbleLocked}
-                onLockedAction={openPricing}
+                onLockedAction={handleLockedPaidFeature}
               />
             ) : (
               <>
@@ -2046,8 +2082,8 @@ export default function App() {
                   designs={redbubbleDesigns}
                   uploadedImages={redbubbleImages}
                   onDesignsChange={setRedbubbleDesignsCached}
-                  onImportClick={() => redbubbleLocked ? openPricing() : handleTabChange("import")}
-                  onUploadImagesClick={() => redbubbleLocked ? openPricing() : setShowImagesPanel((c) => !c)}
+                  onImportClick={() => redbubbleLocked ? handleLockedPaidFeature() : handleTabChange("import")}
+                  onUploadImagesClick={() => redbubbleLocked ? handleLockedPaidFeature() : setShowImagesPanel((c) => !c)}
                   onImagesUploaded={() => refreshAfterUpload("redbubble", "images-uploaded")}
                   onDesignsCopied={handleDesignsCopied}
                   onRefreshFromBackend={() => refreshDesigns({
@@ -2077,9 +2113,9 @@ export default function App() {
                   userId={user?.id || ""}
                   isLoading={isLoadingDesigns}
                   isWorkspaceLocked={redbubbleLocked}
-                  onLockedAction={openPricing}
+                  onLockedAction={handleLockedPaidFeature}
                 />
-                {editorPlatform !== "redbubble" && showImagesPanel && <ImageGrid marketplace="redbubble" designs={redbubbleDesigns} uploadedImages={redbubbleImages} onImagesUploaded={() => refreshAfterUpload("redbubble", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={redbubbleLocked} onLockedAction={openPricing} />}
+                {editorPlatform !== "redbubble" && showImagesPanel && <ImageGrid marketplace="redbubble" designs={redbubbleDesigns} uploadedImages={redbubbleImages} onImagesUploaded={() => refreshAfterUpload("redbubble", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={redbubbleLocked} onLockedAction={handleLockedPaidFeature} />}
               </>
             )}
           </div>
@@ -2096,7 +2132,7 @@ export default function App() {
                 onBackToDesigns={() => handleTabChange("designs")}
                 existingDesigns={teepublicDesigns}
                 isWorkspaceLocked={teepublicLocked}
-                onLockedAction={openPricing}
+                onLockedAction={handleLockedPaidFeature}
               />
             ) : (
               <>
@@ -2129,7 +2165,7 @@ export default function App() {
                     uploadedImages={teepublicImages}
                     userId={user?.id || ""}
                     isWorkspaceLocked={teepublicLocked}
-                    onLockedAction={openPricing}
+                    onLockedAction={handleLockedPaidFeature}
                   />
                   </div>
                 )}
@@ -2139,8 +2175,8 @@ export default function App() {
                       designs={teepublicDesigns}
                       uploadedImages={teepublicImages}
                       onDesignsChange={setTeepublicDesignsCached}
-                      onImportClick={() => teepublicLocked ? openPricing() : handleTabChange("import")}
-                      onUploadImagesClick={() => teepublicLocked ? openPricing() : setShowImagesPanel((c) => !c)}
+                      onImportClick={() => teepublicLocked ? handleLockedPaidFeature() : handleTabChange("import")}
+                      onUploadImagesClick={() => teepublicLocked ? handleLockedPaidFeature() : setShowImagesPanel((c) => !c)}
                       onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")}
                       onDesignsCopied={handleDesignsCopied}
                       onRefreshFromBackend={() => refreshDesigns({ force: true, marketplaces: ["teepublic"], reason: "manual-refresh" })}
@@ -2155,9 +2191,9 @@ export default function App() {
                       userId={user?.id || ""}
                       isLoading={isLoadingDesigns}
                       isWorkspaceLocked={teepublicLocked}
-                      onLockedAction={openPricing}
+                      onLockedAction={handleLockedPaidFeature}
                     />
-                    {editorPlatform !== "teepublic" && showImagesPanel && <ImageGrid marketplace="teepublic" designs={teepublicDesigns} uploadedImages={teepublicImages} onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={teepublicLocked} onLockedAction={openPricing} />}
+                    {editorPlatform !== "teepublic" && showImagesPanel && <ImageGrid marketplace="teepublic" designs={teepublicDesigns} uploadedImages={teepublicImages} onImagesUploaded={() => refreshAfterUpload("teepublic", "images-uploaded")} userId={user?.id || ""} isWorkspaceLocked={teepublicLocked} onLockedAction={handleLockedPaidFeature} />}
                   </>
                 </div>
               </>

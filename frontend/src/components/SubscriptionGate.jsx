@@ -91,6 +91,7 @@ function clearCheckoutFlagFromUrl() {
 function isAllowed(summary) {
   if (!summary) return false;
   if (summary.can_upload === true) return true;
+  if (summary.past_due_grace_active === true) return true;
   const status = String(summary.status || "").toLowerCase();
   const periodEnd = summary.current_period_ends_at || summary.current_period_end;
   if (summary.has_subscription !== true || !["trialing", "active"].includes(status) || !periodEnd) return false;
@@ -100,7 +101,7 @@ function isAllowed(summary) {
 
 function isBillingIssue(summary) {
   const status = String(summary?.status || "").toLowerCase();
-  return status === "past_due" || status === "paused";
+  return (status === "past_due" && summary?.past_due_grace_active !== true) || status === "paused";
 }
 
 function isUploadLimitReached(summary) {

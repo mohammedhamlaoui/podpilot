@@ -31,6 +31,13 @@ ACTIVE_UPLOAD_STATUSES = {"trialing", "active"}
 CANCELED_STATUS = "canceled"
 LOCKED_SUBSCRIPTION_STATUSES = {"canceled", "cancelled", "paused", "past_due", "deleted", "inactive"}
 
+PAST_DUE_WARNING_MESSAGE = (
+    "Payment failed. Please update your payment method to avoid losing access."
+)
+PAST_DUE_LOCKED_MESSAGE = (
+    "Your subscription is past due. Update your payment method to continue using PodPilot."
+)
+
 PLAN_LIMITS = {
     "redbubble": None,
     "teepublic": None,
@@ -1257,11 +1264,67 @@ def _is_subscription_current(status: str, current_period_ends_at: Optional[str])
     return period_end > datetime.now(timezone.utc)
 
 
+def _payment_access_fields(
+    subscription: Optional[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+) -> dict[str, Any]:
+    """Return payment recovery metadata and whether plan access is allowed.
+
+    Paddle moves a renewal to ``past_due`` at the billing-period boundary, so
+    ``current_period_ends_at`` is the preferred grace-period start. Older rows
+    without that value fall back to the webhook-maintained ``updated_at``.
+    Past-due rows with no usable timestamp are locked instead of receiving an
+    unbounded grace period.
+    """
+    current_time = now or datetime.now(timezone.utc)
+    status = str((subscription or {}).get("status") or "inactive").lower()
+    grace_days = config.PAST_DUE_GRACE_DAYS
+    is_past_due = status == "past_due"
+    grace_start: Optional[datetime] = None
+    lock_after: Optional[datetime] = None
+
+    if is_past_due:
+        period_end = _parse_datetime((subscription or {}).get("current_period_ends_at"))
+        updated_at = _parse_datetime((subscription or {}).get("updated_at"))
+        if period_end is not None and period_end <= current_time:
+            grace_start = period_end
+        elif updated_at is not None:
+            grace_start = updated_at
+        if grace_start is not None:
+            lock_after = grace_start + timedelta(days=grace_days)
+
+    grace_active = bool(is_past_due and lock_after is not None and current_time < lock_after)
+    active_or_trialing = _is_subscription_current(
+        status,
+        _as_iso((subscription or {}).get("current_period_ends_at")),
+    )
+    access_allowed = active_or_trialing or grace_active
+    recovery_required = bool(is_past_due and not grace_active)
+    message = None
+    if is_past_due:
+        message = PAST_DUE_WARNING_MESSAGE if grace_active else PAST_DUE_LOCKED_MESSAGE
+
+    return {
+        "subscription_status": status,
+        "payment_status": status,
+        "is_past_due": is_past_due,
+        "past_due_grace_active": grace_active,
+        "past_due_grace_days": grace_days,
+        "past_due_lock_after": lock_after.isoformat() if lock_after else None,
+        "payment_recovery_required": recovery_required,
+        "payment_recovery_message": message,
+        "access_allowed": access_allowed,
+    }
+
+
 def get_subscription_access(user_id: str) -> dict[str, Any]:
     try:
         subscription = get_user_subscription(user_id)
     except Exception as error:
         _log_optional_read_fallback("reading subscription access", error, user_id=user_id)
+        payment_fields = _payment_access_fields({"status": "unknown"})
+        payment_fields.pop("access_allowed", None)
         return {
             "subscription_loaded": False,
             "degraded": True,
@@ -1270,6 +1333,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
             "trial_active": False,
             "plan": None,
             "status": "unknown",
+            **payment_fields,
             "monthly_upload_limit": None,
             "uploaded_count": 0,
             "remaining_uploads": None,
@@ -1298,6 +1362,8 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
     if not subscription:
         reason = "No active subscription found"
         logger.info("[Billing] request_id=%s upload blocked user=%s reason=%s", request_id(), short_user_id(user_id), reason)
+        payment_fields = _payment_access_fields(None)
+        payment_fields.pop("access_allowed", None)
         return {
             "subscription_loaded": True,
             "degraded": False,
@@ -1306,6 +1372,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
             "trial_active": False,
             "plan": None,
             "status": "inactive",
+            **payment_fields,
             "monthly_upload_limit": None,
             "uploaded_count": uploaded_count,
             "remaining_uploads": None,
@@ -1328,13 +1395,21 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
     status = (subscription.get("status") or "inactive").lower()
     monthly_limit = get_plan_limit(plan or "")
     current_period_ends_at = _as_iso(subscription.get("current_period_ends_at"))
-    is_active = _is_subscription_current(status, current_period_ends_at)
+    payment_fields = _payment_access_fields(subscription)
+    is_active = bool(payment_fields.pop("access_allowed"))
+    remaining_uploads = (
+        max(monthly_limit - uploaded_count, 0)
+        if monthly_limit is not None
+        else None
+    )
 
     reason: Optional[str] = None
     if not plan:
         reason = "Unknown subscription plan"
     elif not is_active:
-        if status == CANCELED_STATUS:
+        if status == "past_due":
+            reason = PAST_DUE_LOCKED_MESSAGE
+        elif status == CANCELED_STATUS:
             reason = "Subscription canceled"
         elif status == "paused":
             reason = "Subscription paused"
@@ -1342,12 +1417,8 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
             reason = "Subscription period has ended"
         else:
             reason = "No active subscription found"
-    elif monthly_limit is not None:
-        remaining_uploads = max(monthly_limit - uploaded_count, 0)
-        if remaining_uploads <= 0:
-            reason = "Monthly upload limit reached"
-    else:
-        remaining_uploads = None
+    elif monthly_limit is not None and remaining_uploads <= 0:
+        reason = "Monthly upload limit reached"
 
     can_upload = reason is None
     if can_upload:
@@ -1412,6 +1483,7 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         "trial_active": trial_active,
         **billing_details,
         "status": status,
+        **payment_fields,
         "billing_status": billing_status,
         "monthly_upload_limit": monthly_limit,
         "uploaded_count": uploaded_count,
@@ -1424,7 +1496,9 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
         "next_payment_date": next_payment_date,
         "renewal_behavior": (
-            "ends_at_period_close"
+            "payment_recovery"
+            if status == "past_due"
+            else "ends_at_period_close"
             if bool(subscription.get("cancel_at_period_end") or False)
             else "renews_automatically" if is_active else "not_renewing"
         ),
@@ -1454,10 +1528,14 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
         subscription = get_user_subscription(user_id)
     except Exception as error:
         _log_optional_read_fallback("reading platform access subscription", error, user_id=user_id)
+        payment_fields = _payment_access_fields({"status": "unknown"})
+        payment_fields.pop("access_allowed", None)
         return {
             "has_active_plan": False,
             "degraded": True,
             "plan": None,
+            "status": "unknown",
+            **payment_fields,
             "redbubble": False,
             "teepublic": False,
             "reason": "Subscription data is temporarily unavailable.",
@@ -1468,11 +1546,14 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
             request_id(),
             short_user_id(user_id),
         )
+        payment_fields = _payment_access_fields(None)
+        payment_fields.pop("access_allowed", None)
         return {
             "has_active_plan": False,
             "degraded": False,
             "plan": None,
             "status": "inactive",
+            **payment_fields,
             "current_period_ends_at": None,
             "current_period_end": None,
             "cancel_at_period_end": False,
@@ -1485,11 +1566,14 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
     status = (subscription.get("status") or "inactive").lower()
     current_period_ends_at = _as_iso(subscription.get("current_period_ends_at"))
     plan_access = PLATFORM_ACCESS_BY_PLAN.get(plan or "")
-    has_active_plan = bool(plan_access) and _is_subscription_current(status, current_period_ends_at)
+    payment_fields = _payment_access_fields(subscription)
+    has_active_plan = bool(plan_access) and bool(payment_fields.pop("access_allowed"))
 
     if not has_active_plan:
         if plan and not plan_access:
             reason = "Unknown subscription plan"
+        elif status == "past_due":
+            reason = PAST_DUE_LOCKED_MESSAGE
         elif status == CANCELED_STATUS:
             reason = "Subscription canceled"
         elif status == "paused":
@@ -1513,6 +1597,7 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
             "degraded": False,
             "plan": plan,
             "status": status,
+            **payment_fields,
             "current_period_ends_at": current_period_ends_at,
             "current_period_end": current_period_ends_at,
             "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
@@ -1537,6 +1622,7 @@ def get_user_platform_access(user_id: str) -> dict[str, Any]:
         "degraded": False,
         "plan": plan,
         "status": status,
+        **payment_fields,
         "current_period_ends_at": current_period_ends_at,
         "current_period_end": current_period_ends_at,
         "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
@@ -1549,7 +1635,10 @@ def require_platform_access(user_id: str, marketplace: str) -> dict[str, Any]:
     marketplace_key = (marketplace or "").lower()
     access = get_user_platform_access(user_id)
     if not bool(access.get(marketplace_key)):
-        detail = PLATFORM_LOCKED_DETAIL if access.get("has_active_plan") else SUBSCRIPTION_REQUIRED_DETAIL
+        if access.get("payment_recovery_required"):
+            detail = PAST_DUE_LOCKED_MESSAGE
+        else:
+            detail = PLATFORM_LOCKED_DETAIL if access.get("has_active_plan") else SUBSCRIPTION_REQUIRED_DETAIL
         logger.info(
             "[Billing] platform locked user=%s marketplace=%s plan=%s",
             short_user_id(user_id),

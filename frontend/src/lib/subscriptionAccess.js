@@ -15,6 +15,7 @@ export function debugSubscriptionLog(message, payload) {
 export function hasActiveSubscription(summary) {
   if (!summary) return false;
   if (summary.has_active_subscription === true) return true;
+  if (summary.past_due_grace_active === true) return true;
   const status = String(summary.status || "").toLowerCase();
   const periodEnd = summary.current_period_end || summary.current_period_ends_at;
   if (summary.has_subscription !== true || !["active", "trialing"].includes(status)) return false;

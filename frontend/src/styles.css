@@ -12714,6 +12714,84 @@ button.copy-link-open .pp-spinner-on-button {
   text-decoration: none;
 }
 
+.pp-payment-recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #7c2d12;
+}
+
+.pp-payment-recovery-banner.is-locked {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.pp-payment-recovery-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.pp-payment-recovery-banner.is-locked .pp-payment-recovery-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.pp-payment-recovery-icon svg,
+.pp-payment-recovery-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pp-payment-recovery-copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pp-payment-recovery-copy strong {
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.pp-payment-recovery-copy span,
+.pp-payment-recovery-copy small {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pp-payment-recovery-copy span {
+  color: #9a3412;
+}
+
+.pp-payment-recovery-banner.is-locked .pp-payment-recovery-copy span,
+.pp-payment-recovery-copy small {
+  color: #b91c1c;
+}
+
+.pp-payment-recovery-copy small {
+  margin-top: 3px;
+}
+
+.pp-payment-recovery-action {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
 .pp-marketplace-view.is-workspace-locked .primary-button,
 .pp-marketplace-view.is-workspace-locked .secondary-button,
 .pp-marketplace-view.is-workspace-locked .danger-button,
@@ -12746,6 +12824,36 @@ button.copy-link-open .pp-spinner-on-button {
   color: #c4b5fd;
 }
 
+[data-theme="dark"] .pp-payment-recovery-banner {
+  border-color: #713f12;
+  background: #291c12;
+  color: #fdba74;
+}
+
+[data-theme="dark"] .pp-payment-recovery-banner.is-locked {
+  border-color: #7f1d1d;
+  background: #2a1517;
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .pp-payment-recovery-icon {
+  background: #431f0d;
+  color: #fb923c;
+}
+
+[data-theme="dark"] .pp-payment-recovery-banner.is-locked .pp-payment-recovery-icon {
+  background: #450a0a;
+  color: #f87171;
+}
+
+[data-theme="dark"] .pp-payment-recovery-copy span {
+  color: #fed7aa;
+}
+
+[data-theme="dark"] .pp-payment-recovery-banner.is-locked .pp-payment-recovery-copy span {
+  color: #fecaca;
+}
+
 @media (max-width: 760px) {
   .pp-preview-banner {
     align-items: flex-start;
@@ -12759,6 +12867,15 @@ button.copy-link-open .pp-spinner-on-button {
   .pp-preview-banner-actions .primary-button,
   .pp-preview-banner-actions .secondary-button {
     flex: 1 1 0;
+  }
+
+  .pp-payment-recovery-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .pp-payment-recovery-action {
+    width: 100%;
   }
 }
 

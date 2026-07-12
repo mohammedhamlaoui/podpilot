@@ -57,6 +57,10 @@ _OPTIONAL_SUBSCRIPTION_COLUMNS: dict[str, bool] = {}
 KNOWN_EVENT_TYPES = {
     "subscription.created",
     "subscription.updated",
+    "subscription.activated",
+    "subscription.resumed",
+    "subscription.trialing",
+    "subscription.past_due",
     "subscription.paused",
     "subscription.canceled",
     "subscription.cancelled",  # tolerate either spelling

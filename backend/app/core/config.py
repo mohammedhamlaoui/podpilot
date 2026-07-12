@@ -135,6 +135,7 @@ MARKERAPI_BASE_URL = _optional(
 PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
+PAST_DUE_GRACE_DAYS = max(0, int(_optional("PAST_DUE_GRACE_DAYS", "3")))
 
 # Paddle price IDs must be supplied through environment variables in
 # production. Do not hardcode real Paddle IDs in the repository.

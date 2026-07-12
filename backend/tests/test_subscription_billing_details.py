@@ -1,6 +1,7 @@
 import unittest
 import sys
 import types
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 # These unit tests exercise pure billing metadata helpers and do not require a
@@ -20,6 +21,11 @@ class SubscriptionBillingDetailsTests(unittest.TestCase):
             patch.object(subscription_service, "get_user_daily_ai_usage", return_value={"used_count": 1}),
         ):
             return subscription_service.get_subscription_access("user-1")
+
+    @staticmethod
+    def _platform_access_for(subscription):
+        with patch.object(subscription_service, "get_user_subscription", return_value=subscription):
+            return subscription_service.get_user_platform_access("user-1")
 
     def test_annual_trial_price_id_resolves_cycle_and_catalog_price(self):
         with patch(
@@ -123,6 +129,61 @@ class SubscriptionBillingDetailsTests(unittest.TestCase):
         self.assertFalse(access["has_subscription"])
         self.assertFalse(access["has_active_subscription"])
         self.assertFalse(access["can_upload"])
+
+    def test_past_due_within_grace_keeps_plan_access_and_warns(self):
+        period_end = datetime.now(timezone.utc) - timedelta(days=1)
+        subscription = {
+            "plan": "all_platforms",
+            "status": "past_due",
+            "paddle_subscription_id": "sub_past_due_grace",
+            "current_period_ends_at": period_end.isoformat(),
+        }
+
+        access = self._access_for(subscription)
+        platform_access = self._platform_access_for(subscription)
+
+        self.assertTrue(access["has_active_subscription"])
+        self.assertTrue(access["can_upload"])
+        self.assertTrue(access["is_past_due"])
+        self.assertTrue(access["past_due_grace_active"])
+        self.assertFalse(access["payment_recovery_required"])
+        self.assertEqual(access["platform_access"], ["redbubble", "teepublic"])
+        self.assertTrue(platform_access["redbubble"])
+        self.assertTrue(platform_access["teepublic"])
+
+    def test_past_due_after_grace_locks_paid_access(self):
+        period_end = datetime.now(timezone.utc) - timedelta(days=4)
+        subscription = {
+            "plan": "redbubble",
+            "status": "past_due",
+            "paddle_subscription_id": "sub_past_due_locked",
+            "current_period_ends_at": period_end.isoformat(),
+        }
+
+        access = self._access_for(subscription)
+        platform_access = self._platform_access_for(subscription)
+
+        self.assertFalse(access["has_active_subscription"])
+        self.assertFalse(access["can_upload"])
+        self.assertFalse(access["past_due_grace_active"])
+        self.assertTrue(access["payment_recovery_required"])
+        self.assertEqual(access["platform_access"], [])
+        self.assertFalse(platform_access["redbubble"])
+        self.assertIn("Update your payment method", access["payment_recovery_message"])
+
+    def test_canceled_subscription_stays_locked(self):
+        subscription = {
+            "plan": "teepublic",
+            "status": "canceled",
+            "paddle_subscription_id": "sub_canceled",
+            "current_period_ends_at": (datetime.now(timezone.utc) + timedelta(days=10)).isoformat(),
+        }
+
+        access = self._access_for(subscription)
+
+        self.assertFalse(access["has_active_subscription"])
+        self.assertFalse(access["can_upload"])
+        self.assertFalse(access["is_past_due"])
 
 
 if __name__ == "__main__":
