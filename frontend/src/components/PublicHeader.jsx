@@ -5,13 +5,13 @@ import ThemeToggle from "./ThemeToggle";
 
 const authHref = "/dashboard";
 
-export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start Free Trial", activePath }) {
+export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start Free Trial" }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const auth = useAuth();
   const isAuthenticated = Boolean(auth?.user);
   const customerEmail = auth?.user?.email || "";
   const signOut = auth?.signOut;
-  const pathname = activePath || (typeof window !== "undefined" ? window.location.pathname : "");
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
 
   const publicNavItems = [
     { label: "Home", href: "/" },
@@ -19,7 +19,6 @@ export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start F
     { label: "Blog", href: "/blog" },
     { label: "Help Center", href: "/help" },
     { label: "Contact", href: "/contact" },
-    { label: "Affiliate", href: "/affiliate-program" },
   ];
 
   function closeMobileMenu() {

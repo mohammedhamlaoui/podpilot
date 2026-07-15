@@ -24,7 +24,6 @@ export default function PublicFooter() {
           <a href="/teepublic-upload-automation" className="landing-footer-link">TeePublic Upload Automation</a>
           <a href="/ai-listing-generator" className="landing-footer-link">AI Listing Generator</a>
           <a href="/blog" className="landing-footer-link">Blog</a>
-          <a href="/affiliate-program" className="landing-footer-link">Affiliate Program</a>
         </div>
         
         <div className="landing-footer-col">
