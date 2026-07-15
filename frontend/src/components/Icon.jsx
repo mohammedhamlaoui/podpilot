@@ -1,17 +1,5 @@
 export default function Icon({ name, className = "", ...props }) {
-  if (name === "redbubble") {
-    return (
-      <span
-        className={`ui-icon platform-theme-icon ${className}`.trim()}
-        aria-hidden="true"
-        {...props}
-      >
-        <img className="platform-theme-logo platform-theme-logo-redbubble" src="/brand/redbubble-icon.png" alt="" />
-      </span>
-    );
-  }
-
-  if (name === "teepublic") {
+  if (name === "redbubble" || name === "teepublic") {
     return (
       <span
         className={`ui-icon platform-theme-icon ${className}`.trim()}

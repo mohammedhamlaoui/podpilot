@@ -3464,9 +3464,6 @@ html, body { overflow-x: hidden; }
   height: 100%;
   object-fit: contain;
 }
-.platform-theme-logo-redbubble {
-  border-radius: 50%;
-}
 .platform-theme-logo-dark {
   display: none;
 }
