@@ -301,7 +301,7 @@ export default function RedbubbleAutomationToolPage() {
                   <span key={label}><b>{index + 1}</b>{label}</span>
                 ))}
               </div>
-              <p>â€œPrepare designs in batches, then let PodPilot handle the repetitive browser workflow.â€</p>
+              <p>&ldquo;Prepare designs in batches, then let PodPilot handle the repetitive browser workflow.&rdquo;</p>
             </aside>
           </div>
         </section>
@@ -312,7 +312,7 @@ export default function RedbubbleAutomationToolPage() {
               <span className="rb-tool-section-number">03</span>
               <h2>Generate Redbubble Listings with AI</h2>
               <p>
-                PodPilotâ€™s Redbubble AI listing generator can draft titles, descriptions, main tags, supporting tags,
+                PodPilot&apos;s Redbubble AI listing generator can draft titles, descriptions, main tags, supporting tags,
                 and related listing metadata. AI-powered Redbubble automation is most useful at the blank-page stage:
                 it creates a structured first pass, while you keep responsibility for relevance and accuracy.
               </p>
@@ -376,7 +376,7 @@ export default function RedbubbleAutomationToolPage() {
               <span className="rb-tool-section-number">05</span>
               <h2>Why Use a Redbubble Chrome Extension?</h2>
               <p>
-                A Redbubble Chrome extension works inside the sellerâ€™s existing browser workflow. PodPilot uses your
+                A Redbubble Chrome extension works inside the seller&apos;s existing browser workflow. PodPilot uses your
                 current Redbubble session, so the preparation dashboard stays separate from the marketplace upload
                 page while the extension reduces repeated clicking and form filling.
               </p>
