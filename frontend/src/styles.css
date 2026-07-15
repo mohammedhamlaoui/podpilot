@@ -6702,7 +6702,14 @@ button.copy-link-open .pp-spinner-on-button {
   font-size: 15px;
   font-weight: 800;
   white-space: nowrap;
+  cursor: pointer;
   transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+}
+.landing-btn:disabled {
+  cursor: not-allowed;
+}
+.landing-btn:disabled:hover {
+  transform: none;
 }
 .landing-btn .ui-icon {
   width: 18px;
@@ -13466,6 +13473,13 @@ button.copy-link-open .pp-spinner-on-button {
   margin-bottom: 32px;
 }
 
+.pricing-tokens-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .pricing-tokens-badge {
   display: inline-flex;
   align-items: center;
@@ -13479,7 +13493,18 @@ button.copy-link-open .pp-spinner-on-button {
   letter-spacing: 0.05em;
   padding: 4px 10px;
   border-radius: 9999px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
+}
+
+.pricing-tokens-info .pricing-tokens-tooltip {
+  top: calc(100% + 10px);
+  bottom: auto;
+}
+
+.pricing-tokens-info .pricing-tokens-tooltip::after {
+  top: auto;
+  bottom: 100%;
+  transform: translate(-50%, 5px) rotate(45deg);
 }
 [data-theme="dark"] .pricing-tokens-badge {
   background: rgba(139, 92, 246, 0.15);

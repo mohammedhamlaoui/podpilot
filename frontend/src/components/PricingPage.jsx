@@ -527,9 +527,26 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
       <section className="pricing-tokens-section" id="ai-listing-credits">
         <div className="pricing-tokens-card">
           <div className="pricing-tokens-header">
-            <div className="pricing-tokens-badge">
-              <Icon name="sparkle" style={{ width: "12px", height: "12px", strokeWidth: 2.2 }} />
-              <span>AI LISTING CREDITS</span>
+            <div className="pricing-tokens-label-row">
+              <div className="pricing-tokens-badge">
+                <Icon name="sparkle" style={{ width: "12px", height: "12px", strokeWidth: 2.2 }} />
+                <span>AI LISTING CREDITS</span>
+              </div>
+              <button
+                type="button"
+                className="pricing-guarantee-info pricing-tokens-info"
+                aria-label="How AI Listing Credits work"
+                aria-describedby="ai-listing-credit-explanation"
+              >
+                <Info size={14} strokeWidth={2.3} />
+                <span
+                  id="ai-listing-credit-explanation"
+                  className="pricing-guarantee-tooltip pricing-tokens-tooltip"
+                  role="tooltip"
+                >
+                  1 AI Listing Credit generates listing content for 1 design.
+                </span>
+              </button>
             </div>
             <h2>Need more AI listing credits?</h2>
             <p>
