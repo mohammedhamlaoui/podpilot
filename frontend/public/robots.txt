@@ -1,29 +1,29 @@
-# PodPilot Robots.txt - Optimized for better indexing
+# PodPilot Robots.txt
 # https://podpilot.space
 
 User-agent: *
 Allow: /
 
-# High-priority public pages
+# Public marketing and SEO pages
 Allow: /pricing
 Allow: /ai-listing-generator
+Allow: /redbubble-automation-tool
+Allow: /teepublic-automation-tool
 Allow: /redbubble-upload-automation
 Allow: /teepublic-upload-automation
 Allow: /blog
 Allow: /blog/
-Allow: /blog/*
-Allow: /compare
 Allow: /compare/
-Allow: /customers/compare
 Allow: /customers/compare/
-
-# Trust and support pages
 Allow: /contact
 Allow: /help
+Allow: /help-center
 Allow: /founder
 Allow: /security
 Allow: /privacy
+Allow: /privacy-policy
 Allow: /terms
+Allow: /terms-of-service
 Allow: /refund-policy
 
 # Essential public files
@@ -33,37 +33,40 @@ Allow: /llms.txt
 Allow: /manifest.json
 Allow: /favicon.ico
 Allow: /brand/
-Allow: /blog/
 
-# Private app, account, checkout, and system routes
-Disallow: /dashboard
+# Private application pages
+Disallow: /dashboard$
 Disallow: /dashboard/
-Disallow: /redbubble
+Disallow: /redbubble$
 Disallow: /redbubble/
-Disallow: /teepublic
+Disallow: /teepublic$
 Disallow: /teepublic/
-Disallow: /profile
+Disallow: /profile$
 Disallow: /profile/
-Disallow: /billing
+Disallow: /billing$
 Disallow: /billing/
-Disallow: /subscription
+Disallow: /subscription$
 Disallow: /subscription/
-Disallow: /settings
+Disallow: /affiliate$
+Disallow: /affiliate/
+Disallow: /settings$
 Disallow: /settings/
-Disallow: /queue
+Disallow: /queue$
 Disallow: /queue/
-Disallow: /checkout
+Disallow: /checkout$
 Disallow: /checkout/
-Disallow: /login
+Disallow: /login$
 Disallow: /login/
-Disallow: /signup
+Disallow: /signup$
 Disallow: /signup/
-Disallow: /reset-password
-Disallow: /email-confirmed
-Disallow: /extension-auth-success
-Disallow: /thank-you
-Disallow: /api/
+Disallow: /reset-password$
+Disallow: /email-confirmed$
+Disallow: /extension-auth-success$
+Disallow: /thank-you$
+Disallow: /admin$
 Disallow: /admin/
+Disallow: /admin-affiliates$
+Disallow: /api/
 
 # Block common AI training crawlers while keeping search crawlers open.
 User-agent: CCBot
