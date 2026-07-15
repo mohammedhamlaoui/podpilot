@@ -26,6 +26,22 @@ import {
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const number = new Intl.NumberFormat("en-US");
+const MINIMUM_PAYOUT = 20;
+
+function safeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function requestErrorMessage(error, fallback) {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (typeof detail?.message === "string" && detail.message.trim()) return detail.message;
+  if (typeof error?.response?.data?.message === "string" && error.response.data.message.trim()) {
+    return error.response.data.message;
+  }
+  return fallback;
+}
 
 function formatDate(value, fallback = "—") {
   if (!value) return fallback;
@@ -155,8 +171,30 @@ export default function AffiliatePage() {
     }
   };
 
-  const requestPayout = async () => {
-    const amount = Number(data?.balances?.available || 0);
+  const handleRequestPayout = async () => {
+    if (requesting) return;
+
+    const amount = safeNumber(data?.balances?.available);
+    const paymentSettingsComplete = Boolean(data?.profile?.payment_settings_complete);
+    const hasOpenPayout = (data?.payouts || []).some((payout) =>
+      ["requested", "approved"].includes(payout?.status),
+    );
+
+    setNotice("");
+    if (amount < MINIMUM_PAYOUT) {
+      setError(`You need at least ${money.format(MINIMUM_PAYOUT)} available to request a payout.`);
+      return;
+    }
+    if (!paymentSettingsComplete) {
+      setError("Add a payment method before requesting a payout.");
+      setSettingsOpen(true);
+      return;
+    }
+    if (hasOpenPayout) {
+      setError("A payout request is already under review.");
+      return;
+    }
+
     setRequesting(true);
     setError("");
     try {
@@ -164,7 +202,7 @@ export default function AffiliatePage() {
       setNotice(`${money.format(amount)} payout request submitted for manual review.`);
       await load();
     } catch (requestError) {
-      setError(requestError?.response?.data?.detail || "Could not submit payout request.");
+      setError(requestErrorMessage(requestError, "Could not submit payout request."));
     } finally {
       setRequesting(false);
     }
@@ -173,9 +211,25 @@ export default function AffiliatePage() {
   if (loading) return <AffiliateSkeleton />;
   if (!data?.joined) return <EmptyAffiliate onJoin={handleJoin} joining={joining} error={error} />;
 
-  const { profile, balances, metrics, commissions = [], referrals = [], payouts = [] } = data;
+  const profile = data?.profile || {};
+  const balances = {
+    available: safeNumber(data?.balances?.available),
+    pending: safeNumber(data?.balances?.pending),
+    reserved: safeNumber(data?.balances?.reserved),
+    total_earnings: safeNumber(data?.balances?.total_earnings),
+    total_paid: safeNumber(data?.balances?.total_paid),
+  };
+  const metrics = {
+    clicks: safeNumber(data?.metrics?.clicks),
+    signups: safeNumber(data?.metrics?.signups),
+    paid_referrals: safeNumber(data?.metrics?.paid_referrals),
+    conversion_rate: safeNumber(data?.metrics?.conversion_rate),
+  };
+  const commissions = Array.isArray(data?.commissions) ? data.commissions : [];
+  const referrals = Array.isArray(data?.referrals) ? data.referrals : [];
+  const payouts = Array.isArray(data?.payouts) ? data.payouts : [];
   const openPayout = payouts.some((payout) => ["requested", "approved"].includes(payout.status));
-  const canRequest = balances.available >= 20 && profile.payment_settings_complete && !openPayout;
+  const canRequest = balances.available >= MINIMUM_PAYOUT && profile.payment_settings_complete && !openPayout;
 
   return (
     <div className="affiliate-page">
@@ -248,8 +302,8 @@ export default function AffiliatePage() {
           <section className="affiliate-panel affiliate-payout-panel">
             <span className="affiliate-panel-icon"><CircleDollarSign /></span><span className="affiliate-eyebrow">Ready to withdraw</span>
             <strong className="affiliate-payout-amount">{money.format(balances.available)}</strong>
-            <div className="affiliate-payout-progress"><span style={{ width: `${Math.min((balances.available / 20) * 100, 100)}%` }} /></div>
-            <small>{balances.available >= 20 ? "Minimum reached" : `${money.format(20 - balances.available)} until payout`}</small>
+            <div className="affiliate-payout-progress"><span style={{ width: `${Math.min((balances.available / MINIMUM_PAYOUT) * 100, 100)}%` }} /></div>
+            <small>{balances.available >= MINIMUM_PAYOUT ? "Minimum reached" : `${money.format(MINIMUM_PAYOUT - balances.available)} until payout`}</small>
             <button type="button" className="affiliate-primary-btn" onClick={handleRequestPayout} disabled={!canRequest || requesting}>{requesting ? <RefreshCw className="is-spinning" /> : <ArrowUpRight />}{openPayout ? "Payout under review" : requesting ? "Submitting…" : "Request payout"}</button>
             {!profile.payment_settings_complete && <button type="button" className="affiliate-text-btn" onClick={() => setSettingsOpen(true)}>Add payment settings</button>}
           </section>
