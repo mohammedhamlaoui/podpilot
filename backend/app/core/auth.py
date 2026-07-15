@@ -144,13 +144,7 @@ async def require_admin(
     operations can assign it. Frontend flags and user_metadata are ignored.
     """
     metadata = user.app_metadata or {}
-    roles = metadata.get("roles") if isinstance(metadata.get("roles"), list) else []
-    is_admin = (
-        metadata.get("role") == "admin"
-        or metadata.get("is_admin") is True
-        or "admin" in roles
-    )
-    if not is_admin:
+    if metadata.get("role") != "admin":
         logger.warning(
             "[AUTH] request_id=%s admin access denied user=%s",
             request_id(),

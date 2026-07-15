@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, HandCoins } from "lucide-react";
+import { CreditCard, HandCoins, ShieldCheck, UsersRound } from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
 import Dashboard from "./components/Dashboard";
 import DesignManager from "./components/DesignManager";
@@ -7,6 +7,7 @@ import TeePublicDesignManager from "./components/TeePublicDesignManager";
 import TeePublicEditor from "./components/TeePublicEditor";
 import BillingSubscriptionsPage from "./components/BillingSubscriptionsPage";
 import AffiliatePage from "./components/AffiliatePage";
+import AdminAffiliatePage from "./components/AdminAffiliatePage";
 import Icon from "./components/Icon";
 import ImageGrid from "./components/ImageGrid";
 import ImportDesigns from "./components/ImportDesigns";
@@ -127,6 +128,10 @@ const NAV_ITEMS = [
   { id: "affiliate", label: "Affiliate Program", iconComponent: HandCoins },
 ];
 
+const ADMIN_NAV_ITEMS = [
+  { id: "admin", label: "Admin Dashboard", iconComponent: ShieldCheck },
+  { id: "admin-affiliates", label: "Affiliates", iconComponent: UsersRound },
+];
 const DEFAULT_PLATFORM_ACCESS = {
   has_active_plan: false,
   plan: null,
@@ -161,7 +166,7 @@ function canAccessRoute(route, platformAccess) {
   return Boolean(platformAccess?.[route]);
 }
 
-function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess, trialEligibility }) {
+function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess, trialEligibility, isAdmin }) {
   const userLabel = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Account";
 
   return (
@@ -199,6 +204,28 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
               </button>
             );
           })}
+
+          {isAdmin && (
+            <div className="pp-sidebar-admin">
+              <span className="pp-sidebar-label pp-sidebar-section-label">Admin</span>
+              {ADMIN_NAV_ITEMS.map((item) => {
+                const ItemIcon = item.iconComponent;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`pp-sidebar-btn${activeRoute === item.id ? " pp-sidebar-btn-active" : ""}`}
+                    onClick={() => onNavigate(item.id)}
+                    data-tooltip={item.label}
+                    aria-label={item.label}
+                  >
+                    <ItemIcon className="ui-icon" aria-hidden="true" />
+                    <span className="pp-sidebar-label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </nav>
       </div>
 
@@ -220,7 +247,7 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
 
 // ── Main App ────────────────────────────────────────────────────────────────
 
-const VALID_ROUTES = ["dashboard", "redbubble", "teepublic", "billing", "affiliate", "profile"];
+const VALID_ROUTES = ["dashboard", "redbubble", "teepublic", "billing", "affiliate", "profile", "admin", "admin-affiliates"];
 const VALID_TABS = ["designs", "import"];
 const SUBSCRIPTION_POLL_INTERVAL_MS = 30000;
 const SUBSCRIPTION_POLL_ATTEMPTS = 2;
@@ -472,6 +499,9 @@ function readRouteFromLocation() {
   if (path === "reset-password") return { route: "dashboard", tab: "designs", editor: false };
   if (path === "subscription") return { route: "billing", tab: "designs", editor: false };
   const [first, second] = path.split("/");
+  if (first === "admin") {
+    return { route: second === "affiliates" ? "admin-affiliates" : "admin", tab: "designs", editor: false };
+  }
   if (first === "dashboard") {
     const nestedRoute = VALID_ROUTES.includes(second) ? second : "dashboard";
     const nestedTab = VALID_TABS.includes(path.split("/")[2]) ? path.split("/")[2] : "designs";
@@ -487,6 +517,8 @@ function buildPath(route, tab, editorPlatform = "") {
   const safeRoute = VALID_ROUTES.includes(route) ? route : "dashboard";
   const safeTab = VALID_TABS.includes(tab) ? tab : "designs";
   if (safeRoute === "dashboard") return "/dashboard";
+  if (safeRoute === "admin") return "/admin";
+  if (safeRoute === "admin-affiliates") return "/admin/affiliates";
   if (editorPlatform === safeRoute && isPlatformRoute(safeRoute)) return `/${safeRoute}/editor`;
   if (safeTab === "designs") return `/${safeRoute}`;
   return `/${safeRoute}/${safeTab}`;
@@ -558,6 +590,10 @@ function isValidRoute(pathname) {
   }
 
   if (first === "affiliate") return segments.length === 1;
+
+  if (first === "admin") {
+    return segments.length === 1 || (segments.length === 2 && segments[1] === "affiliates");
+  }
   
   return false;
 }
@@ -566,6 +602,7 @@ export default function App() {
   const { loading, isAuthenticated, user, session, signOut } = useAuth();
   const authLoading = loading;
   const userId = user?.id || "";
+  const isAdmin = user?.app_metadata?.role === "admin";
   const initialRoute = readRouteFromLocation();
   const [activeRoute, setActiveRoute] = useState(initialRoute.route);
   const [activeTab, setActiveTab] = useState(initialRoute.tab);
@@ -605,8 +642,8 @@ export default function App() {
       ...COMPARISON_ROUTES,
     ];
     const publicPathPrefixes = ["/blog"];
-    const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "affiliate", "profile"];
-    const privatePathPrefixes = ["/dashboard", "/redbubble", "/teepublic", "/billing", "/subscription", "/affiliate", "/profile"];
+    const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "affiliate", "profile", "admin", "admin-affiliates"];
+    const privatePathPrefixes = ["/dashboard", "/redbubble", "/teepublic", "/billing", "/subscription", "/affiliate", "/profile", "/admin"];
     const privateExactPaths = ["/checkout", "/login", "/signup", "/reset-password", "/email-confirmed"];
     const isPublicPath =
       publicExactPaths.includes(pathname) ||
@@ -2012,6 +2049,7 @@ export default function App() {
           setTheme={setTheme}
           platformAccess={platformAccess}
           trialEligibility={trialEligibility}
+          isAdmin={isAdmin}
         />
 
       <main className="pp-main">
@@ -2220,6 +2258,9 @@ export default function App() {
         )}
 
         {activeRoute === "affiliate" && <AffiliatePage />}
+
+        {activeRoute === "admin" && <AdminAffiliatePage isAdmin={isAdmin} initialSection="overview" />}
+        {activeRoute === "admin-affiliates" && <AdminAffiliatePage isAdmin={isAdmin} initialSection="affiliates" />}
 
         {/* Profile */}
         {activeRoute === "profile" && (
