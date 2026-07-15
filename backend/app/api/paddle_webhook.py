@@ -32,12 +32,13 @@ import hmac
 import json
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
 from app.core import config
-from app.services import subscription_service, supabase_service
+from app.services import affiliate_service, subscription_service, supabase_service
 from app.services.logging_utils import error_type as safe_error_type, short_id, short_user_id
 
 
@@ -62,6 +63,8 @@ KNOWN_EVENT_TYPES = {
     "subscription.cancelled",  # tolerate either spelling
     "transaction.completed",
     "transaction.paid",
+    "adjustment.created",
+    "adjustment.updated",
 }
 
 PADDLE_TO_INTERNAL_STATUS = {
@@ -260,6 +263,58 @@ def _extract_transaction_id(event_type: str, data: dict[str, Any]) -> Optional[s
     if event_type.startswith("transaction."):
         return _safe_iso(data.get("id"))
     return _safe_iso(data.get("transaction_id"))
+
+
+def _parse_event_datetime(value: Any) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
+
+
+def _transaction_gross_amount(data: dict[str, Any]) -> Decimal:
+    """Return Paddle's grand total converted from minor units."""
+    details = data.get("details") if isinstance(data.get("details"), dict) else {}
+    totals = details.get("totals") if isinstance(details.get("totals"), dict) else {}
+    if not totals and isinstance(data.get("totals"), dict):
+        totals = data["totals"]
+    raw = totals.get("grand_total") or totals.get("total") or 0
+    try:
+        return (Decimal(str(raw)) / Decimal("100")).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0.00")
+
+
+def _resolve_transaction_user(
+    *, custom_user_id: Optional[str], paddle_subscription_id: Optional[str],
+    paddle_customer_id: Optional[str], intent: Optional[dict[str, Any]],
+) -> Optional[str]:
+    """Resolve buyer identity from server-owned rows, not custom_data alone."""
+    client = supabase_service.admin_client()
+    row = _find_existing_row(
+        paddle_subscription_id=paddle_subscription_id,
+        user_id=None,
+    ) if paddle_subscription_id else None
+    if not row and paddle_customer_id:
+        response = (
+            client.table(SUBSCRIPTION_TABLE).select("user_id")
+            .eq("paddle_customer_id", paddle_customer_id)
+            .order("updated_at", desc=True).limit(1).execute()
+        )
+        rows = list(response.data or [])
+        row = dict(rows[0]) if rows else None
+    authoritative = (row or {}).get("user_id") or (intent or {}).get("user_id")
+    if authoritative and custom_user_id and str(authoritative) != str(custom_user_id):
+        logger.warning(
+            "[Paddle] custom_data user mismatch authoritative=%s supplied=%s",
+            short_user_id(authoritative),
+            short_user_id(custom_user_id),
+        )
+        return None
+    return str(authoritative) if authoritative else None
 
 
 # ── DB upsert ────────────────────────────────────────────────────────────
@@ -887,6 +942,20 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
             )
             return
 
+        verified_user_id = _resolve_transaction_user(
+            custom_user_id=user_id,
+            paddle_subscription_id=paddle_subscription_id,
+            paddle_customer_id=paddle_customer_id,
+            intent=intent,
+        )
+        if not verified_user_id:
+            logger.warning(
+                "[Paddle] subscription transaction has no verified buyer transaction=%s",
+                short_id(transaction_id),
+            )
+            return
+        user_id = verified_user_id
+
         if valid_intent:
             try:
                 subscription_service.mark_checkout_intent_paid(
@@ -925,6 +994,56 @@ def _handle_transaction_event(event_id: str, event_type: str, data: dict[str, An
                 email=custom_email,
                 paddle_customer_id=paddle_customer_id,
             )
+
+        # Affiliate eligibility is intentionally narrower than subscription
+        # bookkeeping: only a completed, positive USD subscription payment.
+        transaction_status = str(data.get("status") or "").strip().lower()
+        gross_amount = _transaction_gross_amount(data)
+        currency = str(data.get("currency_code") or "USD").strip().upper()
+        if (
+            event_type == "transaction.completed"
+            and transaction_status == "completed"
+            and transaction_id
+            and gross_amount > 0
+            and currency == "USD"
+        ):
+            completed_at = _parse_event_datetime(data.get("billed_at") or data.get("updated_at") or data.get("created_at"))
+            commission = affiliate_service.create_commission_for_transaction(
+                user_id=user_id,
+                transaction_id=transaction_id,
+                subscription_id=paddle_subscription_id,
+                plan=subscription_plan,
+                gross_amount=gross_amount,
+                completed_at=completed_at,
+            )
+            if commission:
+                logger.info(
+                    "[Affiliate] commission recorded transaction=%s plan=%s type=%s",
+                    short_id(transaction_id),
+                    subscription_plan,
+                    commission.get("transaction_type"),
+                )
+
+
+def _handle_adjustment_event(event_type: str, data: dict[str, Any]) -> None:
+    status = str(data.get("status") or "").strip().lower()
+    action = str(data.get("action") or data.get("type") or "").strip().lower()
+    transaction_id = _safe_iso(data.get("transaction_id"))
+    if status != "approved" or action not in {"refund", "chargeback"} or not transaction_id:
+        logger.info(
+            "[Affiliate] adjustment ignored type=%s status=%s action=%s",
+            event_type,
+            status or "(none)",
+            action or "(none)",
+        )
+        return
+    commission = affiliate_service.reverse_commission(transaction_id, action)
+    if commission:
+        logger.info(
+            "[Affiliate] commission reversed transaction=%s reason=%s",
+            short_id(transaction_id),
+            action,
+        )
 
 
 # ── Route ────────────────────────────────────────────────────────────────
@@ -998,6 +1117,8 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
             _handle_subscription_event(event_type, data)
         elif event_type.startswith("transaction."):
             _handle_transaction_event(event_id, event_type, data)
+        elif event_type.startswith("adjustment."):
+            _handle_adjustment_event(event_type, data)
     except HTTPException as error:
         _mark_webhook_event(event_id, "failed", last_error=str(error.detail))
         logger.warning(

@@ -60,6 +60,11 @@ RATE_LIMIT_BACKEND = _optional("RATE_LIMIT_BACKEND", "memory").lower()
 REDIS_URL = _optional("REDIS_URL", "")
 DEBUG = _optional("DEBUG", "false").lower() == "true"
 
+# Affiliate attribution/analytics secrets are backend-only. Use independent,
+# high-entropy values in production; neither value is sent to the browser.
+AFFILIATE_ATTRIBUTION_SECRET = _optional("AFFILIATE_ATTRIBUTION_SECRET", "")
+AFFILIATE_ANALYTICS_SALT = _optional("AFFILIATE_ANALYTICS_SALT", "")
+
 # ── CORS ────────────────────────────────────────────────────────────────────
 _raw_origins = _optional(
     "ALLOWED_ORIGINS",

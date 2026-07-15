@@ -365,6 +365,8 @@ export async function openPaddleCheckout({
   if (typeof resolvedTrialEligible === "boolean") customData.trial_eligible = resolvedTrialEligible;
   const resolvedCreditPackId = creditPackId || resolvedCheckoutConfig?.credit_pack_id;
   if (resolvedCreditPackId) customData.credit_pack_id = String(resolvedCreditPackId);
+  const affiliateCode = resolvedCheckoutConfig?.affiliate_code;
+  if (affiliateCode && !resolvedCreditPackId) customData.affiliate_code = String(affiliateCode);
   const checkoutCustomer = buildCheckoutCustomer({ email, countryCode });
   if (checkoutCustomer?.email) customData.email = checkoutCustomer.email;
   if (plan) customData.plan = String(plan);
