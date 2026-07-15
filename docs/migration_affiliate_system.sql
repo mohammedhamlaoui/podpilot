@@ -2,7 +2,7 @@
 -- Apply once in the Supabase SQL editor before deploying the API/frontend.
 -- All financial writes are service-role-only and performed by atomic RPCs.
 
-create extension if not exists pgcrypto;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.affiliate_accounts (
   id uuid primary key default gen_random_uuid(),
@@ -160,14 +160,14 @@ grant update (payout_method, payout_email, account_name, iban, swift_code, updat
 
 create or replace function public.affiliate_join(p_user_id uuid)
 returns public.affiliate_accounts
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare result public.affiliate_accounts; candidate text;
 begin
   select * into result from public.affiliate_accounts where user_id = p_user_id;
   if found then return result; end if;
   loop
-    candidate := upper(substr(encode(gen_random_bytes(9), 'hex'), 1, 12));
+    candidate := upper(substr(encode(extensions.gen_random_bytes(9), 'hex'), 1, 12));
     begin
       insert into public.affiliate_accounts(user_id, referral_code) values (p_user_id, candidate)
       returning * into result;
@@ -180,7 +180,7 @@ end $$;
 create or replace function public.affiliate_attribute(
   p_referred_user_id uuid, p_referral_code text, p_first_visit_at timestamptz, p_source text
 ) returns public.affiliate_referrals
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare account public.affiliate_accounts; result public.affiliate_referrals;
 begin
@@ -205,7 +205,7 @@ create or replace function public.affiliate_create_commission(
   p_referred_user_id uuid, p_transaction_id text, p_subscription_id text,
   p_plan text, p_transaction_type text, p_gross_amount numeric, p_completed_at timestamptz
 ) returns public.affiliate_commissions
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare referral public.affiliate_referrals; account public.affiliate_accounts;
   result public.affiliate_commissions; reversal public.affiliate_transaction_reversals;
@@ -236,7 +236,7 @@ end $$;
 
 create or replace function public.affiliate_reverse_commission(p_transaction_id text, p_reason text)
 returns public.affiliate_commissions
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare result public.affiliate_commissions; previous_status text;
 begin
@@ -258,7 +258,7 @@ begin
 end $$;
 
 create or replace function public.affiliate_release_commissions(p_affiliate_id uuid default null)
-returns integer language plpgsql security definer set search_path = public
+returns integer language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare changed integer;
 begin
@@ -271,7 +271,7 @@ end $$;
 
 create or replace function public.affiliate_request_payout(p_user_id uuid, p_amount numeric)
 returns public.affiliate_payout_requests
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare account public.affiliate_accounts; result public.affiliate_payout_requests;
   gross_available numeric; reserved numeric; debt numeric; spendable numeric; snapshot jsonb;
@@ -307,7 +307,7 @@ end $$;
 create or replace function public.affiliate_review_payout(
   p_request_id uuid, p_admin_user_id uuid, p_status text, p_note text default null
 ) returns public.affiliate_payout_requests
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare result public.affiliate_payout_requests; old_status text; remaining numeric; row_record record;
 begin
