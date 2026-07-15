@@ -20,7 +20,7 @@ import { useSeo } from "../utils/useSeo";
 
 export const canonicalPath = "/redbubble-automation-tool";
 export const canonicalUrl = `https://podpilot.space${canonicalPath}`;
-export const seoTitle = "Redbubble Automation Tool with AI | Bulk Upload Designs â€“ PodPilot";
+export const seoTitle = "Redbubble Automation Tool with AI | Bulk Upload Designs \u2013 PodPilot";
 export const seoDescription =
   "Automate Redbubble uploads with PodPilot. Bulk upload designs, generate titles, tags and descriptions with AI, and save hours using our Chrome extension.";
 
@@ -195,7 +195,7 @@ function TextLink({ href, children }) {
   );
 }
 
-export default function RedbubbleAutomationToolPage({ theme, setTheme }) {
+export default function RedbubbleAutomationToolPage() {
   useSeo({
     title: seoTitle,
     description: seoDescription,
@@ -207,7 +207,7 @@ export default function RedbubbleAutomationToolPage({ theme, setTheme }) {
 
   return (
     <div className="rb-tool-page">
-      <PublicHeader theme={theme} setTheme={setTheme} guestCtaLabel="Start your 7-day free trial" />
+      <PublicHeader guestCtaLabel="Start your 7-day free trial" />
 
       <main>
         <section className="rb-tool-hero">
@@ -232,15 +232,11 @@ export default function RedbubbleAutomationToolPage({ theme, setTheme }) {
             </div>
 
             <figure className="rb-tool-hero-visual">
-              <div className="rb-tool-browser-bar" aria-hidden="true">
-                <span /><span /><span />
-                <strong>podpilot.space / dashboard</strong>
-              </div>
               <img
-                src="/videos/posters/podpilot-hero-demo-poster.jpg"
-                alt="PodPilot Redbubble upload automation dashboard with browser extension and upload queue"
-                width="1920"
-                height="1080"
+                src="/brand/redbubble-automation-dashboard.png"
+                alt="PodPilot Redbubble upload automation dashboard showing prepared designs and upload queue progress"
+                width="1918"
+                height="1120"
                 fetchPriority="high"
                 decoding="async"
               />
