@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeDollarSign,
   Banknote,
@@ -43,6 +43,10 @@ const SECTIONS = [
   { id: "activity", label: "Referral activity" },
 ];
 const EMPTY_PAGE = { items: [], page: 1, page_size: 25, total: 0, pages: 1 };
+const INITIAL_LOADING = { overview: true, affiliates: true, commissions: true, payouts: true, activity: true };
+const INITIAL_LOADED = { overview: false, affiliates: false, commissions: false, payouts: false, activity: false };
+const INITIAL_ERRORS = { overview: "", affiliates: "", commissions: "", payouts: "", activity: "", drawer: "", action: "" };
+const TRANSIENT_READ_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 
 function formatDate(value, withTime = false) {
@@ -71,6 +75,27 @@ function errorMessage(error, fallback = "Could not load affiliate admin data.") 
 }
 
 
+function isTransientReadError(error) {
+  const status = Number(error?.response?.status || 0);
+  return !error?.response || TRANSIENT_READ_STATUSES.has(status);
+}
+
+
+async function readWithRetry(read, attempts = 2) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientReadError(error) || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
+
 function StatusBadge({ value }) {
   return <span className={`admin-affiliate-status is-${String(value || "unknown").toLowerCase()}`}><span />{label(value)}</span>;
 }
@@ -95,6 +120,29 @@ function TableSkeleton({ columns = 6 }) {
           {Array.from({ length: columns }).map((__, column) => <span key={column} />)}
         </div>
       ))}
+    </div>
+  );
+}
+
+
+function PanelSkeleton() {
+  return (
+    <section className="admin-affiliate-panel admin-affiliate-panel-skeleton" aria-busy="true" aria-label="Loading ranking data">
+      <span /><span /><span /><span />
+    </section>
+  );
+}
+
+
+function AffiliateIdentity({ displayName, maskedEmail }) {
+  const normalizedName = String(displayName || "").trim();
+  const secondary = String(maskedEmail || "").trim();
+  const primary = normalizedName || secondary || "PodPilot user";
+  const showSecondary = secondary && secondary.toLocaleLowerCase() !== primary.toLocaleLowerCase();
+  return (
+    <div className="admin-affiliate-identity">
+      <strong>{primary}</strong>
+      {showSecondary && <small>{secondary}</small>}
     </div>
   );
 }
@@ -178,7 +226,7 @@ function DetailDrawer({ data, loading, onClose, onStatusAction }) {
     <div className="admin-affiliate-drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <aside className="admin-affiliate-drawer" aria-label="Affiliate detail">
         <header>
-          <div><span className="admin-affiliate-kicker">Affiliate dossier</span><h2>{data?.account?.display_name || "Loading affiliate…"}</h2></div>
+          <div><span className="admin-affiliate-kicker">Affiliate dossier</span><h2>{data?.account ? data.account.display_name || data.account.masked_email || "PodPilot user" : "Loading affiliate…"}</h2></div>
           <button type="button" onClick={onClose} aria-label="Close affiliate details"><X /></button>
         </header>
         {loading ? <TableSkeleton columns={2} /> : !data?.account ? (
@@ -278,8 +326,9 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
   const [accounts, setAccounts] = useState(EMPTY_PAGE);
   const [commissions, setCommissions] = useState(EMPTY_PAGE);
   const [payouts, setPayouts] = useState(EMPTY_PAGE);
-  const [loading, setLoading] = useState({ overview: true, affiliates: false, commissions: false, payouts: false, activity: false });
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(INITIAL_LOADING);
+  const [loaded, setLoaded] = useState(INITIAL_LOADED);
+  const [errors, setErrors] = useState(INITIAL_ERRORS);
   const [notice, setNotice] = useState("");
   const [forbidden, setForbidden] = useState(false);
   const [accountFilters, setAccountFilters] = useState({ search: "", status: "", date_from: "", date_to: "", page: 1, page_size: 25 });
@@ -291,84 +340,90 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
   const [confirmation, setConfirmation] = useState(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const requestSequence = useRef({ overview: 0, affiliates: 0, commissions: 0, payouts: 0, activity: 0, drawer: 0 });
 
   useEffect(() => { setSection(initialSection); }, [initialSection]);
 
-  const handleFailure = useCallback((requestError, fallback) => {
+  const handleFailure = useCallback((sectionKey, requestError, fallback) => {
     if (requestError?.response?.status === 403) setForbidden(true);
-    setError(errorMessage(requestError, fallback));
+    setErrors((current) => ({ ...current, [sectionKey]: errorMessage(requestError, fallback) }));
   }, []);
 
-  const loadOverview = useCallback(async () => {
-    setLoading((current) => ({ ...current, overview: true }));
+  const runSectionRead = useCallback(async (sectionKey, read, apply, fallback) => {
+    const sequence = requestSequence.current[sectionKey] + 1;
+    requestSequence.current[sectionKey] = sequence;
+    setLoading((current) => ({ ...current, [sectionKey]: true }));
     try {
-      setOverview(await getAdminAffiliateOverview());
+      const data = await readWithRetry(read);
+      if (requestSequence.current[sectionKey] !== sequence) return;
+      apply(data);
+      setLoaded((current) => ({ ...current, [sectionKey]: true }));
+      setErrors((current) => ({ ...current, [sectionKey]: "" }));
     } catch (requestError) {
-      handleFailure(requestError, "Could not load the affiliate overview.");
+      if (requestSequence.current[sectionKey] !== sequence) return;
+      handleFailure(sectionKey, requestError, fallback);
     } finally {
-      setLoading((current) => ({ ...current, overview: false }));
+      if (requestSequence.current[sectionKey] === sequence) {
+        setLoading((current) => ({ ...current, [sectionKey]: false }));
+      }
     }
   }, [handleFailure]);
 
-  const loadActivity = useCallback(async () => {
-    setLoading((current) => ({ ...current, activity: true }));
-    try {
-      setActivityData(await getAdminAffiliateActivity());
-    } catch (requestError) {
-      handleFailure(requestError, "Could not load referral activity.");
-    } finally {
-      setLoading((current) => ({ ...current, activity: false }));
-    }
-  }, [handleFailure]);
+  const loadOverview = useCallback(() => runSectionRead(
+    "overview",
+    getAdminAffiliateOverview,
+    setOverview,
+    "Could not load the affiliate overview.",
+  ), [runSectionRead]);
 
-  const loadAccounts = useCallback(async () => {
-    setLoading((current) => ({ ...current, affiliates: true }));
-    try {
-      setAccounts(await listAdminAffiliateAccounts(accountFilters));
-    } catch (requestError) {
-      handleFailure(requestError, "Could not load affiliates.");
-    } finally {
-      setLoading((current) => ({ ...current, affiliates: false }));
-    }
-  }, [accountFilters, handleFailure]);
+  const loadActivity = useCallback(() => runSectionRead(
+    "activity",
+    getAdminAffiliateActivity,
+    setActivityData,
+    "Could not load referral activity.",
+  ), [runSectionRead]);
 
-  const loadCommissions = useCallback(async () => {
-    setLoading((current) => ({ ...current, commissions: true }));
-    try {
-      setCommissions(await listAdminAffiliateCommissions(commissionFilters));
-    } catch (requestError) {
-      handleFailure(requestError, "Could not load commissions.");
-    } finally {
-      setLoading((current) => ({ ...current, commissions: false }));
-    }
-  }, [commissionFilters, handleFailure]);
+  const loadAccounts = useCallback(() => runSectionRead(
+    "affiliates",
+    () => listAdminAffiliateAccounts(accountFilters),
+    setAccounts,
+    "Could not load affiliates.",
+  ), [accountFilters, runSectionRead]);
 
-  const loadPayouts = useCallback(async () => {
-    setLoading((current) => ({ ...current, payouts: true }));
-    try {
-      setPayouts(await listAdminAffiliatePayouts(payoutFilters));
-    } catch (requestError) {
-      handleFailure(requestError, "Could not load payout requests.");
-    } finally {
-      setLoading((current) => ({ ...current, payouts: false }));
-    }
-  }, [handleFailure, payoutFilters]);
+  const loadCommissions = useCallback(() => runSectionRead(
+    "commissions",
+    () => listAdminAffiliateCommissions(commissionFilters),
+    setCommissions,
+    "Could not load commissions.",
+  ), [commissionFilters, runSectionRead]);
+
+  const loadPayouts = useCallback(() => runSectionRead(
+    "payouts",
+    () => listAdminAffiliatePayouts(payoutFilters),
+    setPayouts,
+    "Could not load payout requests.",
+  ), [payoutFilters, runSectionRead]);
 
   const loadDrawer = useCallback(async (affiliateId) => {
     if (!affiliateId) return;
+    const sequence = requestSequence.current.drawer + 1;
+    requestSequence.current.drawer = sequence;
     setDrawerLoading(true);
     try {
-      setDrawerData(await getAdminAffiliateAccount(affiliateId));
+      const data = await readWithRetry(() => getAdminAffiliateAccount(affiliateId));
+      if (requestSequence.current.drawer !== sequence) return;
+      setDrawerData(data);
+      setErrors((current) => ({ ...current, drawer: "" }));
     } catch (requestError) {
-      handleFailure(requestError, "Could not load affiliate details.");
+      if (requestSequence.current.drawer !== sequence) return;
+      handleFailure("drawer", requestError, "Could not load affiliate details.");
     } finally {
-      setDrawerLoading(false);
+      if (requestSequence.current.drawer === sequence) setDrawerLoading(false);
     }
   }, [handleFailure]);
 
   useEffect(() => {
     if (!isAdmin) return;
-    setError("");
     void loadOverview();
     void loadActivity();
   }, [isAdmin, loadActivity, loadOverview]);
@@ -399,7 +454,7 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
       description: nextStatus === "suspended"
         ? "New referral attribution and commission creation will stop until the account is reactivated. Financial history remains intact."
         : "The affiliate can receive new attribution and commissions again. Existing financial history is unchanged.",
-      targetLabel: account.display_name,
+      targetLabel: account.display_name || account.masked_email || "PodPilot user",
       targetValue: account.referral_code,
       confirmLabel: nextStatus === "suspended" ? "Suspend affiliate" : "Reactivate affiliate",
       tone: nextStatus === "suspended" ? "danger" : "success",
@@ -424,7 +479,7 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
   const submitConfirmation = async () => {
     if (!confirmation || submitting) return;
     setSubmitting(true);
-    setError("");
+    setErrors((current) => ({ ...current, action: "" }));
     try {
       if (confirmation.type === "payout") {
         await reviewAdminAffiliatePayout(confirmation.id, { status: confirmation.action, admin_note: note.trim() || null });
@@ -436,11 +491,26 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
       setConfirmation(null);
       setNote("");
       await refreshAfterAction();
+      setErrors((current) => ({ ...current, action: "" }));
     } catch (requestError) {
-      handleFailure(requestError, "The admin action could not be completed.");
+      handleFailure("action", requestError, "The admin action could not be completed.");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const activeError = errors.action || (section === "affiliates"
+    ? errors.affiliates || errors.drawer
+    : errors[section] || "");
+
+  const dismissNotice = () => {
+    setNotice("");
+    setErrors((current) => ({
+      ...current,
+      action: "",
+      [section]: "",
+      ...(section === "affiliates" ? { drawer: "" } : {}),
+    }));
   };
 
   if (!isAdmin || forbidden) {
@@ -467,48 +537,50 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
         {SECTIONS.map((item) => <button key={item.id} type="button" className={section === item.id ? "is-active" : ""} onClick={() => setSection(item.id)}>{item.label}</button>)}
       </nav>
 
-      {(notice || error) && (
-        <div className={`admin-affiliate-notice ${error ? "is-error" : "is-success"}`} role={error ? "alert" : "status"}>
-          <span>{error || notice}</span><button type="button" onClick={() => { setError(""); setNotice(""); }} aria-label="Dismiss"><X /></button>
+      {(notice || activeError) && (
+        <div className={`admin-affiliate-notice ${activeError ? "is-error" : "is-success"}`} role={activeError ? "alert" : "status"}>
+          <span>{activeError || notice}</span><button type="button" onClick={dismissNotice} aria-label="Dismiss"><X /></button>
         </div>
       )}
 
       {section === "overview" && (
         <div className="admin-affiliate-section-stack">
-          {loading.overview ? <div className="admin-affiliate-overview-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="admin-affiliate-card-skeleton" />)}</div> : (
+          {loading.overview ? <div className="admin-affiliate-overview-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="admin-affiliate-card-skeleton" />)}</div> : loaded.overview ? (
             <div className="admin-affiliate-overview-grid">{overviewCards.map((card) => <OverviewCard key={card.label} {...card} />)}</div>
-          )}
+          ) : <section className="admin-affiliate-panel"><AdminEmpty title="Overview unavailable" detail="Refresh to try loading the overview again." /></section>}
           <div className="admin-affiliate-overview-split">
-            <RankingBars title="Top by paid customers" rows={activityData?.top_by_paid_customers} metric="paid_customers" formatter={(value) => integer.format(value || 0)} />
-            <RankingBars title="Top by earned commission" rows={activityData?.top_by_earnings} metric="total_earned" formatter={(value) => money.format(value || 0)} />
+            {loading.activity ? <><PanelSkeleton /><PanelSkeleton /></> : loaded.activity ? <>
+              <RankingBars title="Top by paid customers" rows={activityData?.top_by_paid_customers} metric="paid_customers" formatter={(value) => integer.format(value || 0)} />
+              <RankingBars title="Top by earned commission" rows={activityData?.top_by_earnings} metric="total_earned" formatter={(value) => money.format(value || 0)} />
+            </> : <><section className="admin-affiliate-panel"><AdminEmpty title="Ranking data unavailable" /></section><section className="admin-affiliate-panel"><AdminEmpty title="Ranking data unavailable" /></section></>}
           </div>
         </div>
       )}
 
       {section === "affiliates" && (
         <section className="admin-affiliate-panel admin-affiliate-table-panel">
-          <div className="admin-affiliate-section-heading"><div><span>Partner directory</span><h2>Affiliates</h2></div><small>{integer.format(accounts.total)} accounts</small></div>
-          <form className="admin-affiliate-filters" onSubmit={(event) => { event.preventDefault(); setAccountFilters((current) => ({ ...current, page: 1 })); }}>
+          <div className="admin-affiliate-section-heading"><div><span>Partner directory</span><h2>Affiliates</h2></div><small>{loading.affiliates && !loaded.affiliates ? "Loading accounts\u2026" : loaded.affiliates ? `${integer.format(accounts.total)} accounts` : "Accounts unavailable"}</small></div>
+          <form className="admin-affiliate-filters is-accounts" onSubmit={(event) => { event.preventDefault(); setAccountFilters((current) => ({ ...current, page: 1 })); }}>
             <label className="is-search"><Search /><input value={accountFilters.search} onChange={(event) => setAccountFilters((current) => ({ ...current, search: event.target.value, page: 1 }))} placeholder="Referral code or masked email" /></label>
             <label><span>Status</span><select value={accountFilters.status} onChange={(event) => setAccountFilters((current) => ({ ...current, status: event.target.value, page: 1 }))}><option value="">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
             <label><span>Joined from</span><input type="date" value={accountFilters.date_from} onChange={(event) => setAccountFilters((current) => ({ ...current, date_from: event.target.value, page: 1 }))} /></label>
             <label><span>Joined to</span><input type="date" value={accountFilters.date_to} onChange={(event) => setAccountFilters((current) => ({ ...current, date_to: event.target.value, page: 1 }))} /></label>
           </form>
-          <div className="admin-affiliate-table-wrap">
-            {loading.affiliates ? <TableSkeleton columns={11} /> : accounts.items?.length ? (
-              <table className="admin-affiliate-table">
+          <div className="admin-affiliate-table-wrap" role="region" aria-label="Affiliates table" tabIndex="0">
+            {loading.affiliates ? <TableSkeleton columns={11} /> : !loaded.affiliates ? <AdminEmpty icon={Users} title="Affiliate data unavailable" detail="Refresh to try loading this directory again." /> : accounts.items?.length ? (
+              <table className="admin-affiliate-table is-affiliate-directory">
                 <thead><tr><th>Affiliate</th><th>Code</th><th>Joined</th><th>Status</th><th>Clicks</th><th>Signups</th><th>Paid</th><th>Pending</th><th>Available</th><th>Earned / Paid</th><th>Actions</th></tr></thead>
                 <tbody>{accounts.items.map((account) => (
                   <tr key={account.id}>
-                    <td><strong>{account.display_name}</strong><small>{account.masked_email}</small></td><td><code>{account.referral_code}</code></td><td>{formatDate(account.joined_at)}</td><td><StatusBadge value={account.status} /></td>
+                    <td><AffiliateIdentity displayName={account.display_name} maskedEmail={account.masked_email} /></td><td><code>{account.referral_code}</code></td><td>{formatDate(account.joined_at)}</td><td><StatusBadge value={account.status} /></td>
                     <td>{integer.format(account.clicks)}</td><td>{integer.format(account.signups)}</td><td>{integer.format(account.paid_customers)}</td><td>{money.format(account.pending_balance)}</td><td><strong>{money.format(account.available_balance)}</strong></td><td><strong>{money.format(account.total_earned)}</strong><small>{money.format(account.total_paid)} paid</small></td>
-                    <td><div className="admin-affiliate-row-actions"><button type="button" onClick={() => setDrawerId(account.id)} aria-label={`View ${account.display_name}`}><Eye /></button><button type="button" className={account.status === "active" ? "is-danger" : "is-success"} onClick={() => openAccountStatus(account)} aria-label={account.status === "active" ? "Suspend affiliate" : "Reactivate affiliate"}>{account.status === "active" ? <PauseCircle /> : <PlayCircle />}</button></div></td>
+                    <td><div className="admin-affiliate-row-actions"><button type="button" onClick={() => setDrawerId(account.id)} aria-label={`View ${account.display_name || account.masked_email || "affiliate"}`}><Eye /></button><button type="button" className={account.status === "active" ? "is-danger" : "is-success"} onClick={() => openAccountStatus(account)} aria-label={account.status === "active" ? "Suspend affiliate" : "Reactivate affiliate"}>{account.status === "active" ? <PauseCircle /> : <PlayCircle />}</button></div></td>
                   </tr>
                 ))}</tbody>
               </table>
             ) : <AdminEmpty icon={Users} title="No affiliates match these filters" detail="Try clearing the search or date range." />}
           </div>
-          <Pagination data={accounts} onPage={(page) => setAccountFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setAccountFilters((current) => ({ ...current, page_size, page: 1 }))} />
+          {loaded.affiliates && <Pagination data={accounts} onPage={(page) => setAccountFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setAccountFilters((current) => ({ ...current, page_size, page: 1 }))} />}
         </section>
       )}
 
@@ -523,15 +595,15 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
             <label><span>From</span><input type="date" value={commissionFilters.date_from} onChange={(event) => setCommissionFilters((current) => ({ ...current, date_from: event.target.value, page: 1 }))} /></label>
             <label><span>To</span><input type="date" value={commissionFilters.date_to} onChange={(event) => setCommissionFilters((current) => ({ ...current, date_to: event.target.value, page: 1 }))} /></label>
           </div>
-          <div className="admin-affiliate-table-wrap">
-            {loading.commissions ? <TableSkeleton columns={11} /> : commissions.items?.length ? (
+          <div className="admin-affiliate-table-wrap" role="region" aria-label="Commissions table" tabIndex="0">
+            {loading.commissions ? <TableSkeleton columns={11} /> : !loaded.commissions ? <AdminEmpty title="Commission data unavailable" detail="Refresh to try loading the ledger again." /> : commissions.items?.length ? (
               <table className="admin-affiliate-table">
                 <thead><tr><th>Date</th><th>Affiliate</th><th>Customer</th><th>Plan</th><th>Payment</th><th>Transaction</th><th>Gross</th><th>Commission</th><th>Status</th><th>Available</th><th>Reversal</th></tr></thead>
                 <tbody>{commissions.items.map((item) => <tr key={item.id}><td>{formatDate(item.created_at)}</td><td><strong>{item.affiliate}</strong><small>{item.referral_code}</small></td><td>{item.referred_customer}</td><td>{label(item.plan)}</td><td>{label(item.transaction_type)}</td><td><code>{item.paddle_transaction_id}</code></td><td>{money.format(item.gross_amount)}</td><td><strong>{money.format(item.commission_amount)}</strong></td><td><StatusBadge value={item.status} /></td><td>{formatDate(item.hold_until)}</td><td>{item.reversal_reason || "—"}</td></tr>)}</tbody>
               </table>
             ) : <AdminEmpty title="No commissions match these filters" />}
           </div>
-          <Pagination data={commissions} onPage={(page) => setCommissionFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setCommissionFilters((current) => ({ ...current, page_size, page: 1 }))} />
+          {loaded.commissions && <Pagination data={commissions} onPage={(page) => setCommissionFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setCommissionFilters((current) => ({ ...current, page_size, page: 1 }))} />}
         </section>
       )}
 
@@ -544,8 +616,8 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
             <label><span>From</span><input type="date" value={payoutFilters.date_from} onChange={(event) => setPayoutFilters((current) => ({ ...current, date_from: event.target.value, page: 1 }))} /></label>
             <label><span>To</span><input type="date" value={payoutFilters.date_to} onChange={(event) => setPayoutFilters((current) => ({ ...current, date_to: event.target.value, page: 1 }))} /></label>
           </div>
-          <div className="admin-affiliate-table-wrap">
-            {loading.payouts ? <TableSkeleton columns={10} /> : payouts.items?.length ? (
+          <div className="admin-affiliate-table-wrap" role="region" aria-label="Payout requests table" tabIndex="0">
+            {loading.payouts ? <TableSkeleton columns={10} /> : !loaded.payouts ? <AdminEmpty icon={Banknote} title="Payout data unavailable" detail="Refresh to try loading the settlement queue again." /> : payouts.items?.length ? (
               <table className="admin-affiliate-table">
                 <thead><tr><th>Request date</th><th>Affiliate</th><th>Amount</th><th>Method</th><th>Available</th><th>Status</th><th>Reviewed</th><th>Admin note</th><th>Actions</th></tr></thead>
                 <tbody>{payouts.items.map((item) => (
@@ -554,17 +626,18 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
               </table>
             ) : <AdminEmpty icon={Banknote} title={`No ${payoutFilters.status} payout requests`} />}
           </div>
-          <Pagination data={payouts} onPage={(page) => setPayoutFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setPayoutFilters((current) => ({ ...current, page_size, page: 1 }))} />
+          {loaded.payouts && <Pagination data={payouts} onPage={(page) => setPayoutFilters((current) => ({ ...current, page }))} onPageSize={(page_size) => setPayoutFilters((current) => ({ ...current, page_size, page: 1 }))} />}
         </section>
       )}
 
       {section === "activity" && (
         <div className="admin-affiliate-section-stack">
-          <div className="admin-affiliate-overview-split">
+          {loading.activity ? <><div className="admin-affiliate-overview-split"><PanelSkeleton /><PanelSkeleton /></div><div className="admin-affiliate-activity-grid"><PanelSkeleton /><PanelSkeleton /><PanelSkeleton /></div></> : !loaded.activity ? <section className="admin-affiliate-panel"><AdminEmpty title="Referral activity unavailable" detail="Refresh to try loading recent activity again." /></section> : <>
+            <div className="admin-affiliate-overview-split">
             <RankingBars title="Top by paid customers" rows={activityData?.top_by_paid_customers} metric="paid_customers" formatter={(value) => integer.format(value || 0)} />
             <RankingBars title="Top by earned commission" rows={activityData?.top_by_earnings} metric="total_earned" formatter={(value) => money.format(value || 0)} />
-          </div>
-          <div className="admin-affiliate-activity-grid">
+            </div>
+            <div className="admin-affiliate-activity-grid">
             {[
               ["Recent clicks", MousePointerClick, activityData?.recent_clicks, (row) => [row.affiliate, row.landing_path, formatDate(row.created_at, true)]],
               ["Recent signups", UserPlus, activityData?.recent_signups, (row) => [row.affiliate, row.customer, formatDate(row.attributed_at, true)]],
@@ -575,7 +648,8 @@ export default function AdminAffiliatePage({ isAdmin, initialSection = "overview
                 {rows?.length ? rows.map((row) => { const values = project(row); return <div key={row.id}><span><Icon /></span><div><strong>{values[0]}</strong><small>{values[1]}</small></div><time>{values[2]}</time></div>; }) : <AdminEmpty icon={Icon} title="No activity yet" />}
               </section>
             ))}
-          </div>
+            </div>
+          </>}
         </div>
       )}
 
