@@ -5,20 +5,18 @@ import { AuthProvider } from "./auth/AuthContext.jsx";
 import WhatsAppFloatingButton from "./components/WhatsAppFloatingButton.jsx";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import AffiliateReferralTracker from "./components/AffiliateReferralTracker.jsx";
-import PrerenderedRedbubbleAutomationToolApp from "./components/PrerenderedRedbubbleAutomationToolApp.jsx";
-import PrerenderedTeePublicAutomationToolApp from "./components/PrerenderedTeePublicAutomationToolApp.jsx";
+import PrerenderedPublicPageApp, { PRERENDERED_PUBLIC_ROUTES } from "./components/PrerenderedPublicPageApp.jsx";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "./styles.css";
+import "./affiliate-program.css";
 
 const root = document.getElementById("root");
 const prerenderedRoute = root?.dataset?.prerenderedRoute || "";
-const shouldHydrateRedbubbleTool =
-  prerenderedRoute === "/redbubble-automation-tool" && root.hasChildNodes();
-const shouldHydrateTeePublicTool =
-  prerenderedRoute === "/teepublic-automation-tool" && root.hasChildNodes();
+const shouldHydratePrerenderedPublicPage =
+  PRERENDERED_PUBLIC_ROUTES.includes(prerenderedRoute) && root.hasChildNodes();
 
 const defaultApp = (
   <React.StrictMode>
@@ -32,18 +30,11 @@ const defaultApp = (
   </React.StrictMode>
 );
 
-if (shouldHydrateRedbubbleTool) {
+if (shouldHydratePrerenderedPublicPage) {
   hydrateRoot(
     root,
     <React.StrictMode>
-      <PrerenderedRedbubbleAutomationToolApp />
-    </React.StrictMode>,
-  );
-} else if (shouldHydrateTeePublicTool) {
-  hydrateRoot(
-    root,
-    <React.StrictMode>
-      <PrerenderedTeePublicAutomationToolApp />
+      <PrerenderedPublicPageApp route={prerenderedRoute} />
     </React.StrictMode>,
   );
 } else {
