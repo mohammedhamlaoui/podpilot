@@ -664,6 +664,7 @@ export default function App() {
   const designRefreshRequestsRef = useRef(new Map());
   const uploadStatusRowSignaturesRef = useRef(new Map());
   const uploadStatusEventSignaturesRef = useRef(new Map());
+  const hasHydratedUploadStatusEventsRef = useRef(false);
   const uploadStatusFailedSyncRef = useRef(new Set());
   const redbubbleStatusReconcileInFlightRef = useRef(new Set());
   const redbubbleStatusReconciledRef = useRef(new Set());
@@ -724,6 +725,7 @@ export default function App() {
     designRefreshRequestsRef.current.clear();
     uploadStatusRowSignaturesRef.current.clear();
     uploadStatusEventSignaturesRef.current.clear();
+    hasHydratedUploadStatusEventsRef.current = false;
     uploadStatusFailedSyncRef.current.clear();
     redbubbleStatusReconcileInFlightRef.current.clear();
     redbubbleStatusReconciledRef.current.clear();
@@ -750,6 +752,7 @@ export default function App() {
       designRefreshRequestsRef.current.clear();
       uploadStatusRowSignaturesRef.current.clear();
       uploadStatusEventSignaturesRef.current.clear();
+      hasHydratedUploadStatusEventsRef.current = false;
       uploadStatusFailedSyncRef.current.clear();
       redbubbleStatusReconcileInFlightRef.current.clear();
       redbubbleStatusReconciledRef.current.clear();
@@ -1152,6 +1155,7 @@ export default function App() {
           }
         });
 
+        const isInitialStatusSyncHydration = !hasHydratedUploadStatusEventsRef.current;
         const syncEvents = Object.values(extensionState.statusSyncEvents || {});
         syncEvents.forEach((event) => {
           const platform = normalizeUploadPlatform(event?.platform);
@@ -1168,6 +1172,7 @@ export default function App() {
             console.info("[PodPilot Upload Status] backend update success");
           } else if (event.backend_state === "failed") {
             uploadStatusFailedSyncRef.current.add(eventKey);
+            if (isInitialStatusSyncHydration) return;
             console.error("[PodPilot Upload Status] backend update failed");
             if (platform === "redbubble" && normalizeExtensionUploadStatus(event.status) === "uploaded") {
               void reconcileConfirmedRedbubbleUpload(designId);
@@ -1179,6 +1184,7 @@ export default function App() {
             }
           }
         });
+        hasHydratedUploadStatusEventsRef.current = true;
 
         const wasActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(previousQueueStatus);
         const isActive = ACTIVE_EXTENSION_QUEUE_STATUSES.has(queueStatus);
