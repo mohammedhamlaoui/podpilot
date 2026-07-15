@@ -1,16 +1,53 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const WHATSAPP_NUMBER = "212752403965";
 const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
 
 export default function WhatsAppFloatingButton() {
   const [isHidden, setIsHidden] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const closeTimerRef = useRef(null);
+
+  function clearCloseTimer() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  function openTooltip() {
+    clearCloseTimer();
+    setIsExpanded(true);
+  }
+
+  function scheduleTooltipClose() {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      setIsExpanded(false);
+      closeTimerRef.current = null;
+    }, 160);
+  }
+
+  function dismissWidget() {
+    clearCloseTimer();
+    setIsHidden(true);
+  }
+
+  useEffect(() => () => clearCloseTimer(), []);
 
   if (isHidden) return null;
 
   return (
-    <div className="pp-whatsapp-widget" aria-label="WhatsApp support">
-      <div className="pp-whatsapp-tooltip" aria-hidden="true">
+    <div
+      className={`pp-whatsapp-widget${isExpanded ? " is-expanded" : ""}`}
+      aria-label="WhatsApp support"
+    >
+      <div
+        className="pp-whatsapp-tooltip"
+        aria-hidden={!isExpanded}
+        onMouseEnter={clearCloseTimer}
+        onMouseLeave={scheduleTooltipClose}
+      >
         <span>Need</span>
         <span>help?</span>
         <span>Chat</span>
@@ -23,6 +60,10 @@ export default function WhatsAppFloatingButton() {
         href={WHATSAPP_URL}
         target="_blank"
         rel="noopener noreferrer"
+        onMouseEnter={openTooltip}
+        onMouseLeave={scheduleTooltipClose}
+        onFocus={openTooltip}
+        onBlur={scheduleTooltipClose}
         aria-label="Chat with PodPilot on WhatsApp"
       >
         <svg
@@ -42,7 +83,11 @@ export default function WhatsAppFloatingButton() {
       <button
         type="button"
         className="pp-whatsapp-dismiss"
-        onClick={() => setIsHidden(true)}
+        onClick={dismissWidget}
+        onMouseEnter={clearCloseTimer}
+        onMouseLeave={scheduleTooltipClose}
+        onFocus={clearCloseTimer}
+        onBlur={scheduleTooltipClose}
         aria-label="Hide WhatsApp chat button until refresh"
       >
         <span aria-hidden="true">×</span>

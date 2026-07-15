@@ -12324,6 +12324,8 @@ button.copy-link-open .pp-spinner-on-button {
 }
 
 .pp-whatsapp-widget {
+  --pp-whatsapp-button-size: 56px;
+  --pp-whatsapp-gap: 12px;
   position: fixed;
   right: 28px;
   bottom: 28px;
@@ -12331,14 +12333,15 @@ button.copy-link-open .pp-spinner-on-button {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 12px;
+  gap: var(--pp-whatsapp-gap);
   pointer-events: auto;
 }
 
 .pp-whatsapp-dismiss {
   position: absolute;
-  top: -7px;
-  right: -7px;
+  right: -8px;
+  bottom: calc(var(--pp-whatsapp-button-size) + var(--pp-whatsapp-gap) - 10px);
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -12360,8 +12363,7 @@ button.copy-link-open .pp-spinner-on-button {
     background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.pp-whatsapp-widget:hover .pp-whatsapp-dismiss,
-.pp-whatsapp-widget:focus-within .pp-whatsapp-dismiss {
+.pp-whatsapp-widget.is-expanded .pp-whatsapp-dismiss {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
@@ -12383,8 +12385,8 @@ button.copy-link-open .pp-spinner-on-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
+  width: var(--pp-whatsapp-button-size);
+  height: var(--pp-whatsapp-button-size);
   border-radius: 9999px;
   background: #25D366;
   color: #ffffff;
@@ -12439,9 +12441,9 @@ button.copy-link-open .pp-spinner-on-button {
     transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.pp-whatsapp-widget:hover .pp-whatsapp-tooltip,
-.pp-whatsapp-widget:focus-within .pp-whatsapp-tooltip {
+.pp-whatsapp-widget.is-expanded .pp-whatsapp-tooltip {
   opacity: 1;
+  pointer-events: auto;
   transform: translateY(0) scale(1);
 }
 
@@ -12459,14 +12461,10 @@ button.copy-link-open .pp-spinner-on-button {
 
 @media (max-width: 760px) {
   .pp-whatsapp-widget {
+    --pp-whatsapp-button-size: 48px;
+    --pp-whatsapp-gap: 10px;
     right: 16px;
     bottom: 16px;
-    gap: 10px;
-  }
-
-  .pp-whatsapp-button {
-    width: 48px;
-    height: 48px;
   }
 
   .pp-whatsapp-icon {
@@ -12483,8 +12481,6 @@ button.copy-link-open .pp-spinner-on-button {
   .pp-whatsapp-dismiss {
     width: 20px;
     height: 20px;
-    top: -6px;
-    right: -6px;
     font-size: 15px;
   }
 }
