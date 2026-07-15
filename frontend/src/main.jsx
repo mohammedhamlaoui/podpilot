@@ -6,6 +6,7 @@ import WhatsAppFloatingButton from "./components/WhatsAppFloatingButton.jsx";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import AffiliateReferralTracker from "./components/AffiliateReferralTracker.jsx";
 import PrerenderedRedbubbleAutomationToolApp from "./components/PrerenderedRedbubbleAutomationToolApp.jsx";
+import PrerenderedTeePublicAutomationToolApp from "./components/PrerenderedTeePublicAutomationToolApp.jsx";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -16,6 +17,8 @@ const root = document.getElementById("root");
 const prerenderedRoute = root?.dataset?.prerenderedRoute || "";
 const shouldHydrateRedbubbleTool =
   prerenderedRoute === "/redbubble-automation-tool" && root.hasChildNodes();
+const shouldHydrateTeePublicTool =
+  prerenderedRoute === "/teepublic-automation-tool" && root.hasChildNodes();
 
 const defaultApp = (
   <React.StrictMode>
@@ -34,6 +37,13 @@ if (shouldHydrateRedbubbleTool) {
     root,
     <React.StrictMode>
       <PrerenderedRedbubbleAutomationToolApp />
+    </React.StrictMode>,
+  );
+} else if (shouldHydrateTeePublicTool) {
+  hydrateRoot(
+    root,
+    <React.StrictMode>
+      <PrerenderedTeePublicAutomationToolApp />
     </React.StrictMode>,
   );
 } else {

@@ -327,13 +327,13 @@ export default function RedbubbleAutomationToolPage() {
               <div>
                 <span>Before</span>
                 <strong>Untitled design</strong>
-                <small>No description Â· No tags</small>
+                <small>No description &middot; No tags</small>
               </div>
               <ArrowRight aria-hidden="true" />
               <div className="is-after">
                 <span>After</span>
                 <strong>Generated listing draft</strong>
-                <small>Title Â· Description Â· Relevant tags</small>
+                <small>Title &middot; Description &middot; Relevant tags</small>
                 <em>Ready for review</em>
               </div>
             </div>
@@ -368,7 +368,7 @@ export default function RedbubbleAutomationToolPage() {
         <section className="rb-tool-section rb-tool-extension-section">
           <div className="landing-container rb-tool-extension-grid">
             <div className="rb-tool-extension-mark" aria-hidden="true">
-              <PanelsTopLeft />
+              <img className="rb-tool-extension-logo" src="/brand/podpilot-icon.png" alt="" width="512" height="512" />
               <span>PodPilot</span>
               <MousePointerClick />
             </div>

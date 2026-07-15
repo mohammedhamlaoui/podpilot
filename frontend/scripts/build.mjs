@@ -24,17 +24,15 @@ function escapeAttribute(value) {
     .replaceAll(">", "&gt;");
 }
 
-async function createRedbubbleAutomationToolHtml(routeModule) {
+async function createPrerenderedHtml(routeModule, canonicalPath) {
   const {
-    canonicalPath,
     canonicalUrl,
-    render,
     schemaGraph,
     seoDescription,
     seoTitle,
-  } = routeModule;
+  } = routeModule.routeMetadata[canonicalPath];
 
-  const renderedApp = render();
+  const renderedApp = routeModule.render(canonicalPath);
   const routeSchema = {
     "@context": "https://schema.org",
     "@graph": [
@@ -133,8 +131,10 @@ try {
   });
 
   const routeModule = await import(`${pathToFileURL(ssrBundle).href}?v=${Date.now()}`);
-  await createRedbubbleAutomationToolHtml(routeModule);
-  console.log("Prerendered /redbubble-automation-tool");
+  for (const canonicalPath of Object.keys(routeModule.routeMetadata)) {
+    await createPrerenderedHtml(routeModule, canonicalPath);
+    console.log(`Prerendered ${canonicalPath}`);
+  }
 } finally {
   await rm(temporarySsrDir, { recursive: true, force: true });
 }

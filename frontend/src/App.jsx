@@ -18,6 +18,7 @@ import PricingPage from "./components/PricingPage";
 import CheckoutPage from "./components/CheckoutPage";
 import ComparisonPage from "./components/ComparisonPage";
 import RedbubbleAutomationToolPage from "./components/RedbubbleAutomationToolPage";
+import TeePublicAutomationToolPage from "./components/TeePublicAutomationToolPage";
 import BlogPage from "./components/BlogPage";
 import ContactPage from "./components/ContactPage";
 import PrivacyPolicyPage from "./components/PrivacyPolicyPage";
@@ -548,6 +549,7 @@ function isValidRoute(pathname) {
     "pricing",
     "ai-listing-generator",
     "redbubble-automation-tool",
+    "teepublic-automation-tool",
     "redbubble-upload-automation",
     "teepublic-upload-automation",
     "privacy",
@@ -629,6 +631,7 @@ export default function App() {
       "/blog",
       "/ai-listing-generator",
       "/redbubble-automation-tool",
+      "/teepublic-automation-tool",
       "/redbubble-upload-automation",
       "/teepublic-upload-automation",
       "/help",
@@ -1330,6 +1333,7 @@ export default function App() {
       window.location.pathname === "/pricing" ||
       window.location.pathname === "/ai-listing-generator" ||
       window.location.pathname === "/redbubble-automation-tool" ||
+      window.location.pathname === "/teepublic-automation-tool" ||
       window.location.pathname === "/redbubble-upload-automation" ||
       window.location.pathname === "/teepublic-upload-automation" ||
       window.location.pathname === "/checkout" ||
@@ -1929,6 +1933,10 @@ export default function App() {
 
   if (window.location.pathname === "/redbubble-automation-tool") {
     return <RedbubbleAutomationToolPage theme={theme} setTheme={setTheme} />;
+  }
+
+  if (window.location.pathname === "/teepublic-automation-tool") {
+    return <TeePublicAutomationToolPage />;
   }
 
   const seoRouteAliases = {
