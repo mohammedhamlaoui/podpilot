@@ -115,7 +115,11 @@ function getRequestPath(url = "") {
 
 function isProtectedApiRequest(url = "") {
   const path = getRequestPath(url);
-  if (path === "/api/auth/check-email") return false;
+  if ([
+    "/api/auth/check-email",
+    "/api/affiliate/validate",
+    "/api/affiliate/track-click",
+  ].includes(path)) return false;
   return PROTECTED_API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
@@ -582,6 +586,47 @@ export async function getCheckoutConfig(planKey, billingCycle, options = {}) {
 
 export async function getCheckoutPriceId(planKey, billingCycle) {
   return getCheckoutConfig(planKey, billingCycle);
+}
+
+// Affiliate / referral -----------------------------------------------------
+export async function validateAffiliateCode(code) {
+  const response = await api.get("/api/affiliate/validate", { params: { code } });
+  return response.data;
+}
+
+export async function trackAffiliateClick(payload) {
+  const response = await api.post("/api/affiliate/track-click", payload);
+  return response.data;
+}
+
+export async function attributeAffiliateReferral(payload) {
+  const response = await api.post("/api/affiliate/attribute", payload);
+  return response.data;
+}
+
+export async function getAffiliateMe() {
+  const response = await api.get("/api/affiliate/me");
+  return response.data;
+}
+
+export async function joinAffiliate() {
+  const response = await api.post("/api/affiliate/join");
+  return response.data;
+}
+
+export async function getAffiliateDashboard() {
+  const response = await api.get("/api/affiliate/dashboard");
+  return response.data;
+}
+
+export async function updateAffiliatePaymentSettings(payload) {
+  const response = await api.patch("/api/affiliate/payment-settings", payload);
+  return response.data;
+}
+
+export async function createAffiliatePayoutRequest(amount) {
+  const response = await api.post("/api/affiliate/payout-requests", { amount });
+  return response.data;
 }
 
 

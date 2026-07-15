@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard } from "lucide-react";
+import { CreditCard, HandCoins } from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
 import Dashboard from "./components/Dashboard";
 import DesignManager from "./components/DesignManager";
 import TeePublicDesignManager from "./components/TeePublicDesignManager";
 import TeePublicEditor from "./components/TeePublicEditor";
 import BillingSubscriptionsPage from "./components/BillingSubscriptionsPage";
+import AffiliatePage from "./components/AffiliatePage";
 import Icon from "./components/Icon";
 import ImageGrid from "./components/ImageGrid";
 import ImportDesigns from "./components/ImportDesigns";
@@ -123,6 +124,7 @@ const NAV_ITEMS = [
   { id: "redbubble", label: "Redbubble Upload", icon: "redbubble" },
   { id: "teepublic", label: "TeePublic Upload", icon: "teepublic" },
   { id: "billing", label: "Billing & Subscriptions", iconComponent: CreditCard },
+  { id: "affiliate", label: "Affiliate Program", iconComponent: HandCoins },
 ];
 
 const DEFAULT_PLATFORM_ACCESS = {
@@ -218,7 +220,7 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
 
 // ── Main App ────────────────────────────────────────────────────────────────
 
-const VALID_ROUTES = ["dashboard", "redbubble", "teepublic", "billing", "profile"];
+const VALID_ROUTES = ["dashboard", "redbubble", "teepublic", "billing", "affiliate", "profile"];
 const VALID_TABS = ["designs", "import"];
 const SUBSCRIPTION_POLL_INTERVAL_MS = 30000;
 const SUBSCRIPTION_POLL_ATTEMPTS = 2;
@@ -554,6 +556,8 @@ function isValidRoute(pathname) {
   if (first === "billing" || first === "subscription") {
     return segments.length === 1;
   }
+
+  if (first === "affiliate") return segments.length === 1;
   
   return false;
 }
@@ -601,8 +605,8 @@ export default function App() {
       ...COMPARISON_ROUTES,
     ];
     const publicPathPrefixes = ["/blog"];
-    const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "profile"];
-    const privatePathPrefixes = ["/dashboard", "/redbubble", "/teepublic", "/billing", "/subscription", "/profile"];
+    const privateRoutes = ["dashboard", "redbubble", "teepublic", "billing", "subscription", "affiliate", "profile"];
+    const privatePathPrefixes = ["/dashboard", "/redbubble", "/teepublic", "/billing", "/subscription", "/affiliate", "/profile"];
     const privateExactPaths = ["/checkout", "/login", "/signup", "/reset-password", "/email-confirmed"];
     const isPublicPath =
       publicExactPaths.includes(pathname) ||
@@ -2208,6 +2212,8 @@ export default function App() {
             initialPlatformAccess={platformAccess}
           />
         )}
+
+        {activeRoute === "affiliate" && <AffiliatePage />}
 
         {/* Profile */}
         {activeRoute === "profile" && (

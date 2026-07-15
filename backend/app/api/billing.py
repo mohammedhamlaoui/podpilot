@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.core import config
 from app.core.auth import AuthUser, get_current_user
-from app.services import rate_limiter, subscription_service
+from app.services import affiliate_service, rate_limiter, subscription_service
 from app.services.logging_utils import error_type as safe_error_type, request_id, short_id, short_user_id
 
 
@@ -718,6 +718,17 @@ def get_checkout_price_id(
         user_agent=request.headers.get("user-agent"),
     )
 
+    attached_referral = None
+    try:
+        attached_referral = affiliate_service.get_attached_referral(user.id)
+    except Exception as error:
+        # Migration-safe rollout: affiliate metadata must never block checkout.
+        logger.warning(
+            "[Checkout] affiliate attribution lookup unavailable user=%s error_type=%s",
+            short_user_id(user.id),
+            safe_error_type(error),
+        )
+
     button_label = "Start 7-day free trial" if trial_eligible else "Subscribe now"
     return {
         "intent_type": "subscription",
@@ -740,4 +751,5 @@ def get_checkout_price_id(
         "checkout_intent_status": intent.get("status") or "opened",
         "idempotency_key": intent.get("idempotency_key"),
         "reused_checkout_intent": reused,
+        "affiliate_code": (attached_referral or {}).get("referral_code"),
     }

@@ -13,7 +13,7 @@ for scoping every database query and every R2 path. It MUST come from the
 verified token, never from a request body or query string.
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 import logging
@@ -31,6 +31,7 @@ class AuthUser:
     id: str
     email: Optional[str]
     access_token: str
+    app_metadata: Optional[dict[str, Any]] = None
 
 
 _AUTH_USER_ENDPOINT = f"{SUPABASE_URL}/auth/v1/user"
@@ -125,7 +126,38 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return AuthUser(id=str(user_id), email=email, access_token=token)
+    app_metadata = payload.get("app_metadata")
+    return AuthUser(
+        id=str(user_id),
+        email=email,
+        access_token=token,
+        app_metadata=app_metadata if isinstance(app_metadata, dict) else {},
+    )
+
+
+async def require_admin(
+    user: AuthUser = Depends(get_current_user),
+) -> AuthUser:
+    """Require a server-verified admin role from Supabase app_metadata.
+
+    Supabase users cannot edit app_metadata themselves; only trusted server
+    operations can assign it. Frontend flags and user_metadata are ignored.
+    """
+    metadata = user.app_metadata or {}
+    roles = metadata.get("roles") if isinstance(metadata.get("roles"), list) else []
+    is_admin = (
+        metadata.get("role") == "admin"
+        or metadata.get("is_admin") is True
+        or "admin" in roles
+    )
+    if not is_admin:
+        logger.warning(
+            "[AUTH] request_id=%s admin access denied user=%s",
+            request_id(),
+            str(user.id)[:8],
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    return user
 
 
 # Convenience alias for routes.
