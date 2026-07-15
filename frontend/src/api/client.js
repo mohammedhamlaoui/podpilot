@@ -615,6 +615,52 @@ export async function createAffiliatePayoutRequest(amount) {
 }
 
 
+export async function getAdminAffiliateOverview() {
+  const response = await api.get("/api/admin/affiliate/overview");
+  return response.data;
+}
+
+function compactAdminAffiliateParams(params = {}) {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== "" && value !== null && value !== undefined),
+  );
+}
+
+export async function listAdminAffiliateAccounts(params = {}) {
+  const response = await api.get("/api/admin/affiliate/accounts", { params: compactAdminAffiliateParams(params) });
+  return response.data;
+}
+
+export async function getAdminAffiliateAccount(affiliateId) {
+  const response = await api.get(`/api/admin/affiliate/accounts/${affiliateId}`);
+  return response.data;
+}
+
+export async function updateAdminAffiliateStatus(affiliateId, payload) {
+  const response = await api.patch(`/api/admin/affiliate/accounts/${affiliateId}/status`, payload);
+  return response.data;
+}
+
+export async function listAdminAffiliateCommissions(params = {}) {
+  const response = await api.get("/api/admin/affiliate/commissions", { params: compactAdminAffiliateParams(params) });
+  return response.data;
+}
+
+export async function listAdminAffiliatePayouts(params = {}) {
+  const response = await api.get("/api/admin/affiliate/payout-requests", { params: compactAdminAffiliateParams(params) });
+  return response.data;
+}
+
+export async function reviewAdminAffiliatePayout(requestId, payload) {
+  const response = await api.patch(`/api/admin/affiliate/payout-requests/${requestId}`, payload);
+  return response.data;
+}
+
+export async function getAdminAffiliateActivity() {
+  const response = await api.get("/api/admin/affiliate/activity");
+  return response.data;
+}
+
 // ── Trademark check ────────────────────────────────────────────────────────
 
 export async function checkTrademarkPhrase(phrase) {

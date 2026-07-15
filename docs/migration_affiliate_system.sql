@@ -102,6 +102,21 @@ create table if not exists public.affiliate_payout_audit_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.affiliate_admin_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references auth.users(id) on delete restrict,
+  action text not null check (action in (
+    'approve_payout', 'reject_payout', 'mark_payout_paid',
+    'suspend_affiliate', 'reactivate_affiliate'
+  )),
+  target_type text not null check (target_type in ('affiliate_account', 'payout_request')),
+  target_id uuid not null,
+  previous_state jsonb not null default '{}'::jsonb,
+  new_state jsonb not null default '{}'::jsonb,
+  note text,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists affiliate_accounts_user_idx on public.affiliate_accounts(user_id);
 create index if not exists affiliate_referrals_affiliate_created_idx on public.affiliate_referrals(affiliate_id, created_at desc);
 create index if not exists affiliate_clicks_affiliate_created_idx on public.affiliate_clicks(affiliate_id, created_at desc);
@@ -115,6 +130,7 @@ create unique index if not exists affiliate_one_open_payout_idx
   where status in ('requested', 'approved');
 create index if not exists affiliate_adjustments_affiliate_idx on public.affiliate_balance_adjustments(affiliate_id, created_at desc);
 create index if not exists affiliate_payout_audit_request_idx on public.affiliate_payout_audit_logs(payout_request_id, created_at desc);
+create index if not exists affiliate_admin_audit_target_idx on public.affiliate_admin_audit_logs(target_type, target_id, created_at desc);
 
 alter table public.affiliate_accounts enable row level security;
 alter table public.affiliate_referrals enable row level security;
@@ -124,6 +140,7 @@ alter table public.affiliate_payout_requests enable row level security;
 alter table public.affiliate_balance_adjustments enable row level security;
 alter table public.affiliate_transaction_reversals enable row level security;
 alter table public.affiliate_payout_audit_logs enable row level security;
+alter table public.affiliate_admin_audit_logs enable row level security;
 
 drop policy if exists "affiliate accounts select own" on public.affiliate_accounts;
 create policy "affiliate accounts select own" on public.affiliate_accounts
@@ -151,7 +168,7 @@ create policy "affiliate adjustments select own" on public.affiliate_balance_adj
 revoke all on public.affiliate_accounts, public.affiliate_referrals, public.affiliate_clicks,
   public.affiliate_commissions, public.affiliate_payout_requests,
   public.affiliate_balance_adjustments, public.affiliate_transaction_reversals,
-  public.affiliate_payout_audit_logs from anon, authenticated;
+  public.affiliate_payout_audit_logs, public.affiliate_admin_audit_logs from anon, authenticated;
 grant select on public.affiliate_accounts, public.affiliate_referrals, public.affiliate_clicks,
   public.affiliate_commissions, public.affiliate_payout_requests,
   public.affiliate_balance_adjustments to authenticated;
@@ -304,6 +321,33 @@ begin
   return result;
 end $$;
 
+create or replace function public.affiliate_set_account_status(
+  p_affiliate_id uuid, p_admin_user_id uuid, p_status text, p_note text default null
+) returns public.affiliate_accounts
+language plpgsql security definer set search_path = public, extensions, pg_temp
+as $$
+declare result public.affiliate_accounts; old_status text;
+begin
+  if p_status not in ('active','suspended') then raise exception 'INVALID_AFFILIATE_STATUS'; end if;
+  select * into result from public.affiliate_accounts where id = p_affiliate_id for update;
+  if not found then raise exception 'AFFILIATE_NOT_FOUND'; end if;
+  old_status := result.status;
+  if old_status = p_status then raise exception 'INVALID_AFFILIATE_STATUS_TRANSITION'; end if;
+  update public.affiliate_accounts set status = p_status, updated_at = now()
+    where id = p_affiliate_id returning * into result;
+  insert into public.affiliate_admin_audit_logs(
+    admin_user_id, action, target_type, target_id, previous_state, new_state, note
+  ) values (
+    p_admin_user_id,
+    case when p_status = 'suspended' then 'suspend_affiliate' else 'reactivate_affiliate' end,
+    'affiliate_account', p_affiliate_id,
+    jsonb_build_object('status', old_status),
+    jsonb_build_object('status', p_status),
+    nullif(left(coalesce(p_note,''),1000),'')
+  );
+  return result;
+end $$;
+
 create or replace function public.affiliate_review_payout(
   p_request_id uuid, p_admin_user_id uuid, p_status text, p_note text default null
 ) returns public.affiliate_payout_requests
@@ -312,6 +356,9 @@ as $$
 declare result public.affiliate_payout_requests; old_status text; remaining numeric; row_record record;
 begin
   if p_status not in ('approved','paid','rejected') then raise exception 'INVALID_PAYOUT_STATUS'; end if;
+  if p_status = 'rejected' and nullif(btrim(coalesce(p_note,'')), '') is null then
+    raise exception 'ADMIN_NOTE_REQUIRED';
+  end if;
   select * into result from public.affiliate_payout_requests where id = p_request_id for update;
   if not found then raise exception 'PAYOUT_NOT_FOUND'; end if;
   old_status := result.status;
@@ -336,6 +383,16 @@ begin
     admin_note = nullif(left(coalesce(p_note,''), 1000), '') where id = p_request_id returning * into result;
   insert into public.affiliate_payout_audit_logs(payout_request_id, actor_user_id, from_status, to_status, note)
     values (p_request_id, p_admin_user_id, old_status, p_status, nullif(left(coalesce(p_note,''),1000),''));
+  insert into public.affiliate_admin_audit_logs(
+    admin_user_id, action, target_type, target_id, previous_state, new_state, note
+  ) values (
+    p_admin_user_id,
+    case p_status when 'approved' then 'approve_payout' when 'rejected' then 'reject_payout' else 'mark_payout_paid' end,
+    'payout_request', p_request_id,
+    jsonb_build_object('status', old_status, 'amount', result.amount, 'currency', result.currency),
+    jsonb_build_object('status', p_status, 'amount', result.amount, 'currency', result.currency),
+    nullif(left(coalesce(p_note,''),1000),'')
+  );
   return result;
 end $$;
 
@@ -345,6 +402,7 @@ revoke all on function public.affiliate_create_commission(uuid,text,text,text,te
 revoke all on function public.affiliate_reverse_commission(text,text) from public, anon, authenticated;
 revoke all on function public.affiliate_release_commissions(uuid) from public, anon, authenticated;
 revoke all on function public.affiliate_request_payout(uuid,numeric) from public, anon, authenticated;
+revoke all on function public.affiliate_set_account_status(uuid,uuid,text,text) from public, anon, authenticated;
 revoke all on function public.affiliate_review_payout(uuid,uuid,text,text) from public, anon, authenticated;
 grant execute on function public.affiliate_join(uuid) to service_role;
 grant execute on function public.affiliate_attribute(uuid,text,timestamptz,text) to service_role;
@@ -352,4 +410,5 @@ grant execute on function public.affiliate_create_commission(uuid,text,text,text
 grant execute on function public.affiliate_reverse_commission(text,text) to service_role;
 grant execute on function public.affiliate_release_commissions(uuid) to service_role;
 grant execute on function public.affiliate_request_payout(uuid,numeric) to service_role;
+grant execute on function public.affiliate_set_account_status(uuid,uuid,text,text) to service_role;
 grant execute on function public.affiliate_review_payout(uuid,uuid,text,text) to service_role;
