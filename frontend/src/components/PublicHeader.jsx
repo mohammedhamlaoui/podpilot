@@ -11,6 +11,7 @@ export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start F
   const isAuthenticated = Boolean(auth?.user);
   const customerEmail = auth?.user?.email || "";
   const signOut = auth?.signOut;
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
 
   const publicNavItems = [
     { label: "Home", href: "/" },
@@ -34,7 +35,7 @@ export default function PublicHeader({ theme, setTheme, guestCtaLabel = "Start F
             <a
               key={item.href}
               href={item.href}
-              className={window.location.pathname === item.href ? "is-active" : undefined}
+              className={pathname === item.href ? "is-active" : undefined}
               onClick={closeMobileMenu}
             >
               {item.label}

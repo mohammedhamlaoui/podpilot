@@ -18617,6 +18617,11 @@ button.copy-link-open .pp-spinner-on-button {
     width: 100%;
   }
 
+  .rb-tool-table,
+  .rb-tool-table tbody {
+    background: transparent;
+  }
+
   .rb-tool-table thead {
     position: absolute;
     width: 1px;

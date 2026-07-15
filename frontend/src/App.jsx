@@ -17,6 +17,7 @@ import LandingPage from "./components/LandingPage";
 import PricingPage from "./components/PricingPage";
 import CheckoutPage from "./components/CheckoutPage";
 import ComparisonPage from "./components/ComparisonPage";
+import RedbubbleAutomationToolPage from "./components/RedbubbleAutomationToolPage";
 import BlogPage from "./components/BlogPage";
 import ContactPage from "./components/ContactPage";
 import PrivacyPolicyPage from "./components/PrivacyPolicyPage";
@@ -546,6 +547,7 @@ function isValidRoute(pathname) {
     "signup",
     "pricing",
     "ai-listing-generator",
+    "redbubble-automation-tool",
     "redbubble-upload-automation",
     "teepublic-upload-automation",
     "privacy",
@@ -626,6 +628,7 @@ export default function App() {
       "/pricing",
       "/blog",
       "/ai-listing-generator",
+      "/redbubble-automation-tool",
       "/redbubble-upload-automation",
       "/teepublic-upload-automation",
       "/help",
@@ -1326,6 +1329,7 @@ export default function App() {
       window.location.pathname === "/" ||
       window.location.pathname === "/pricing" ||
       window.location.pathname === "/ai-listing-generator" ||
+      window.location.pathname === "/redbubble-automation-tool" ||
       window.location.pathname === "/redbubble-upload-automation" ||
       window.location.pathname === "/teepublic-upload-automation" ||
       window.location.pathname === "/checkout" ||
@@ -1921,6 +1925,10 @@ export default function App() {
 
   if (COMPARISON_ROUTES.includes(window.location.pathname)) {
     return <ComparisonPage theme={theme} setTheme={setTheme} />;
+  }
+
+  if (window.location.pathname === "/redbubble-automation-tool") {
+    return <RedbubbleAutomationToolPage theme={theme} setTheme={setTheme} />;
   }
 
   const seoRouteAliases = {
