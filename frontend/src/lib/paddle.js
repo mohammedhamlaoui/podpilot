@@ -257,8 +257,6 @@ export async function openPaddleCheckout({
   email,
   countryCode,
   userId,
-  trialUsageId,
-  trialEligible,
   creditPackId,
   billingCycle = "monthly",
   displayMode = "overlay",
@@ -288,7 +286,6 @@ export async function openPaddleCheckout({
           stage: "checkout_config",
           plan: mappedPlan,
           billing: normalizedBillingCycle,
-          trialEligible: trialEligible ?? null,
           selectedPriceId: "",
           payloadKeys: [],
           itemKeys: [],
@@ -325,7 +322,6 @@ export async function openPaddleCheckout({
       selectedPriceId: priceId,
       plan: planKey,
       billing: normalizedBillingCycle,
-      trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible,
     });
   }
 
@@ -361,8 +357,6 @@ export async function openPaddleCheckout({
   if (resolvedIntentId) customData.checkout_intent_id = String(resolvedIntentId);
   if (planKey) customData.plan_key = planKey;
   customData.billing_cycle = normalizedBillingCycle;
-  const resolvedTrialEligible = trialEligible ?? resolvedCheckoutConfig?.trial_eligible;
-  if (typeof resolvedTrialEligible === "boolean") customData.trial_eligible = resolvedTrialEligible;
   const resolvedCreditPackId = creditPackId || resolvedCheckoutConfig?.credit_pack_id;
   if (resolvedCreditPackId) customData.credit_pack_id = String(resolvedCreditPackId);
   const affiliateCode = resolvedCheckoutConfig?.affiliate_code;
@@ -370,7 +364,6 @@ export async function openPaddleCheckout({
   const checkoutCustomer = buildCheckoutCustomer({ email, countryCode });
   if (checkoutCustomer?.email) customData.email = checkoutCustomer.email;
   if (plan) customData.plan = String(plan);
-  if (trialUsageId) customData.trial_usage_id = String(trialUsageId);
 
   if (PADDLE_DEBUG) {
     // eslint-disable-next-line no-console
@@ -443,7 +436,6 @@ export async function openPaddleCheckout({
       stage: "checkout_open",
       plan: planKey,
       billing: normalizedBillingCycle,
-      trialEligible: trialEligible ?? resolvedCheckoutConfig?.trial_eligible ?? null,
       selectedPriceId: resolvedPriceId,
       payloadKeys: Object.keys(checkoutPayload).filter((key) => checkoutPayload[key] !== undefined),
       itemKeys: Object.keys(checkoutPayload.items[0]),

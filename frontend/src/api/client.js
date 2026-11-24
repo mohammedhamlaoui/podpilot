@@ -481,6 +481,7 @@ export async function getUploadQueue(marketplace) {
 }
 
 export async function createUploadSession(marketplace, designIds = []) {
+  await registerDevice();
   const response = await api.post(`/api/upload-sessions/${marketplace}`, {
     design_ids: Array.isArray(designIds) ? designIds : [],
   });
@@ -493,6 +494,7 @@ export async function updateUploadSessionItemStatus(sessionId, designId, payload
 }
 
 export async function createUploadJob({ marketplace = "redbubble", design_ids = [] } = {}) {
+  await registerDevice();
   const response = await api.post("/upload-jobs", {
     marketplace,
     design_ids,
@@ -548,25 +550,6 @@ export async function getMyPlatformAccess({ force = false } = {}) {
 
 export async function createBillingPortalSession() {
   const response = await api.post("/api/billing/customer-portal");
-  return response.data;
-}
-
-export async function getTrialEligibility({ force = false } = {}) {
-  return cachedProtectedGet("/api/billing/trial-eligibility", {
-    headers: trialDeviceHeaders(),
-  }, {
-    cacheKey: "billing:trial-eligibility",
-    force,
-    logLabel: "Access",
-  });
-}
-
-export async function startTrialCheckout(planKey) {
-  const response = await api.post(
-    "/api/billing/start-trial",
-    { plan_key: planKey },
-    { headers: trialDeviceHeaders() },
-  );
   return response.data;
 }
 

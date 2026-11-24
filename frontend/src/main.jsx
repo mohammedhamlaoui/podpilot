@@ -12,6 +12,12 @@ import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "./styles.css";
 import "./affiliate-program.css";
+import "./refresh.css";
+import "./relaunch-pricing.css";
+import "./profile.css";
+import "./landing-hero.css";
+import "./landing-platform.css";
+import "./landing-safety.css";
 
 const root = document.getElementById("root");
 const prerenderedRoute = root?.dataset?.prerenderedRoute || "";

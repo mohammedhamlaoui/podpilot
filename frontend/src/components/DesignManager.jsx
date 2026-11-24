@@ -3341,7 +3341,7 @@ export default function DesignManager({
               loading={isCopyingSelected}
               loadingText="Copying..."
             >
-              Copy to TeePublic
+              <span className="manager-bulk-action-label"><Icon name="copy" />Copy to TeePublic</span>
             </LoadingButton>
           )}
           <LoadingButton
@@ -3352,7 +3352,7 @@ export default function DesignManager({
             loading={isDeletingMany}
             loadingText="Deleting..."
           >
-            Delete Selected
+            <span className="manager-bulk-action-label"><Icon name="trash" />Delete Selected</span>
           </LoadingButton>
         </div>
       </div>

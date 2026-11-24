@@ -56,4 +56,5 @@ Add it to the backend CORS/allowed origins configuration in `/etc/podpilot/backe
 7. Start a Redbubble upload with complete image/listing data.
 8. Start a TeePublic upload with complete image/listing data.
 9. Confirm missing image/listing data produces a clear per-item error and does not start automation.
-10. Confirm backend logs show no `/api/device/*` calls from the extension.
+10. Confirm the extension registers one upload device and checks it before each design.
+11. Sign in on a second browser, verify its upload is blocked, then switch upload control and verify the first browser stops before its next design.

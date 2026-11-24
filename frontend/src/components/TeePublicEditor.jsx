@@ -1528,13 +1528,13 @@ export default function TeePublicEditor({
         </button>
 
         <div className="tp-toolbar-right">
-          <button type="button" className="tp-nav-btn" onClick={goPrev} disabled={activeIndex <= 0}>‹</button>
+          <button type="button" className="tp-nav-btn" onClick={goPrev} disabled={activeIndex <= 0} aria-label="Previous design" title="Previous design"><Icon name="chevronLeft" /></button>
           <div className="tp-dots">
             {visibleDesigns.map((item, i) => (
               <span key={item.id} className={`tp-dot${item.id === resolvedActiveDesignId ? " active" : ""}`} onClick={() => switchToIndex(i)} />
             ))}
           </div>
-          <button type="button" className="tp-nav-btn" onClick={goNext} disabled={activeIndex >= visibleDesigns.length - 1}>›</button>
+          <button type="button" className="tp-nav-btn" onClick={goNext} disabled={activeIndex >= visibleDesigns.length - 1} aria-label="Next design" title="Next design"><Icon name="chevronRight" /></button>
 
           {visibleDesigns.length > 1 ? (
                                     <div className="tp-dropdown-wrap tp-ai-generate-menu">

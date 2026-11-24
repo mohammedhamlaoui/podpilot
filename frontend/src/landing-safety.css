@@ -1,0 +1,207 @@
+.landing-page .landing-safety {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(72px, 7vw, 112px) 0;
+  background: #f4f1fa;
+}
+
+.landing-page .landing-safety::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 42% 74% at 88% 50%, rgba(124, 58, 237, 0.09), transparent 80%);
+}
+
+.landing-page .landing-safety-grid {
+  position: relative;
+  width: min(1760px, calc(100% - 96px));
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(56px, 8vw, 150px);
+  align-items: center;
+}
+
+.landing-page .landing-safety-eyebrow {
+  display: inline-block;
+  margin-bottom: 26px;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.landing-page .landing-safety-intro h2 {
+  max-width: 680px;
+  color: #171329;
+  font-size: clamp(40px, 3.8vw, 70px);
+  letter-spacing: -0.055em;
+  line-height: 1.07;
+}
+
+.landing-page .landing-safety-intro h2 span {
+  color: #7c3aed;
+}
+
+.landing-page .landing-safety-intro > p {
+  max-width: 580px;
+  margin-top: 28px;
+  color: #64748b;
+  font-size: clamp(17px, 1.25vw, 20px);
+  line-height: 1.65;
+}
+
+.landing-page .landing-safety-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-page .landing-safety-list .landing-safety-point {
+  display: flex;
+  min-width: 0;
+  min-height: 216px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 24px;
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 30px rgba(52, 28, 96, 0.035);
+  transition: border-color 200ms ease, transform 200ms ease;
+}
+
+.landing-page .landing-safety-list .landing-safety-point:hover {
+  border-color: rgba(124, 58, 237, 0.36);
+  transform: translateY(-3px);
+}
+
+.landing-page .landing-safety-point-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: auto;
+}
+
+.landing-page .landing-safety-list .landing-safety-point-top {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.landing-page .landing-safety-point-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(124, 58, 237, 0.13);
+  border-radius: 13px;
+  color: #7c3aed;
+  background: #f1eafe;
+}
+
+.landing-page .landing-safety-point-number {
+  color: #b7a7ca;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.landing-page .landing-safety-point h3 {
+  margin: 22px 0 7px;
+  color: #201a2d;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.landing-page .landing-safety-list .landing-safety-point p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .landing-page .landing-safety {
+  background: #0b0a10 !important;
+}
+
+[data-theme="dark"] .landing-page .landing-safety::before {
+  background: radial-gradient(ellipse 42% 74% at 88% 50%, rgba(124, 58, 237, 0.11), transparent 80%);
+}
+
+[data-theme="dark"] .landing-page .landing-safety-eyebrow,
+[data-theme="dark"] .landing-page .landing-safety-intro h2 span {
+  color: #b895ff;
+}
+
+[data-theme="dark"] .landing-page .landing-safety-intro h2,
+[data-theme="dark"] .landing-page .landing-safety-point h3 {
+  color: #f5f3fa;
+}
+
+[data-theme="dark"] .landing-page .landing-safety-intro > p,
+[data-theme="dark"] .landing-page .landing-safety-list .landing-safety-point p {
+  color: #a6a0b6;
+}
+
+[data-theme="dark"] .landing-page .landing-safety-list .landing-safety-point {
+  border-color: rgba(167, 139, 250, 0.16);
+  background: #181420;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .landing-page .landing-safety-list .landing-safety-point:hover {
+  border-color: rgba(184, 149, 255, 0.45);
+}
+
+[data-theme="dark"] .landing-page .landing-safety-point-icon {
+  border-color: rgba(167, 139, 250, 0.2);
+  color: #b895ff;
+  background: #2b1f42;
+}
+
+[data-theme="dark"] .landing-page .landing-safety-point-number {
+  color: #776988;
+}
+
+@media (max-width: 980px) {
+  .landing-page .landing-safety-grid {
+    width: min(100% - 48px, 720px);
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+}
+
+@media (max-width: 600px) {
+  .landing-page .landing-safety {
+    padding: 64px 0;
+  }
+
+  .landing-page .landing-safety-grid {
+    width: calc(100% - 36px);
+  }
+
+  .landing-page .landing-safety-intro h2 {
+    font-size: clamp(38px, 9vw, 52px);
+  }
+
+  .landing-page .landing-safety-list {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-page .landing-safety-list .landing-safety-point {
+    min-height: 170px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page .landing-safety-list .landing-safety-point {
+    transition: none;
+  }
+}

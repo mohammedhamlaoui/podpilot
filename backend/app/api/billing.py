@@ -51,10 +51,6 @@ class UsageIncrementIn(BaseModel):
     amount: int = 1
 
 
-class StartTrialIn(BaseModel):
-    plan_key: Optional[str] = None
-
-
 def _extract_forwarded_ip(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -212,147 +208,15 @@ def increment_upload_usage(
 
 
 @router.get("/api/billing/trial-eligibility")
-def get_trial_eligibility(
-    request: Request,
-    user: AuthUser = Depends(get_current_user),
-    x_podpilot_device_id: Optional[str] = Header(
-        default=None,
-        alias="X-PodPilot-Device-Id",
-    ),
-) -> dict:
-    rate_limiter.enforce_user_limit(user.id, rate_limiter.TRIAL)
-    rate_limiter.enforce_ip_limit(request, rate_limiter.TRIAL)
-    short_uid = str(user.id)[:8]
-    try:
-        res = subscription_service.check_trial_eligibility(
-            user_id=user.id,
-            email=user.email,
-            device_id=x_podpilot_device_id,
-            ip_address=_request_ip(request),
-            user_agent=request.headers.get("user-agent"),
-        )
-        
-        eligible = res.get("eligible", False)
-        internal_reason = res.get("reason", "unknown")
-        trial_used = internal_reason in {
-            subscription_service.TRIAL_ALREADY_USED,
-            subscription_service.DEVICE_TRIAL_USED,
-        }
-        
-        # Map internal reason to user-friendly response reasons
-        if eligible:
-            reason = "admin_override" if internal_reason == subscription_service.ADMIN_TRIAL_OVERRIDE else "new_user"
-        else:
-            if internal_reason == subscription_service.ACTIVE_SUBSCRIPTION_EXISTS:
-                reason = "active_subscription"
-            elif internal_reason in (
-                subscription_service.TRIAL_ALREADY_USED,
-                subscription_service.DEVICE_TRIAL_USED,
-                subscription_service.SUBSCRIPTION_HISTORY_EXISTS,
-                subscription_service.COMPLETED_TRANSACTION_EXISTS,
-            ):
-                reason = "already_used_trial"
-            else:
-                reason = "unknown"
-                
-        logger.info(
-            "[TRIAL ELIGIBILITY] request_id=%s endpoint=/api/billing/trial-eligibility user=%s eligible=%s reason=%s source=%s",
-            request_id(),
-            short_user_id(user.id),
-            eligible,
-            reason,
-            res.get("source") or "unknown",
-        )
-        return {
-            "eligible": eligible,
-            "trial_eligible": eligible,
-            "trial_used": trial_used,
-            "display_cta": "trial" if eligible else "subscribe",
-            "reason": reason,
-            "source": res.get("source") or "unknown",
-        }
-    except HTTPException as ex:
-        # Check if it's a configuration issue (like trial_usage table missing or TRIAL_HASH_SALT missing)
-        logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=HTTPException status_code=%s detail=%s",
-            request_id(),
-            short_user_id(user.id),
-            ex.status_code,
-            str(ex.detail)[:200],
-        )
-        if ex.status_code >= 500:
-            # Trial eligibility failures must not accidentally grant a trial.
-            return {
-                "eligible": False,
-                "trial_eligible": False,
-                "trial_used": False,
-                "display_cta": "subscribe",
-                "reason": "eligibility_unavailable",
-                "source": "fallback_optional_read_failure",
-                "fallback": True,
-            }
-        raise ex
-    except RuntimeError as ex:
-        # Catch RuntimeError from missing TRIAL_HASH_SALT in production
-        logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=%s",
-            request_id(),
-            short_user_id(user.id),
-            safe_error_type(ex),
-        )
-        return {
-            "eligible": False,
-            "trial_eligible": False,
-            "trial_used": False,
-            "display_cta": "subscribe",
-            "reason": "eligibility_unavailable",
-            "source": "fallback_optional_read_failure",
-            "fallback": True,
-        }
-    except Exception as ex:
-        logger.warning(
-            "[TRIAL ELIGIBILITY ERROR] request_id=%s endpoint=/api/billing/trial-eligibility user=%s error_type=%s",
-            request_id(),
-            short_user_id(user.id),
-            safe_error_type(ex),
-        )
-        return {
-            "eligible": False,
-            "trial_eligible": False,
-            "trial_used": False,
-            "display_cta": "subscribe",
-            "reason": "eligibility_unavailable",
-            "source": "fallback_optional_read_failure",
-            "fallback": True,
-        }
-
+def get_trial_eligibility(user: AuthUser = Depends(get_current_user)) -> dict:
+    """Retired endpoint retained only to give old clients a clear response."""
+    raise HTTPException(status_code=410, detail="Free trials are no longer offered.")
 
 
 @router.post("/api/billing/start-trial")
-def start_trial(
-    payload: StartTrialIn,
-    request: Request,
-    user: AuthUser = Depends(get_current_user),
-    x_podpilot_device_id: Optional[str] = Header(
-        default=None,
-        alias="X-PodPilot-Device-Id",
-    ),
-) -> dict:
-    rate_limiter.enforce_user_limit(user.id, rate_limiter.TRIAL)
-    rate_limiter.enforce_ip_limit(request, rate_limiter.TRIAL)
-    if not (x_podpilot_device_id or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Could not verify this device. Refresh the page and try again.",
-        )
-    return subscription_service.reserve_trial_start(
-        user_id=user.id,
-        email=user.email,
-        device_id=x_podpilot_device_id,
-        ip_address=_request_ip(request),
-        user_agent=request.headers.get("user-agent"),
-        plan_key=payload.plan_key,
-    )
+def start_trial(user: AuthUser = Depends(get_current_user)) -> dict:
+    """Retired endpoint; no new trial can be reserved."""
+    raise HTTPException(status_code=410, detail="Free trials are no longer offered.")
 
 
 @router.post("/api/billing/customer-portal")
@@ -496,7 +360,6 @@ class CheckoutRequest(BaseModel):
     credit_pack_id: Optional[str] = None
 
 
-TRIAL_DAYS = 7
 
 
 def _normalize_checkout_plan(plan_key: str) -> str:
@@ -517,40 +380,74 @@ def _normalize_credit_pack_id(credit_pack_id: Optional[str]) -> str:
     return value
 
 
-def _resolve_subscription_price_id(*, plan: str, cycle: str, trial: bool) -> str:
+def _resolve_subscription_price_id(*, plan: str, cycle: str) -> str:
     price_map = {
-        ("redbubble", "monthly", True): config.PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
-        ("redbubble", "monthly", False): config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
-        ("redbubble", "annual", True): config.PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
-        ("redbubble", "annual", False): config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
-        ("teepublic", "monthly", True): config.PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
-        ("teepublic", "monthly", False): config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
-        ("teepublic", "annual", True): config.PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
-        ("teepublic", "annual", False): config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
-        ("all_platforms", "monthly", True): config.PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
-        ("all_platforms", "monthly", False): config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
-        ("all_platforms", "annual", True): config.PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
-        ("all_platforms", "annual", False): config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+        ("redbubble", "monthly"): config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
+        ("redbubble", "annual"): config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
+        ("teepublic", "monthly"): config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
+        ("teepublic", "annual"): config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
+        ("all_platforms", "monthly"): config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+        ("all_platforms", "annual"): config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
     }
-    return (price_map.get((plan, cycle, trial)) or "").strip()
+    return (price_map.get((plan, cycle)) or "").strip()
 
 
-def _subscription_price_env_name(*, plan: str, cycle: str, trial: bool) -> str:
+def _subscription_price_env_name(*, plan: str, cycle: str) -> str:
     plan_prefix = {
         "redbubble": "REDBUBBLE",
         "teepublic": "TEEPUBLIC",
         "all_platforms": "ALL_PLATFORMS",
     }.get(plan, "")
     cycle_part = "ANNUAL" if cycle == "annual" else "MONTHLY"
-    trial_part = "_TRIAL" if trial else ""
     if not plan_prefix:
         return "UNKNOWN_PADDLE_PRICE_ID"
-    return f"PADDLE_{plan_prefix}_{cycle_part}{trial_part}_PRICE_ID"
+    return f"PADDLE_{plan_prefix}_{cycle_part}_PRICE_ID"
 
 
 def _checkout_price_suffix(price_id: str) -> str:
     value = str(price_id or "").strip()
     return value[-8:] if len(value) > 8 else value or "missing"
+
+
+def _verify_relaunch_subscription_price(price_id: str, plan: str, cycle: str) -> None:
+    """Fail closed if a configured Paddle price differs from the published offer."""
+    api_key = _normalize_paddle_api_key(config.PADDLE_API_KEY)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Subscription checkout is not configured.")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{_paddle_api_base()}/prices/{price_id}",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            )
+        response.raise_for_status()
+        price = response.json().get("data") or {}
+    except (httpx.HTTPError, ValueError, TypeError) as error:
+        logger.warning("[Checkout] Paddle price verification failed price=%s error=%s", _checkout_price_suffix(price_id), safe_error_type(error))
+        raise HTTPException(status_code=503, detail="Subscription checkout is temporarily unavailable.") from error
+
+    expected_amount = {
+        ("redbubble", "monthly"): "899",
+        ("redbubble", "annual"): "8990",
+        ("teepublic", "monthly"): "899",
+        ("teepublic", "annual"): "8990",
+        ("all_platforms", "monthly"): "1099",
+        ("all_platforms", "annual"): "10990",
+    }[(plan, cycle)]
+    billing_cycle = price.get("billing_cycle") or {}
+    unit_price = price.get("unit_price") or {}
+    valid = (
+        price.get("id") == price_id
+        and price.get("status") == "active"
+        and unit_price.get("currency_code") == "USD"
+        and str(unit_price.get("amount")) == expected_amount
+        and billing_cycle.get("interval") == ("year" if cycle == "annual" else "month")
+        and billing_cycle.get("frequency") == 1
+        and price.get("trial_period") is None
+    )
+    if not valid:
+        logger.error("[Checkout] Paddle price mismatches relaunch catalog price=%s plan=%s cycle=%s", _checkout_price_suffix(price_id), plan, cycle)
+        raise HTTPException(status_code=503, detail="Subscription checkout is temporarily unavailable.")
 
 
 def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
@@ -650,60 +547,23 @@ def get_checkout_price_id(
             detail=f"Invalid billing cycle: '{payload.billing_cycle}'",
         )
 
-    eligibility = {"eligible": False, "reason": "unknown", "source": "unknown"}
-    try:
-        eligibility = subscription_service.check_trial_eligibility(
-            user_id=user.id,
-            email=user.email,
-            device_id=x_podpilot_device_id,
-            ip_address=_request_ip(request),
-            user_agent=request.headers.get("user-agent"),
-        )
-    except Exception as error:
-        logger.warning(
-            "[Billing] request_id=%s endpoint=/api/billing/checkout checkout eligibility fallback user=%s plan=%s billing=%s error_type=%s fallback_reason=optional_trial_read_failure",
-            request_id(),
-            short_user_id(user.id),
-            plan,
-            cycle,
-            safe_error_type(error),
-        )
-        eligibility = {
-            "eligible": False,
-            "reason": "eligibility_unavailable",
-            "source": "fallback_optional_read_failure",
-            "fallback": True,
-        }
-
-    trial_eligible = bool(eligibility.get("eligible") is True)
-    resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=trial_eligible)
-    if trial_eligible and not resolved_id:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Trial price not configured for plan '{payload.plan_key}' ({cycle})",
-        )
-
-    if not resolved_id:
-        trial_eligible = False
-        resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle, trial=False)
+    resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle)
 
     _validate_checkout_price_id(
         price_id=resolved_id,
-        env_name=_subscription_price_env_name(plan=plan, cycle=cycle, trial=trial_eligible),
+        env_name=_subscription_price_env_name(plan=plan, cycle=cycle),
         intent_type="subscription",
         plan=plan,
         cycle=cycle,
     )
+    _verify_relaunch_subscription_price(resolved_id, plan, cycle)
 
     logger.info(
-        "[Checkout] request_id=%s endpoint=/api/billing/checkout user_present=true user=%s plan=%s billing=%s trial_eligible=%s source=%s fallback=%s price_suffix=%s",
+        "[Checkout] request_id=%s user=%s plan=%s billing=%s price_suffix=%s",
         request_id(),
         short_user_id(user.id),
         plan,
         cycle,
-        trial_eligible,
-        eligibility.get("source") or "unknown",
-        bool(eligibility.get("fallback")),
         _checkout_price_suffix(resolved_id),
     )
 
@@ -729,24 +589,19 @@ def get_checkout_price_id(
             safe_error_type(error),
         )
 
-    button_label = "Start 7-day free trial" if trial_eligible else "Subscribe now"
+    button_label = "Subscribe now"
     return {
         "intent_type": "subscription",
         "plan_key": plan,
         "billing_interval": cycle,
-        "trial_eligible": trial_eligible,
-        "eligible": trial_eligible,
-        "trial_used": eligibility.get("reason") in {
-            subscription_service.TRIAL_ALREADY_USED,
-            subscription_service.DEVICE_TRIAL_USED,
-        },
-        "display_cta": "trial" if trial_eligible else "subscribe",
-        "eligibility_reason": eligibility.get("reason") or "unknown",
-        "eligibility_source": eligibility.get("source") or "unknown",
+        "trial_eligible": False,
+        "eligible": False,
+        "trial_used": False,
+        "display_cta": "subscribe",
         "selected_price_id": resolved_id,
         "price_id": resolved_id,
         "button_label": button_label,
-        "trial_days": TRIAL_DAYS if trial_eligible else 0,
+        "trial_days": 0,
         "checkout_intent_id": intent.get("id"),
         "checkout_intent_status": intent.get("status") or "opened",
         "idempotency_key": intent.get("idempotency_key"),

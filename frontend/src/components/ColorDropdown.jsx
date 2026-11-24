@@ -36,13 +36,14 @@ export default function ColorDropdown({ colors, value, onChange, label }) {
         className="color-dropdown-trigger"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
+        aria-label={`${label || "Color"}: ${value || "Select a color"}`}
       >
         <span
           className="color-swatch"
           style={{ background: selectedHex, border: value === "White" || value === "Creme" ? "1px solid #ddd" : "none" }}
         />
         <span className="color-dropdown-value">{value || "Select..."}</span>
-        <svg className="color-dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="color-dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>

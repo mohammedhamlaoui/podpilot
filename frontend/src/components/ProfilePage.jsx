@@ -14,10 +14,11 @@ function formatDate(dateString) {
 }
 
 function ProfilePage({ onSignOut }) {
-  const { user, signOut, updateEmail, updatePassword, signInWithPassword } = useAuth();
+  const { user, signOut, updateEmail, updatePassword, signInWithPassword, resendConfirmationEmail } = useAuth();
   const handleSignOut = onSignOut || signOut;
   
   const [activeModal, setActiveModal] = useState(null); // 'password' | 'email' | 'help' | null
+  const [newDisplayName, setNewDisplayName] = useState("");
 
   // Password Modal State
   const [currentPassword, setCurrentPassword] = useState("");
@@ -81,9 +82,60 @@ function ProfilePage({ onSignOut }) {
     return undefined;
   }, []);
 
-  const displayName = user?.user_metadata?.display_name || user?.email?.split("@")[0] || "User";
+  const displayName = user?.user_metadata?.display_name || user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
   const avatarLetter = displayName.charAt(0).toUpperCase();
   const isVerified = Boolean(user?.email_confirmed_at);
+  const signInMethods = [
+    (provider === "google" || providers.includes("google") || identities.some(id => id.provider === "google")) && "Google",
+    isPasswordUser && "Email and password",
+  ].filter(Boolean).join(" · ") || "Email";
+
+  const showToast = (message, type = "success") => {
+    setToastType(type);
+    setToastMessage(message);
+  };
+
+  const handleNameSubmit = async (event) => {
+    event.preventDefault();
+    const name = newDisplayName.trim();
+    if (name.length < 2 || name.length > 60) {
+      setError("Name must be between 2 and 60 characters.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({ data: { display_name: name } });
+      if (updateError) throw updateError;
+      showToast("Your display name has been updated.");
+      resetModalState();
+    } catch (err) {
+      setError(getAuthErrorMessage(err, "Could not update your display name."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setLoading(true);
+    try {
+      await resendConfirmationEmail({ email: user.email });
+      showToast("Verification email sent. Check your inbox.");
+    } catch (err) {
+      showToast(getAuthErrorMessage(err, "Could not send verification email."), "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopyAccountId = async () => {
+    try {
+      await navigator.clipboard.writeText(user.id);
+      showToast("Account ID copied.");
+    } catch {
+      showToast("Could not copy the account ID.", "error");
+    }
+  };
 
   const resetModalState = () => {
     setActiveModal(null);
@@ -92,6 +144,7 @@ function ProfilePage({ onSignOut }) {
     setConfirmNewPassword("");
     setNewEmail("");
     setConfirmNewEmail("");
+    setNewDisplayName("");
     setError("");
     setSuccess("");
     setShowCurrentPassword(false);
@@ -201,71 +254,47 @@ function ProfilePage({ onSignOut }) {
           {toastMessage}
         </div>
       )}
-      <div className="profile-grid">
-        
-        {/* Profile Summary Card */}
-        <div className="profile-card profile-summary">
-          <div className="profile-avatar">{avatarLetter}</div>
-          <h2 className="profile-name">{displayName}</h2>
-          <p className="profile-email">{user?.email}</p>
-        </div>
+      <header className="account-heading">
+        <div><span className="account-eyebrow">YOUR WORKSPACE</span><h1>Account settings</h1><p>Manage your profile, sign-in details, and subscription in one place.</p></div>
+      </header>
+      <div className="profile-grid account-hub">
+        <section className="profile-card profile-summary">
+          <div className="profile-avatar" aria-hidden="true">{avatarLetter}</div>
+          <div className="account-identity">
+            <span className="account-eyebrow">PODPILOT MEMBER</span>
+            <h2 className="profile-name">{displayName}</h2>
+            <p className="profile-email">{user?.email}</p>
+            <span className={`profile-badge ${isVerified ? "badge-success" : "badge-warning"}`}>{isVerified ? "Verified email" : "Email not verified"}</span>
+          </div>
+          <button type="button" className="profile-btn account-identity-action" onClick={() => { setNewDisplayName(displayName); setActiveModal("name"); }}><Icon name="edit" /> Edit profile</button>
+        </section>
 
-        {/* Email & Verification Card */}
-        <div className="profile-card">
-          <div className="profile-card-header">
-            <Icon name="mail" className="profile-card-icon" />
-            <h3>Email Address</h3>
+        <section className="profile-card account-details-card">
+          <div className="profile-card-header"><Icon name="user" className="profile-card-icon" /><div><h3>Account details</h3><p>Your identity and activity</p></div></div>
+          <div className="account-detail-list">
+            <div className="account-detail-row"><span>Email address</span><strong>{user?.email}</strong></div>
+            <div className="account-detail-row"><span>Member since</span><strong>{formatDate(user?.created_at)}</strong></div>
+            <div className="account-detail-row"><span>Last sign in</span><strong>{formatDate(user?.last_sign_in_at)}</strong></div>
+            <div className="account-detail-row"><span>Account ID</span><button type="button" className="account-text-action" onClick={handleCopyAccountId}>Copy ID <Icon name="copy" /></button></div>
           </div>
-          <div className="profile-card-body">
-            <p className="profile-text">{user?.email}</p>
-            <div className={`profile-badge ${isVerified ? "badge-success" : "badge-warning"}`}>
-              {isVerified ? "Verified" : "Not Verified"}
-            </div>
-          </div>
-        </div>
+        </section>
 
-        {/* Account Info Card */}
-        <div className="profile-card">
-          <div className="profile-card-header">
-            <Icon name="user" className="profile-card-icon" />
-            <h3>Account Information</h3>
+        <section className="profile-card account-security-card">
+          <div className="profile-card-header"><Icon name="lock" className="profile-card-icon" /><div><h3>Sign-in & security</h3><p>Keep your account accessible and secure</p></div></div>
+          <div className="account-detail-row"><span>Sign-in method</span><strong>{signInMethods}</strong></div>
+          <div className="account-setting-list">
+            {isPasswordUser && <button type="button" onClick={() => setActiveModal("password")}><Icon name="lock" /><span><strong>Change password</strong><small>Update the password you use to sign in</small></span><Icon name="chevronRight" /></button>}
+            <button type="button" onClick={() => setActiveModal("email")}><Icon name="mail" /><span><strong>Change email</strong><small>{isPasswordUser ? "Confirm a new address for your account" : "See how your Google email is managed"}</small></span><Icon name="chevronRight" /></button>
+            {!isVerified && <button type="button" onClick={handleResendVerification} disabled={loading}><Icon name="refresh" /><span><strong>Resend verification</strong><small>Get a new confirmation email</small></span><Icon name="chevronRight" /></button>}
           </div>
-          <div className="profile-card-body account-info-body">
-            <div className="info-row">
-              <span className="info-label">Member Since</span>
-              <span className="info-value">{formatDate(user?.created_at)}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">Last Sign In</span>
-              <span className="info-value">{formatDate(user?.last_sign_in_at)}</span>
-            </div>
-          </div>
-        </div>
+        </section>
 
-        {/* Billing Card */}
         <BillingCard />
 
-        {/* Account Settings Card */}
-        <div className="profile-card account-settings-card">
-          <div className="profile-card-header">
-            <Icon name="edit" className="profile-card-icon" />
-            <h3>Account Settings</h3>
-          </div>
-          <div className="profile-card-actions">
-            <button className="profile-btn" onClick={() => setActiveModal("password")}>
-              <Icon name="lock" /> Change Password
-            </button>
-            <button className="profile-btn" onClick={() => setActiveModal("email")}>
-              <Icon name="mail" /> Change Email
-            </button>
-            <button className="profile-btn" onClick={() => setActiveModal("help")}>
-              <Icon name="help" /> Get Help
-            </button>
-            <button className="profile-btn btn-danger" onClick={handleSignOut}>
-              Sign Out
-            </button>
-          </div>
-        </div>
+        <section className="profile-card account-footer-card">
+          <div><div className="profile-card-header"><Icon name="help" className="profile-card-icon" /><h3>Need a hand?</h3></div><p>We can help with account access, billing, or your PodPilot workflow.</p></div>
+          <div className="account-footer-actions"><button type="button" className="profile-btn" onClick={() => setActiveModal("help")}>Contact support</button><button type="button" className="profile-btn btn-danger" onClick={handleSignOut}>Sign out</button></div>
+        </section>
       </div>
 
       {/* Modals */}
@@ -275,6 +304,18 @@ function ProfilePage({ onSignOut }) {
             <button className="modal-close" onClick={resetModalState} aria-label="Close">
               <Icon name="x" />
             </button>
+
+            {activeModal === "name" && (
+              <>
+                <h2>Edit profile</h2>
+                <form onSubmit={handleNameSubmit} className="profile-form">
+                  <label className="profile-field"><span>Display name</span><input type="text" value={newDisplayName} onChange={(e) => setNewDisplayName(e.target.value)} minLength={2} maxLength={60} autoFocus required /></label>
+                  <p className="account-form-note">This is the name shown in your PodPilot account.</p>
+                  {error && <div className="profile-alert alert-error">{error}</div>}
+                  <div className="modal-actions"><button type="button" className="btn-cancel" onClick={resetModalState} disabled={loading}>Cancel</button><button type="submit" className="btn-submit" disabled={loading}>{loading ? "Saving..." : "Save name"}</button></div>
+                </form>
+              </>
+            )}
             
             {activeModal === "password" && (
               <>

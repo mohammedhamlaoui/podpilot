@@ -3,6 +3,12 @@ backend/uploads/excels/*
 backend/uploads/images/*
 frontend/node_modules/
 frontend/dist/
+admin-frontend/node_modules/
+admin-frontend/dist/
+admin-frontend/*.tsbuildinfo
+admin-frontend/vite.config.js
+admin-frontend/vite.config.d.ts
+extension-local/
 *.pyc
 __pycache__/
 .env

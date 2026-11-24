@@ -72,6 +72,19 @@ _raw_origins = _optional(
 )
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
+# Dedicated Owner control center. The Owner identity itself is stored in the
+# admin_principals table; these values configure session and origin policy.
+ADMIN_APP_ORIGIN = _optional("ADMIN_APP_ORIGIN", "http://127.0.0.1:5174").rstrip("/")
+ADMIN_REQUIRE_MFA = _optional("ADMIN_REQUIRE_MFA", "true").lower() == "true"
+ADMIN_SESSION_IDLE_MINUTES = max(5, int(_optional("ADMIN_SESSION_IDLE_MINUTES", "20")))
+ADMIN_SESSION_ABSOLUTE_HOURS = max(1, int(_optional("ADMIN_SESSION_ABSOLUTE_HOURS", "8")))
+ADMIN_REAUTH_MAX_AGE_SECONDS = max(60, int(_optional("ADMIN_REAUTH_MAX_AGE_SECONDS", "300")))
+ADMIN_COOKIE_SECURE = _optional("ADMIN_COOKIE_SECURE", "true" if ADMIN_APP_ORIGIN.startswith("https://") else "false").lower() == "true"
+PUBLIC_APP_URL = _optional("PUBLIC_APP_URL", "https://podpilot.space").rstrip("/")
+
+if ADMIN_APP_ORIGIN and ADMIN_APP_ORIGIN not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(ADMIN_APP_ORIGIN)
+
 # ── Marketplaces supported ──────────────────────────────────────────────────
 SUPPORTED_MARKETPLACES = {"redbubble", "teepublic"}
 
@@ -83,6 +96,7 @@ AI_MODEL = _optional("AI_MODEL", "gemini-2.5-flash")
 
 # OpenRouter listing generation
 OPENROUTER_API_KEY = _optional("OPENROUTER_API_KEY", "")
+
 OPENROUTER_MODEL = _optional("OPENROUTER_MODEL", "rekaai/reka-edge")
 AI_LISTING_PROVIDER = _optional("AI_LISTING_PROVIDER", "openrouter").lower().strip()
 OPENROUTER_FREE_FALLBACK_MODEL = _optional(
@@ -195,6 +209,24 @@ PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_REDBUBBLE_ANNUAL_TRIA
 PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID", "")
 PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID = _optional("PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID", "")
 
+# Previous paid prices remain mapped for existing subscribers and webhook events.
+# New checkouts use only the six PADDLE_*_(MONTHLY|ANNUAL)_PRICE_ID values above.
+PADDLE_LEGACY_REDBUBBLE_MONTHLY_PRICE_ID = _optional("PADDLE_LEGACY_REDBUBBLE_MONTHLY_PRICE_ID", "")
+PADDLE_LEGACY_REDBUBBLE_ANNUAL_PRICE_ID = _optional("PADDLE_LEGACY_REDBUBBLE_ANNUAL_PRICE_ID", "")
+PADDLE_LEGACY_TEEPUBLIC_MONTHLY_PRICE_ID = _optional("PADDLE_LEGACY_TEEPUBLIC_MONTHLY_PRICE_ID", "")
+PADDLE_LEGACY_TEEPUBLIC_ANNUAL_PRICE_ID = _optional("PADDLE_LEGACY_TEEPUBLIC_ANNUAL_PRICE_ID", "")
+PADDLE_LEGACY_ALL_PLATFORMS_MONTHLY_PRICE_ID = _optional("PADDLE_LEGACY_ALL_PLATFORMS_MONTHLY_PRICE_ID", "")
+PADDLE_LEGACY_ALL_PLATFORMS_ANNUAL_PRICE_ID = _optional("PADDLE_LEGACY_ALL_PLATFORMS_ANNUAL_PRICE_ID", "")
+
+LEGACY_SUBSCRIPTION_PRICES = {
+    ("redbubble", "monthly"): PADDLE_LEGACY_REDBUBBLE_MONTHLY_PRICE_ID,
+    ("redbubble", "annual"): PADDLE_LEGACY_REDBUBBLE_ANNUAL_PRICE_ID,
+    ("teepublic", "monthly"): PADDLE_LEGACY_TEEPUBLIC_MONTHLY_PRICE_ID,
+    ("teepublic", "annual"): PADDLE_LEGACY_TEEPUBLIC_ANNUAL_PRICE_ID,
+    ("all_platforms", "monthly"): PADDLE_LEGACY_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+    ("all_platforms", "annual"): PADDLE_LEGACY_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+}
+
 # Free-trial abuse prevention. TRIAL_FINGERPRINT_SALT is the preferred name;
 # TRIAL_HASH_SALT remains a backwards-compatible deployment alias.
 # trial eligibility/start-trial code paths so the backend can boot while
@@ -209,6 +241,9 @@ def paddle_plan_for_price_id(price_id: str) -> str:
     pid = (price_id or "").strip()
     if not pid:
         return ""
+    for (plan, _), legacy_id in LEGACY_SUBSCRIPTION_PRICES.items():
+        if legacy_id and pid == legacy_id:
+            return plan
     
     # Fallback to existing price variables
     if pid == PADDLE_REDBUBBLE_PRICE_ID:
@@ -263,6 +298,9 @@ def paddle_billing_cycle_for_price_id(price_id: str) -> str:
     pid = (price_id or "").strip()
     if not pid:
         return ""
+    for (_, cycle), legacy_id in LEGACY_SUBSCRIPTION_PRICES.items():
+        if legacy_id and pid == legacy_id:
+            return cycle
 
     annual_ids = {
         PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,

@@ -308,7 +308,6 @@ let queueState = { queue: [], currentIndex: 0, status: "idle", lastError: "" };
 let pollId = null;
 let dataPollId = null;
 let subscriptionInfo = null; // last loaded /api/me/subscription payload
-let trialEligibility = null;
 let isUploadGateBlocking = false;
 let uploadGateMessage = "";
 let platformAccess = normalizePlatformAccess(null);
@@ -749,11 +748,6 @@ async function loadSubscription() {
   try {
     const summary = await PodPilotAuth.getSubscriptionStatus();
     subscriptionInfo = summary || null;
-    if ((!summary || summary?.can_upload === false) && PodPilotAuth?.getTrialEligibility) {
-      trialEligibility = await PodPilotAuth.getTrialEligibility();
-    } else {
-      trialEligibility = null;
-    }
     renderAccountFromSubscription(summary);
     if (summary) {
       debugLog(
@@ -767,7 +761,6 @@ async function loadSubscription() {
   } catch (error) {
     console.warn("[Extension Account] subscription load failed", error?.message || error);
     subscriptionInfo = null;
-    trialEligibility = null;
     renderAccountFromSubscription(null);
     return null;
   }
@@ -1038,7 +1031,6 @@ async function handleSignOut() {
   designsLoadedByPlatform = { redbubble: false, teepublic: false };
   selectedIds.clear();
   subscriptionInfo = null;
-  trialEligibility = null;
   platformAccess = normalizePlatformAccess(null);
   accessStatus = "loading";
   accessMessage = "";

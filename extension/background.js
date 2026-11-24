@@ -403,6 +403,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   if (message && message.type === "PODPILOT_AUTH_SESSION") {
     (async () => {
       try {
+        await self.PodPilotAuth?.adoptUploadDeviceId(message.device_id);
         const session = await self.PodPilotAuth?.adoptSession({
           access_token: message.access_token,
           refresh_token: message.refresh_token,
@@ -440,6 +441,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleControlMessage(message, sender = null, options = {}) {
   if (!message || typeof message.action !== "string") {
     return { ok: false, error: "Invalid extension message." };
+  }
+
+  if (message.device_id && (isTrustedSessionSender(sender) ||
+    (options.allowExternalSession === true && isAllowedExternalSender(sender)))) {
+    await self.PodPilotAuth?.adoptUploadDeviceId(message.device_id);
   }
 
   // The dashboard hands us its current Supabase session along with most
@@ -816,6 +822,7 @@ async function appendProgressLog(designId, entry) {
  */
 async function verifyUploadAccessBeforeQueue() {
   try {
+    await self.PodPilotAuth.registerUploadDevice();
     const summary = await self.PodPilotAuth.checkUploadAccess();
     if (!summary || summary.can_upload === false) {
       return { ok: false, blocked: true, summary };
@@ -832,7 +839,7 @@ function platformLabel(marketplace = "redbubble") {
 }
 
 function platformLockedMessage(marketplace = "redbubble") {
-  if (!marketplace) return "You do not have an active trial or subscription. Open PodPilot to start.";
+  if (!marketplace) return "You do not have an active subscription. Open PodPilot to start.";
   return `${platformLabel(marketplace)} is locked for your current plan. Upgrade to continue.`;
 }
 
@@ -862,7 +869,7 @@ async function verifyPlatformAccessBeforeQueue(marketplace = "redbubble") {
         access,
         error: hasActivePlan
           ? platformLockedMessage(platform)
-          : "You do not have an active trial or subscription. Open PodPilot to start.",
+          : "You do not have an active subscription. Open PodPilot to start.",
       };
     }
     debugTimerEnd(timer, { ok: true });
@@ -909,7 +916,7 @@ async function blockQueueForPlatformAccess(marketplace, platformAccess) {
 
 function buildBlockedMessage(summary) {
   if (!summary?.has_subscription || String(summary?.status || "").toLowerCase() === "inactive") {
-    return "You do not have an active trial or subscription. Open PodPilot to start.";
+    return "You do not have an active subscription. Open PodPilot to start.";
   }
   const platform = summary?.plan ? ` plan=${summary.plan}` : "";
   const reason = summary?.reason || "Your current plan does not allow more uploads right now.";
@@ -1582,6 +1589,13 @@ async function processNext() {
 
       if (state.currentIndex >= state.queue.length) {
         await broadcastQueueComplete();
+        break;
+      }
+
+      try {
+        await self.PodPilotAuth.assertUploadDeviceActive();
+      } catch (error) {
+        await setQueueState({ status: "stopped", lastError: error.message });
         break;
       }
 
@@ -3537,6 +3551,13 @@ async function processTpNext() {
         teePublicPrefetchCache.clear();
         teePublicPrefetchPromises.clear();
         await broadcastQueueComplete();
+        break;
+      }
+
+      try {
+        await self.PodPilotAuth.assertUploadDeviceActive();
+      } catch (error) {
+        await setQueueState({ status: "stopped", lastError: error.message });
         break;
       }
 

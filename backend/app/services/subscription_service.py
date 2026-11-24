@@ -65,7 +65,7 @@ PLAN_LABELS = {
 # Public catalog amounts used only to describe a subscription whose Paddle
 # price id has already been persisted by the webhook. Paddle remains the
 # authority for charging; this mapping never creates or changes a checkout.
-PLAN_BILLING_CATALOG = {
+LEGACY_PLAN_BILLING_CATALOG = {
     ("redbubble", "monthly"): {"amount": 4.99, "monthly_equivalent": 4.99},
     ("redbubble", "annual"): {"amount": 49.90, "monthly_equivalent": 4.16},
     ("teepublic", "monthly"): {"amount": 4.99, "monthly_equivalent": 4.99},
@@ -74,7 +74,16 @@ PLAN_BILLING_CATALOG = {
     ("all_platforms", "annual"): {"amount": 69.90, "monthly_equivalent": 5.83},
 }
 
-SUBSCRIPTION_REQUIRED_DETAIL = "Subscription required. Start your free trial to use this feature."
+RELAUNCH_PLAN_BILLING_CATALOG = {
+    ("redbubble", "monthly"): {"amount": 8.99, "monthly_equivalent": 8.99},
+    ("redbubble", "annual"): {"amount": 89.90, "monthly_equivalent": 89.90 / 12},
+    ("teepublic", "monthly"): {"amount": 8.99, "monthly_equivalent": 8.99},
+    ("teepublic", "annual"): {"amount": 89.90, "monthly_equivalent": 89.90 / 12},
+    ("all_platforms", "monthly"): {"amount": 10.99, "monthly_equivalent": 10.99},
+    ("all_platforms", "annual"): {"amount": 109.90, "monthly_equivalent": 109.90 / 12},
+}
+
+SUBSCRIPTION_REQUIRED_DETAIL = "Subscription required. Choose a plan to use this feature."
 PLATFORM_LOCKED_DETAIL = "This platform is locked for your current plan. Please upgrade."
 TRIAL_ALREADY_USED_DETAIL = "Free trial already used. Please choose a paid plan to continue."
 AI_TOKENS_EXHAUSTED_CODE = "AI_TOKENS_EXHAUSTED"
@@ -128,7 +137,30 @@ def get_subscription_billing_details(subscription: dict[str, Any]) -> dict[str, 
         if stored_cycle in {"monthly", "annual"}:
             billing_cycle = stored_cycle
 
-    catalog = PLAN_BILLING_CATALOG.get((plan, billing_cycle))
+    current_price_ids = {
+        ("redbubble", "monthly"): config.PADDLE_REDBUBBLE_MONTHLY_PRICE_ID,
+        ("redbubble", "annual"): config.PADDLE_REDBUBBLE_ANNUAL_PRICE_ID,
+        ("teepublic", "monthly"): config.PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID,
+        ("teepublic", "annual"): config.PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID,
+        ("all_platforms", "monthly"): config.PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID,
+        ("all_platforms", "annual"): config.PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID,
+    }
+    key = (plan, billing_cycle)
+    if paddle_price_id and paddle_price_id == current_price_ids.get(key):
+        catalog = RELAUNCH_PLAN_BILLING_CATALOG.get(key)
+    elif paddle_price_id and paddle_price_id in {
+        config.LEGACY_SUBSCRIPTION_PRICES.get(key),
+        config.PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID,
+        config.PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID,
+        config.PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID,
+        config.PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID,
+        config.PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID,
+        config.PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID,
+    }:
+        catalog = LEGACY_PLAN_BILLING_CATALOG.get(key)
+    else:
+        # An unmapped historical ID must not be displayed at today's list price.
+        catalog = None
     details: dict[str, Any] = {
         "plan": plan or None,
         "plan_label": PLAN_LABELS.get(plan, "Pending plan details"),
@@ -919,6 +951,8 @@ def validate_checkout_intent_for_webhook(
         return False, intent, "user_mismatch"
     if str(intent.get("selected_price_id") or "") != str(selected_price_id or ""):
         return False, intent, "price_mismatch"
+    if intent_type == "subscription" and config.paddle_price_has_trial(selected_price_id or "") and str(intent.get("status") or "").lower() != "paid":
+        return False, intent, "trial_retired"
     if str(intent.get("status") or "").lower() == "paid":
         return False, intent, "already_paid"
     return True, intent, "ok"
@@ -932,80 +966,8 @@ def check_trial_eligibility(
     ip_address: Optional[str],
     user_agent: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Return whether this authenticated user can start a new free trial.
-
-    The frontend only displays this decision. The server matches multiple
-    hashed signals and never returns or stores raw email/device/IP values.
-    """
-    try:
-        subscription_rows = get_user_subscription_history(user_id)
-    except Exception as error:
-        _log_optional_read_fallback("reading subscription history for trial eligibility", error, user_id=user_id)
-        subscription_rows = []
-    billing_rows = [row for row in subscription_rows if _is_subscription_billing_row(row)]
-    subscription = billing_rows[0] if billing_rows else None
-    status = str((subscription or {}).get("status") or "").lower()
-    current_period_ends_at = _as_iso((subscription or {}).get("current_period_ends_at"))
-
-    hashes = _trial_hashes(
-        email=email,
-        device_id=device_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-    )
-    paddle_customer_id = _as_iso((subscription or {}).get("paddle_customer_id"))
-
-    def decide(eligible: bool, reason: str) -> dict[str, Any]:
-        result = _trial_response(eligible, reason)
-        _log_trial_decision(user_id, result)
-        return result
-
-    if subscription and _is_subscription_current(status, current_period_ends_at):
-        return decide(False, ACTIVE_SUBSCRIPTION_EXISTS)
-
-    # This override belongs to the authenticated user's billing record. It may
-    # bypass that user's prior trial history, including a device match, but it
-    # never grants another user an override.
-    if _subscription_allow_trial_again(subscription):
-        return decide(True, ADMIN_TRIAL_OVERRIDE)
-
-    if _first_trial_usage_match("user_id", user_id):
-        return decide(False, TRIAL_ALREADY_USED)
-    if _first_trial_usage_match("email_hash", hashes["email_hash"]):
-        return decide(False, TRIAL_ALREADY_USED)
-    if paddle_customer_id and _first_trial_usage_match("paddle_customer_id", paddle_customer_id):
-        return decide(False, TRIAL_ALREADY_USED)
-
-    try:
-        paid_intent = get_latest_paid_subscription_intent(user_id)
-    except Exception as error:
-        _log_optional_read_fallback("reading paid checkout intent for trial eligibility", error, user_id=user_id)
-        paid_intent = None
-    if paid_intent:
-        return decide(False, COMPLETED_TRANSACTION_EXISTS)
-
-    if billing_rows:
-        return decide(False, SUBSCRIPTION_HISTORY_EXISTS)
-
-    if _subscription_used_trial(subscription):
-        return decide(False, TRIAL_ALREADY_USED)
-    if paddle_customer_id:
-        try:
-            matched_subscription = _first_subscription_match("paddle_customer_id", paddle_customer_id)
-        except Exception as error:
-            _log_optional_read_fallback("reading subscription by Paddle customer for trial eligibility", error, user_id=user_id)
-            matched_subscription = None
-        if _subscription_used_trial(matched_subscription):
-            return decide(False, TRIAL_ALREADY_USED)
-
-    if _first_trial_usage_match("device_id_hash", hashes["device_id_hash"]):
-        return decide(False, DEVICE_TRIAL_USED)
-
-    # IP hashes are retained for security/audit correlation, but an IP match
-    # alone is intentionally not a denial signal: households and public Wi-Fi
-    # commonly share one public address.
-
-    return decide(True, TRIAL_ELIGIBLE)
+    """Compatibility helper: no account may acquire a new free trial."""
+    return _trial_response(False, "trial_retired")
 
 
 def record_trial_usage(
@@ -1057,27 +1019,8 @@ def reserve_trial_start(
     user_agent: Optional[str] = None,
     plan_key: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Legacy compatibility helper.
-
-    Trial usage is consumed only by confirmed Paddle webhook events. This
-    helper now checks eligibility without writing a trial_usage row, so opening
-    or switching checkout cannot burn a user's free trial.
-    """
-    eligibility = check_trial_eligibility(
-        user_id=user_id,
-        email=email,
-        device_id=device_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-    )
-    if not eligibility.get("eligible"):
-        raise HTTPException(status_code=403, detail=TRIAL_ALREADY_USED_DETAIL)
-
-    return {
-        **eligibility,
-        "trial_usage_id": None,
-        "trial_reserved": False,
-    }
+    """Compatibility helper: trial acquisition is permanently disabled."""
+    raise HTTPException(status_code=410, detail="Free trials are no longer offered.")
 
 
 def attach_paddle_customer_to_trial_usage(

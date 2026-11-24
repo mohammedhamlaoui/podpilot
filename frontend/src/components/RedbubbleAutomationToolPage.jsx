@@ -28,7 +28,7 @@ const trustItems = [
   "Built for Redbubble sellers",
   "AI-assisted listings",
   "Browser-based upload workflow",
-  "7-day free trial",
+  "Monthly or annual plans",
 ];
 
 const workflowSteps = [
@@ -207,7 +207,7 @@ export default function RedbubbleAutomationToolPage() {
 
   return (
     <div className="rb-tool-page">
-      <PublicHeader guestCtaLabel="Start your 7-day free trial" />
+      <PublicHeader guestCtaLabel="View subscription plans" />
 
       <main>
         <section className="rb-tool-hero">
@@ -221,7 +221,7 @@ export default function RedbubbleAutomationToolPage() {
                 tasks using a browser-based workflow.
               </p>
               <div className="rb-tool-actions">
-                <LandingButton href="/dashboard">Start your 7-day free trial</LandingButton>
+                <LandingButton href="/pricing">View subscription plans</LandingButton>
                 <LandingButton href="#workflow" variant="secondary">See how it works</LandingButton>
               </div>
               <ul className="rb-tool-trust-row" aria-label="PodPilot product highlights">
@@ -492,7 +492,7 @@ export default function RedbubbleAutomationToolPage() {
               steps from one focused workflow.
             </p>
             <div className="rb-tool-actions">
-              <LandingButton href="/dashboard">Start your 7-day free trial</LandingButton>
+              <LandingButton href="/pricing">View subscription plans</LandingButton>
               <LandingButton href="/pricing" variant="secondary">View pricing</LandingButton>
             </div>
             <small>No long-term commitment. Review your listings before uploading.</small>

@@ -25,13 +25,8 @@ class CheckoutTrialEnforcementTests(unittest.TestCase):
 
         with (
             patch.object(billing.rate_limiter, "enforce_user_limit"),
-            patch.object(billing.subscription_service, "check_trial_eligibility", return_value={
-                "eligible": False,
-                "reason": "device_trial_used",
-                "source": "device_trial_redemption",
-            }),
             patch.object(billing.subscription_service, "create_or_reuse_checkout_intent", return_value=({"id": "intent-1", "status": "opened"}, False)) as create_intent,
-            patch.object(billing.config, "PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID", "pri_trial"),
+            patch.object(billing, "_verify_relaunch_subscription_price"),
             patch.object(billing.config, "PADDLE_REDBUBBLE_MONTHLY_PRICE_ID", "pri_paid"),
         ):
             result = billing.get_checkout_price_id(

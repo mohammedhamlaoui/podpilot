@@ -46,7 +46,7 @@ const termsSections = [
     body: [
       "Paid plans are billed on a subscription basis, choosing either monthly or annual billing cycles. Billing is processed securely via Paddle.",
       "Your subscription will automatically renew at the end of each billing period unless cancelled. You can cancel your subscription at any time directly through your dashboard billing portal.",
-      "Upon cancellation, your active subscription benefits and plan limits will remain fully accessible until the end of your current paid billing period, after which your account will revert to the free plan limit.",
+      "Upon cancellation, your active subscription benefits remain accessible until the end of your current paid billing period, after which paid tools are locked and your workspace remains in preview mode.",
     ],
   },
   {

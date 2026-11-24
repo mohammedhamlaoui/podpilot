@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "../auth/AuthContext";
-import { getMySubscription, createBillingPortalSession, getTrialEligibility } from "../api/client";
+import { getMySubscription, createBillingPortalSession } from "../api/client";
 import { Spinner } from "./LoadingComponents";
 import Icon from "./Icon";
 
@@ -27,9 +27,8 @@ const PLAN_CARDS = [
   {
     planId: "redbubble",
     name: "Redbubble Plan",
-    price: "$4.99",
+    price: "$8.99",
     perks: [
-      "7-day free trial",
       "Unlimited Redbubble uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -41,9 +40,8 @@ const PLAN_CARDS = [
   {
     planId: "all_platforms",
     name: "All Platforms Plan",
-    price: "$6.99",
+    price: "$10.99",
     perks: [
-      "7-day free trial",
       "Unlimited Redbubble + TeePublic uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -56,9 +54,8 @@ const PLAN_CARDS = [
   {
     planId: "teepublic",
     name: "TeePublic Plan",
-    price: "$4.99",
+    price: "$8.99",
     perks: [
-      "7-day free trial",
       "Unlimited TeePublic uploads",
       "AI Listing Content",
       "AI Copyright Check",
@@ -129,35 +126,11 @@ export default function SubscriptionGate({ children, onSignOut }) {
   const [openingPlan, setOpeningPlan] = useState(null);
   const [openingPortal, setOpeningPortal] = useState(false);
   const [error, setError] = useState("");
-  const [trialEligibility, setTrialEligibility] = useState(null);
-  const trialEligible = trialEligibility?.eligible === true;
-
   // Refs let us reason about the latest mode/summary inside async callbacks
   // without re-creating effects every time those values change.
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const initialCheckDoneRef = useRef(false);
-
-  useEffect(() => {
-    if (!userId) {
-      setTrialEligibility(null);
-      return undefined;
-    }
-    let cancelled = false;
-    getTrialEligibility()
-      .then((data) => {
-        if (!cancelled) setTrialEligibility(data || null);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.warn("[Billing] trial eligibility failed:", err?.message || err);
-          setTrialEligibility(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
 
   const fetchSummary = useCallback(async ({ force = false } = {}) => {
     try {
@@ -409,7 +382,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
       <div className="pp-locked-card">
         <div className="pp-locked-head">
           <h1>Choose a plan to continue</h1>
-          <p>{trialEligible ? "Start your 7-day free trial to unlock PodPilot." : "Choose a plan to unlock PodPilot."}</p>
+          <p>Choose a plan to unlock PodPilot.</p>
           <small className="pp-locked-note">{reason}</small>
         </div>
 
@@ -429,7 +402,7 @@ export default function SubscriptionGate({ children, onSignOut }) {
                   <strong>{plan.price}<span>/month</span></strong>
                 </header>
                 <ul>
-                  {(trialEligible ? plan.perks : plan.perks.filter((perk) => !perk.toLowerCase().includes("free trial"))).map((perk) => (
+                  {plan.perks.map((perk) => (
                     <li key={perk}>
                       <Icon name="check" />
                       <span>{perk}</span>
@@ -444,11 +417,8 @@ export default function SubscriptionGate({ children, onSignOut }) {
                   aria-busy={isLoading || undefined}
                 >
                   {isLoading && <Spinner size="sm" className="pp-spinner-on-button" />}
-                  <span>{isLoading ? "Opening checkout..." : (trialEligible ? "Start 7-day trial" : "Subscribe now")}</span>
+                  <span>{isLoading ? "Opening checkout..." : "Subscribe now"}</span>
                 </button>
-                {!trialEligible && (
-                  <small className="pp-locked-note">Free trial already used on this device or network.</small>
-                )}
               </article>
             );
           })}

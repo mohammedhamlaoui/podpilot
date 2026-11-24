@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { EXTENSION_ID } from "../config";
+import { getDeviceId } from "../lib/deviceSession";
 
 export default function ExtensionAuthSuccess({ session }) {
   const [status, setStatus] = useState("transmitting"); // "transmitting" | "success" | "warning"
@@ -44,6 +45,7 @@ export default function ExtensionAuthSuccess({ session }) {
             refresh_token: session?.refresh_token,
             expires_at: session?.expires_at,
             user: session?.user,
+            device_id: getDeviceId(),
           },
           (response) => {
             if (window.chrome.runtime.lastError) {

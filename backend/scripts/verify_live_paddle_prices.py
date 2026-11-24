@@ -3,12 +3,11 @@
 This is an operator/admin diagnostic script, not a public API endpoint.
 
 It loads environment variables from the process, `/etc/podpilot/backend.env`,
-or `backend/.env`, then checks every configured subscription and AI credit
+or `backend/.env`, then checks every configured six relaunch subscription
 price with `GET /prices/{price_id}`.
 
 Safe output only:
-    variable name, price ID, found status, HTTP status, product id/name,
-    billing interval, and trial period.
+    variable name, price ID, found status, HTTP status, product id/name, amount, currency, billing interval, and trial period.
 
 It never prints Paddle API keys, webhook secrets, client tokens, Supabase
 keys, or other secrets.
@@ -32,26 +31,16 @@ PADDLE_API_BASES = {
     "production": "https://api.paddle.com",
 }
 
-PRICE_ENV_NAMES = [
-    "PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID",
-    "PADDLE_REDBUBBLE_MONTHLY_PRICE_ID",
-    "PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID",
-    "PADDLE_REDBUBBLE_ANNUAL_PRICE_ID",
-    "PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID",
-    "PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID",
-    "PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID",
-    "PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID",
-    "PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID",
-    "PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID",
-    "PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID",
-    "PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID",
-    "PADDLE_AI_TOKENS_250_PRICE_ID",
-    "PADDLE_AI_TOKENS_500_PRICE_ID",
-    "PADDLE_AI_TOKENS_1000_PRICE_ID",
-    "PADDLE_AI_TOKENS_2500_PRICE_ID",
-    "PADDLE_AI_TOKENS_5000_PRICE_ID",
-    "PADDLE_AI_TOKENS_10000_PRICE_ID",
-]
+EXPECTED_SUBSCRIPTION_PRICES = {
+    "PADDLE_REDBUBBLE_MONTHLY_PRICE_ID": ("899", "month"),
+    "PADDLE_REDBUBBLE_ANNUAL_PRICE_ID": ("8990", "year"),
+    "PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID": ("899", "month"),
+    "PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID": ("8990", "year"),
+    "PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID": ("1099", "month"),
+    "PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID": ("10990", "year"),
+}
+PRICE_ENV_NAMES = list(EXPECTED_SUBSCRIPTION_PRICES)
+
 
 
 def normalize_api_key(raw: str) -> str:
@@ -131,11 +120,24 @@ def check_price(client: httpx.Client, api_base: str, env_name: str, price_id: st
     billing = interval_text(data.get("billing_cycle"))
     trial = interval_text(data.get("trial_period"))
     price_status = str(data.get("status") or "-")
-    print(
-        f"{env_name}: price_id={value} found=yes status={price_status} "
-        f"product={product_id} name={name} billing={billing} trial={trial}"
+    unit = data.get("unit_price") or {}
+    expected_amount, expected_interval = EXPECTED_SUBSCRIPTION_PRICES[env_name]
+    valid = (
+        data.get("id") == value
+        and price_status == "active"
+        and unit.get("currency_code") == "USD"
+        and str(unit.get("amount")) == expected_amount
+        and (data.get("billing_cycle") or {}).get("interval") == expected_interval
+        and (data.get("billing_cycle") or {}).get("frequency") == 1
+        and data.get("trial_period") is None
     )
-    return True, status
+    print(
+        f"{env_name}: price_id={value} found=yes valid={'yes' if valid else 'no'} status={price_status} "
+        f"product={product_id} name={name} amount={unit.get('amount')} currency={unit.get('currency_code')} "
+        f"billing={billing} trial={trial}"
+    )
+    return valid, status
+
 
 
 def main() -> int:
