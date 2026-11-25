@@ -17,6 +17,7 @@ import json
 import logging
 import mimetypes
 import threading
+import time
 from contextlib import contextmanager
 import httpx
 from pathlib import Path
@@ -29,6 +30,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.auth import AuthUser, get_current_user
+from app.core import config as app_config
 from app.core.config import (
     SUPPORTED_MARKETPLACES,
     EMAIL_BLOCK_DISPOSABLE,
@@ -46,7 +48,7 @@ from app.schemas.job import (
     UploadLogIn,
     design_to_response,
 )
-from app.services import cdn_service, device_session_service, rate_limiter, r2_service, supabase_service, subscription_service
+from app.services import ai_telemetry_service, cdn_service, device_session_service, rate_limiter, r2_service, supabase_service, subscription_service
 from app.services.ai_copyright_service import (
     AICopyrightImageTooLarge,
     AICopyrightRiskError,
@@ -59,6 +61,14 @@ from app.services.logging_utils import error_type as safe_error_type, safe_r2_ke
 
 
 router = APIRouter()
+
+
+def require_upload_device(
+    user: AuthUser = Depends(get_current_user),
+    x_podpilot_device_id: Optional[str] = Header(default=None, alias="X-PodPilot-Device-Id"),
+) -> None:
+    """Enforce the active upload controller on the server, including extension calls."""
+    device_session_service.validate_device(user.id, x_podpilot_device_id)
 
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_EXCEL_UPLOAD_BYTES = 15 * 1024 * 1024
@@ -1870,7 +1880,6 @@ async def generate_ai_listing_content(
         raise HTTPException(status_code=400, detail="Design does not belong to this platform.")
 
     with _ai_generation_slot(user.id):
-        import time
         from app.services.image_preview_service import ensure_ai_preview_for_design
 
         logger.info("[PodPilot][AI Listing] start designId=%s", short_id(payload.design_id))
@@ -1889,6 +1898,7 @@ async def generate_ai_listing_content(
         logger.info("[PodPilot][AI Listing] image source=%s", image_source or "none")
 
         reservation = _reserve_ai_token(user.id)
+        provider_started = time.perf_counter()
         try:
             result = await generate_listing_content(
                 design=design,
@@ -1898,6 +1908,12 @@ async def generate_ai_listing_content(
                 fallback_image_url=fallback_image_url if cdn_image_url else "",
             )
         except AIListingError as error:
+            ai_telemetry_service.record_request(
+                user_id=user.id, provider=app_config.AI_LISTING_PROVIDER,
+                model=app_config.OPENROUTER_MODEL, feature="listing_content",
+                status="failed", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+                error_code=safe_error_type(error),
+            )
             _refund_ai_token(user.id, reservation, reason="listing_content_failed")
             logger.warning(
                 "[PodPilot][AI Listing] failed designId=%s reason=%s",
@@ -1906,6 +1922,11 @@ async def generate_ai_listing_content(
             )
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+        ai_telemetry_service.record_request(
+            user_id=user.id, provider=app_config.AI_LISTING_PROVIDER,
+            model=app_config.OPENROUTER_MODEL, feature="listing_content",
+            status="succeeded", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+        )
         logger.info(
             "[PodPilot][AI Listing] success designId=%s image_source=%s token_source=%s",
             short_id(payload.design_id),
@@ -1953,6 +1974,7 @@ async def generate_ai_listing_content_draft(
 
     with _ai_generation_slot(user.id):
         reservation = _reserve_ai_token(user.id)
+        provider_started = time.perf_counter()
         try:
             result = await generate_listing_content(
                 design={"filename": metadata.get("filename", ""), "marketplace": platform},
@@ -1962,6 +1984,12 @@ async def generate_ai_listing_content_draft(
                 image_mime_type=image_mime_type,
             )
         except AIListingError as error:
+            ai_telemetry_service.record_request(
+                user_id=user.id, provider=app_config.AI_LISTING_PROVIDER,
+                model=app_config.OPENROUTER_MODEL, feature="listing_draft",
+                status="failed", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+                error_code=safe_error_type(error),
+            )
             _refund_ai_token(user.id, reservation, reason="listing_draft_failed")
             logger.warning(
                 "ai_listing_draft_failed user=%s platform=%s error_type=%s",
@@ -1971,6 +1999,11 @@ async def generate_ai_listing_content_draft(
             )
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+        ai_telemetry_service.record_request(
+            user_id=user.id, provider=app_config.AI_LISTING_PROVIDER,
+            model=app_config.OPENROUTER_MODEL, feature="listing_draft",
+            status="succeeded", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+        )
         logger.info(
             "ai_listing_draft_succeeded user=%s platform=%s token_source=%s",
             short_user_id(user.id),
@@ -2043,6 +2076,7 @@ async def ai_copyright_check(
 
     with _ai_generation_slot(user.id):
         reservation = _reserve_ai_token(user.id)
+        provider_started = time.perf_counter()
         try:
             result = await check_copyright_risk(
                 metadata=metadata,
@@ -2050,6 +2084,12 @@ async def ai_copyright_check(
                 image_base64=payload.image_base64 or "",
             )
         except AICopyrightImageTooLarge as error:
+            ai_telemetry_service.record_request(
+                user_id=user.id, provider=app_config.AI_PROVIDER,
+                model=app_config.AI_MODEL, feature="copyright_check",
+                status="failed", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+                error_code="image_too_large",
+            )
             _refund_ai_token(user.id, reservation, reason="copyright_check_image_too_large")
             logger.warning(
                 "ai_copyright_check_rejected_oversized_image user=%s design_id=%s platform=%s",
@@ -2059,6 +2099,12 @@ async def ai_copyright_check(
             )
             raise HTTPException(status_code=413, detail=str(error)) from error
         except AICopyrightRiskError as error:
+            ai_telemetry_service.record_request(
+                user_id=user.id, provider=app_config.AI_PROVIDER,
+                model=app_config.AI_MODEL, feature="copyright_check",
+                status="failed", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+                error_code=safe_error_type(error),
+            )
             _refund_ai_token(user.id, reservation, reason="copyright_check_failed")
             logger.warning(
                 "ai_copyright_check_failed user=%s design_id=%s platform=%s error_type=%s",
@@ -2069,6 +2115,11 @@ async def ai_copyright_check(
             )
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+        ai_telemetry_service.record_request(
+            user_id=user.id, provider=app_config.AI_PROVIDER,
+            model=app_config.AI_MODEL, feature="copyright_check",
+            status="succeeded", latency_ms=int((time.perf_counter() - provider_started) * 1000),
+        )
         logger.info(
             "ai_copyright_check_succeeded user=%s design_id=%s platform=%s risk_status=%s token_source=%s",
             short_user_id(user.id),
@@ -2092,6 +2143,7 @@ def update_design_status_endpoint(
     design_id: str,
     payload: DesignStatusUpdateIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     design = supabase_service.get_design_for_user(design_id, user.id)
     if design is None:
@@ -2166,6 +2218,7 @@ def update_design_status_endpoint(
 def create_upload_job(
     payload: UploadJobCreateIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     payload.marketplace = _validate_marketplace(payload.marketplace)
     _require_marketplace_access(user.id, payload.marketplace)
@@ -2201,6 +2254,7 @@ def patch_upload_job(
     job_id: str,
     payload: UploadJobUpdateIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     patch = payload.to_patch()
     if not patch:
@@ -2245,6 +2299,7 @@ def list_upload_jobs(
 def list_pending_designs_for_extension(
     marketplace: Optional[str] = Query(default=None),
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     """Return every design the extension should upload now.
 
@@ -2280,6 +2335,7 @@ def list_pending_designs_for_extension(
 def get_prepared_upload_queue(
     marketplace: str,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     marketplace = _validate_marketplace(marketplace)
@@ -2296,6 +2352,7 @@ def create_upload_session(
     marketplace: str,
     payload: UploadSessionCreateIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     rate_limiter.enforce_user_limit(user.id, rate_limiter.EXPENSIVE_LIST)
     marketplace = _validate_marketplace(marketplace)
@@ -2339,6 +2396,7 @@ def update_upload_session_item_status(
     design_id: str,
     payload: UploadSessionItemStatusIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     job = supabase_service.get_upload_job_for_user(session_id, user.id)
     if job is None:
@@ -2403,6 +2461,7 @@ def update_upload_session_item_status(
 def create_upload_log(
     payload: UploadLogIn,
     user: AuthUser = Depends(get_current_user),
+    _upload_device: None = Depends(require_upload_device),
 ) -> dict:
     if payload.design_id:
         owned = supabase_service.get_design_for_user(payload.design_id, user.id)
@@ -2455,7 +2514,6 @@ async def trademark_check_phrase(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/trademark/check")
 async def trademark_check(
     payload: TrademarkCheckIn,
     user: AuthUser = Depends(get_current_user),
@@ -2472,7 +2530,6 @@ async def trademark_check(
     return await trademark_service.check_terms(payload.terms)
 
 
-@router.post("/trademark/check-design")
 async def trademark_check_design(
     payload: TrademarkBuildTermsIn,
     user: AuthUser = Depends(get_current_user),
@@ -2495,7 +2552,6 @@ async def trademark_check_design(
     return await trademark_service.check_terms(terms)
 
 
-@router.post("/api/admin/cleanup-old-designs")
 def cleanup_old_designs(
     dry_run: bool = Query(default=True),
     cutoff_hours: int = Query(default=480),

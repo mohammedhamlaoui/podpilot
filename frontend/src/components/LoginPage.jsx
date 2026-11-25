@@ -9,6 +9,8 @@ import {
 import googleLogo from "../assets/google-g.svg";
 import podpilotLogo from "../assets/podpilot-logo.svg";
 import Icon from "./Icon";
+import { ArrowRight, Layers3, WandSparkles, ListChecks } from "lucide-react";
+import "../auth-refresh.css";
 import { checkEmail } from "../api/client";
 
 /* ── Custom brand icons (user SVGs, grey via currentColor) ─────────────── */
@@ -313,7 +315,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="login-page auth-shell">
+    <main className="login-page auth-shell auth-refresh">
       <div className="auth-backdrop" aria-hidden="true" />
 
       <div className="auth-toast-stack" aria-live="polite">
@@ -336,16 +338,27 @@ export default function LoginPage() {
         <span>Back to home</span>
       </a>
 
+      <div className="auth-layout">
+        <aside className="auth-workspace-intro" aria-label="About your PodPilot workspace">
+          <a className="auth-wordmark" href="/"><img src={podpilotLogo} alt="" /><span>PodPilot</span></a>
+          <span className="auth-eyebrow">Your next batch starts here</span>
+          <h1>A little less admin.<br /><span>More room to create.</span></h1>
+          <p>Bring your designs, listing details, and upload queues together in one workspace.</p>
+          <div className="auth-workflow-preview">
+            <div className="auth-workflow-heading"><span>Your creative workflow</span><span>01 — 03</span></div>
+            <div><span className="auth-workflow-icon"><Layers3 size={20} /></span><span><strong>Organize your designs</strong><small>Files and metadata, together.</small></span><span className="auth-workflow-number">01</span></div>
+            <div><span className="auth-workflow-icon"><WandSparkles size={20} /></span><span><strong>Prepare your listings</strong><small>AI tools with your final review.</small></span><span className="auth-workflow-number">02</span></div>
+            <div><span className="auth-workflow-icon"><ListChecks size={20} /></span><span><strong>Queue your next upload</strong><small>Redbubble and TeePublic workflows.</small></span><span className="auth-workflow-number">03</span></div>
+          </div>
+          <span className="auth-intro-note">Made for your print-on-demand workflow.</span>
+        </aside>
       <div className="auth-card-wrap">
-
-        <div className="auth-logo-badge auth-logo-animated" aria-hidden="true">
-          <img src={podpilotLogo} alt="" />
-        </div>
 
         <section
           className="login-card auth-card"
           aria-label={isForgot ? "Reset password" : isSignUp ? "Create account" : "Sign in"}
         >
+        <a className="auth-mobile-brand auth-wordmark" href="/"><img src={podpilotLogo} alt="" /><span>PodPilot</span></a>
 
         {/* ── Forgot password panel ──────────────────────────────────────── */}
         {isForgot ? (
@@ -424,6 +437,8 @@ export default function LoginPage() {
               <button
                 type="button"
                 className={`auth-tab ${!isSignUp ? "is-active" : ""}`}
+                role="tab"
+                aria-selected={!isSignUp}
                 onClick={() => switchMode("signin")}
                 disabled={formDisabled}
               >
@@ -432,6 +447,8 @@ export default function LoginPage() {
               <button
                 type="button"
                 className={`auth-tab ${isSignUp ? "is-active" : ""}`}
+                role="tab"
+                aria-selected={isSignUp}
                 onClick={() => switchMode("signup")}
                 disabled={formDisabled}
               >
@@ -590,6 +607,7 @@ export default function LoginPage() {
               <button type="submit" className="auth-submit" disabled={formDisabled}>
                 {isSubmitting && <ButtonSpinner />}
                 {isSubmitting ? "Please wait..." : isSignUp ? "Create Account" : "Enter Dashboard"}
+                {!isSubmitting && <ArrowRight size={17} aria-hidden="true" />}
               </button>
             </form>
 
@@ -616,6 +634,7 @@ export default function LoginPage() {
         )}
 
         </section>
+      </div>
       </div>
     </main>
   );

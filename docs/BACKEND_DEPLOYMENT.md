@@ -107,25 +107,14 @@ ALLOWED_ORIGINS=https://podpilot.space
 Fill the real Paddle price IDs only in `/etc/podpilot/backend.env` on the
 server. Do not commit real Paddle IDs to Git.
 
-Subscription checkout uses trial eligibility to select the price:
-
-- Trial eligible users receive the matching `*_TRIAL_PRICE_ID`.
-- Users who are not trial eligible receive the matching normal no-trial
-  `*_PRICE_ID`.
-- AI listing credit packs are one-time prices and never use trial prices.
+New subscription checkout uses only the six non-trial prices below. Verify
+their USD amounts and `trial_period=null` in Paddle before deployment; see
+`docs/RELAUNCH_BILLING.md`. AI listing credit packs remain one-time prices.
 
 Required subscription price variables:
 
 ```env
-# 7-day trial prices
-PADDLE_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID=YOUR_REDBUBBLE_MONTHLY_TRIAL_PRICE_ID
-PADDLE_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID=YOUR_REDBUBBLE_ANNUAL_TRIAL_PRICE_ID
-PADDLE_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID=YOUR_TEEPUBLIC_MONTHLY_TRIAL_PRICE_ID
-PADDLE_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID=YOUR_TEEPUBLIC_ANNUAL_TRIAL_PRICE_ID
-PADDLE_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID=YOUR_ALL_PLATFORMS_MONTHLY_TRIAL_PRICE_ID
-PADDLE_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID=YOUR_ALL_PLATFORMS_ANNUAL_TRIAL_PRICE_ID
-
-# Normal no-trial prices
+# New non-trial subscription prices
 PADDLE_REDBUBBLE_MONTHLY_PRICE_ID=YOUR_REDBUBBLE_MONTHLY_PRICE_ID
 PADDLE_REDBUBBLE_ANNUAL_PRICE_ID=YOUR_REDBUBBLE_ANNUAL_PRICE_ID
 PADDLE_TEEPUBLIC_MONTHLY_PRICE_ID=YOUR_TEEPUBLIC_MONTHLY_PRICE_ID
@@ -133,6 +122,10 @@ PADDLE_TEEPUBLIC_ANNUAL_PRICE_ID=YOUR_TEEPUBLIC_ANNUAL_PRICE_ID
 PADDLE_ALL_PLATFORMS_MONTHLY_PRICE_ID=YOUR_ALL_PLATFORMS_MONTHLY_PRICE_ID
 PADDLE_ALL_PLATFORMS_ANNUAL_PRICE_ID=YOUR_ALL_PLATFORMS_ANNUAL_PRICE_ID
 ```
+
+Keep old paid Price IDs in matching `PADDLE_LEGACY_*_PRICE_ID` variables so
+existing subscribers retain accurate billing displays. Historical trial IDs
+may be retained for webhook interpretation but are never selected for checkout.
 
 Required AI listing credit pack variables:
 

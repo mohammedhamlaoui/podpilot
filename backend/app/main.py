@@ -11,9 +11,10 @@ from fastapi.responses import JSONResponse
 from app.api.billing import router as billing_router
 from app.api.affiliate import router as affiliate_router
 from app.api.paddle_webhook import router as paddle_webhook_router
+from app.api.admin.routes import router as admin_router
 from app.api.routes import router
 from app.core.config import ALLOWED_ORIGINS, DEBUG
-from app.services import logging_utils, supabase_service
+from app.services import logging_utils, platform_settings_service, supabase_service
 
 # Configure logging so podpilot.delete and other loggers show in console.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -71,6 +72,43 @@ async def add_security_headers(request, call_next):
             response.headers[name] = value
     return response
 
+
+@app.middleware("http")
+async def enforce_platform_controls(request, call_next):
+    path = request.url.path
+    privileged_or_system = path.startswith(
+        (
+            "/api/admin",
+            "/api/paddle/webhook",
+            "/healthz",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+        )
+    ) or path == "/"
+    if not privileged_or_system and platform_settings_service.enabled("maintenance_mode"):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "PodPilot is temporarily in maintenance mode."},
+            headers={"Retry-After": "300"},
+        )
+    upload_path = path.startswith(
+        ("/upload-jobs", "/upload-logs", "/api/upload-queue", "/api/upload-sessions")
+    )
+    if upload_path and not platform_settings_service.enabled("uploads_enabled"):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Upload workflows are temporarily disabled."},
+            headers={"Retry-After": "300"},
+        )
+    if path.startswith("/api/ai/") and not platform_settings_service.enabled("ai_listing_enabled"):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "AI features are temporarily disabled."},
+            headers={"Retry-After": "300"},
+        )
+    return await call_next(request)
+
 # CORS — explicit allow-list for the dashboard origins, regex for the
 # Chrome extension. `allow_credentials=True` so the browser may send the
 # Authorization header on cross-origin XHRs from the dashboard.
@@ -86,6 +124,7 @@ app.include_router(router)
 app.include_router(billing_router)
 app.include_router(affiliate_router)
 app.include_router(paddle_webhook_router)
+app.include_router(admin_router)
 
 
 @app.on_event("startup")

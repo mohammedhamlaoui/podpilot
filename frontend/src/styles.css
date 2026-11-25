@@ -10158,15 +10158,6 @@ button.copy-link-open .pp-spinner-on-button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.billing-grid > div:nth-child(2) strong {
-  font-size: 0;
-}
-.billing-grid > div:nth-child(2) strong::after {
-  content: "Trial active";
-  color: var(--pp-accent-strong, #6D28D9);
-  font-size: 16px;
-  font-weight: 750;
-}
 .billing-actions {
   margin-top: 10px;
 }
@@ -13273,7 +13264,7 @@ button.copy-link-open .pp-spinner-on-button {
   margin: 0 auto;
 }
 
-/* 7-Day Money-Back Guarantee Section */
+/* Money-back guarantee section */
 .pricing-guarantee-container {
   max-width: 900px;
   margin: 0 auto 56px auto;
@@ -14658,7 +14649,8 @@ button.copy-link-open .pp-spinner-on-button {
 
 .image-quality-info-tooltip-text {
   position: absolute;
-  bottom: 125%;
+  top: calc(100% + 10px);
+  bottom: auto;
   left: 50%;
   transform: translateX(-50%) translateY(4px);
   width: 220px;
@@ -14669,6 +14661,8 @@ button.copy-link-open .pp-spinner-on-button {
   color: #f3f4f6;
   font-size: 12px;
   font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
   line-height: 1.4;
   text-align: center;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -14681,12 +14675,13 @@ button.copy-link-open .pp-spinner-on-button {
 .image-quality-info-tooltip-text::after {
   content: "";
   position: absolute;
-  top: 100%;
+  bottom: 100%;
+  top: auto;
   left: 50%;
   margin-left: -5px;
   border-width: 5px;
   border-style: solid;
-  border-color: #1e1b4b transparent transparent transparent;
+  border-color: transparent transparent #1e1b4b transparent;
 }
 
 .image-quality-info-tooltip-container:hover .image-quality-info-tooltip-text,

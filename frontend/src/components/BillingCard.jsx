@@ -1,5 +1,5 @@
-// Subscription / billing card. Shows the current plan, status, trial /
-// period dates, AI tokens, and a "Manage Billing" button that opens the
+// Subscription / billing card. Shows the current plan, period dates, AI tokens,
+// and a "Manage Billing" button that opens the
 // Paddle customer-portal session (the URL is created by the backend).
 
 import { useCallback, useEffect, useState } from "react";
@@ -100,7 +100,7 @@ export default function BillingCard() {
     return (
       <div className="profile-card billing-card">
         <div className="profile-card-header">
-          <Icon name="queue" className="profile-card-icon" />
+          <Icon name="card" className="profile-card-icon" />
           <h3>Billing</h3>
         </div>
         <div className="profile-card-body">
@@ -121,8 +121,8 @@ export default function BillingCard() {
   return (
     <div className="profile-card billing-card account-settings-card">
       <div className="profile-card-header">
-        <Icon name="queue" className="profile-card-icon" />
-        <h3>Billing</h3>
+        <Icon name="card" className="profile-card-icon" />
+        <div><h3>Plan & billing</h3><p>Your subscription and current allowances</p></div>
         <span className={`profile-badge billing-badge billing-badge-${badge.tone}`}>
           {badge.label}
         </span>
@@ -148,12 +148,12 @@ export default function BillingCard() {
           <span>Status</span>
           <strong>{summary?.status || "inactive"}</strong>
         </div>
-        <div>
+        {String(summary?.status || "").toLowerCase() === "trialing" && <div>
           <span>Trial ends</span>
           <strong>{formatDate(summary?.trial_ends_at)}</strong>
-        </div>
+        </div>}
         <div>
-          <span>Period ends</span>
+          <span>{cancelAtPeriodEnd ? "Access until" : "Current period ends"}</span>
           <strong>{periodEndsAt}</strong>
         </div>
         <div>
@@ -161,11 +161,11 @@ export default function BillingCard() {
           <strong>{summary?.has_subscription ? "Unlimited" : "—"}</strong>
         </div>
         <div>
-          <span>Daily AI Tokens</span>
+          <span>Daily AI tokens</span>
           <strong>{summary?.has_subscription ? `${summary?.daily_ai_tokens_remaining ?? 0} / ${summary?.daily_ai_tokens_limit ?? 0}` : "—"}</strong>
         </div>
         <div>
-          <span>Extra AI Tokens</span>
+          <span>Extra AI tokens</span>
           <strong>{summary?.has_subscription ? (summary?.ai_tokens || 0).toLocaleString() : "—"}</strong>
         </div>
       </div>
@@ -173,6 +173,7 @@ export default function BillingCard() {
       {error && <div className="billing-alert billing-alert-danger">{error}</div>}
 
       <div className="billing-actions">
+        <a href="/pricing" className="profile-btn billing-plans-link">View plans</a>
         <button
           type="button"
           className="profile-btn"

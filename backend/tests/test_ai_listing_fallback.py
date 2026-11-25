@@ -111,7 +111,9 @@ class AIListingFallbackTests(unittest.IsolatedAsyncioTestCase):
                 provider_label="openrouter_free",
             )
 
-        self.assertEqual(result["supporting_tags"], "floral, line art")
+        supporting_tags = [tag.strip() for tag in result["supporting_tags"].split(",")]
+        self.assertEqual(supporting_tags[:2], ["floral", "line art"])
+        self.assertEqual(len(supporting_tags), openrouter_service.LISTING_EXACT_TAG_COUNT)
         request = FakeAsyncClient.requests[0]
         self.assertEqual(request["timeout"], 20.0)
         self.assertEqual(request["json"]["model"], "openrouter/free")

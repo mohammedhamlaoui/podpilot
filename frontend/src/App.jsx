@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, HandCoins, ShieldCheck, UsersRound } from "lucide-react";
+import { CreditCard, HandCoins } from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
 import Dashboard from "./components/Dashboard";
 import DesignManager from "./components/DesignManager";
@@ -45,7 +45,6 @@ import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
 import {
   getMyPlatformAccess,
   getMySubscription,
-  getTrialEligibility,
   createBillingPortalSession,
   switchDevice,
   listDesigns,
@@ -131,10 +130,6 @@ const NAV_ITEMS = [
   { id: "affiliate", label: "Affiliate Program", iconComponent: HandCoins },
 ];
 
-const ADMIN_NAV_ITEMS = [
-  { id: "admin", label: "Admin Dashboard", iconComponent: ShieldCheck },
-  { id: "admin-affiliates", label: "Affiliates", iconComponent: UsersRound },
-];
 const DEFAULT_PLATFORM_ACCESS = {
   has_active_plan: false,
   plan: null,
@@ -169,25 +164,23 @@ function canAccessRoute(route, platformAccess) {
   return Boolean(platformAccess?.[route]);
 }
 
-function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess, trialEligibility, isAdmin }) {
+function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess }) {
   const userLabel = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Account";
 
   return (
     <aside className="pp-sidebar" aria-label="Main navigation">
       <div className="pp-sidebar-top">
-        <div className="pp-sidebar-brand" onClick={() => onNavigate("dashboard")}>
+        <button type="button" className="pp-sidebar-brand" onClick={() => onNavigate("dashboard")} aria-label="PodPilot dashboard">
           <img src="/brand/podpilot-logo.svg" alt="PodPilot" className="pp-sidebar-logo" />
           <span className="pp-sidebar-label pp-sidebar-brand-text">PodPilot</span>
-        </div>
+        </button>
 
         <nav className="pp-sidebar-nav">
           {NAV_ITEMS.map((item) => {
             const locked = isPlatformRoute(item.id) && !canAccessRoute(item.id, platformAccess);
             const ItemIcon = item.iconComponent;
             const tooltip = locked
-              ? (trialEligibility?.eligible === true
-                  ? `${item.label} preview mode. Start your free trial to use this feature.`
-                  : `${item.label} preview mode. Choose a plan to use this feature.`)
+              ? `${item.label} preview mode. Choose a plan to use this feature.`
               : item.label;
             return (
               <button
@@ -199,6 +192,7 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
                 }}
                 data-tooltip={tooltip}
                 aria-label={tooltip}
+                aria-current={activeRoute === item.id ? "page" : undefined}
                 aria-disabled={locked || undefined}
               >
                 {ItemIcon ? <ItemIcon className="ui-icon" aria-hidden="true" /> : <Icon name={item.icon} />}
@@ -208,27 +202,6 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
             );
           })}
 
-          {isAdmin && (
-            <div className="pp-sidebar-admin">
-              <span className="pp-sidebar-label pp-sidebar-section-label">Admin</span>
-              {ADMIN_NAV_ITEMS.map((item) => {
-                const ItemIcon = item.iconComponent;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`pp-sidebar-btn${activeRoute === item.id ? " pp-sidebar-btn-active" : ""}`}
-                    onClick={() => onNavigate(item.id)}
-                    data-tooltip={item.label}
-                    aria-label={item.label}
-                  >
-                    <ItemIcon className="ui-icon" aria-hidden="true" />
-                    <span className="pp-sidebar-label">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </nav>
       </div>
 
@@ -239,6 +212,7 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
           onClick={() => onNavigate("profile")}
           data-tooltip={userLabel}
           aria-label={userLabel}
+          aria-current={activeRoute === "profile" ? "page" : undefined}
         >
           <Icon name="user" />
           <span className="pp-sidebar-label">{userLabel}</span>
@@ -685,7 +659,6 @@ export default function App() {
   const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState("");
   const [subscriptionUserId, setSubscriptionUserId] = useState("");
-  const [trialEligibility, setTrialEligibility] = useState(null);
   const [isLoadingPlatformAccess, setIsLoadingPlatformAccess] = useState(true);
   const [rbEditorIndex, setRbEditorIndex] = useState(() => readEditorIndex("redbubble"));
   const [rbEditorDesignId, setRbEditorDesignId] = useState(() => (
@@ -809,7 +782,6 @@ export default function App() {
     setSubscriptionLoaded(false);
     setSubscriptionError("");
     setSubscriptionUserId("");
-    setTrialEligibility(null);
     setIsLoadingPlatformAccess(true);
     setIsRefreshingDesigns(false);
   }, [isAuthenticated]);
@@ -835,8 +807,7 @@ export default function App() {
       setSubscriptionLoaded(false);
       setSubscriptionError("");
       setSubscriptionUserId("");
-      setTrialEligibility(null);
-      setIsLoadingPlatformAccess(true);
+        setIsLoadingPlatformAccess(true);
       setIsLoadingDesigns(false);
       setIsRefreshingDesigns(false);
     }
@@ -879,15 +850,11 @@ export default function App() {
     setIsLoadingPlatformAccess(true);
     debugSubscriptionLog(`fetching subscription reason=${reason}`);
     try {
-      const [nextSubscription, nextAccessRaw, nextTrialEligibility] = await Promise.all([
+      const [nextSubscription, nextAccessRaw] = await Promise.all([
         getMySubscription({ force }),
         getMyPlatformAccess({ force }).catch((error) => {
           console.warn("[PodPilot] platform access refresh failed:", error?.message || error);
           return subscriptionSnapshotRef.current.platformAccess || DEFAULT_PLATFORM_ACCESS;
-        }),
-        getTrialEligibility({ force }).catch((error) => {
-          console.warn("[PodPilot] trial eligibility refresh failed:", error?.message || error);
-          return null;
         }),
       ]);
       if (subscriptionRequestRef.current !== requestId) return null;
@@ -899,7 +866,6 @@ export default function App() {
       );
       setSubscriptionSummary(nextSubscription || null);
       setPlatformAccess(nextAccess);
-      setTrialEligibility(nextTrialEligibility || null);
       setSubscriptionUserId(userId);
       setSubscriptionLoaded(!(deferInactive && flags.isWorkspaceLocked));
       return { summary: nextSubscription || null, platformAccess: nextAccess, flags };
@@ -2072,8 +2038,6 @@ export default function App() {
           theme={theme}
           setTheme={setTheme}
           platformAccess={platformAccess}
-          trialEligibility={trialEligibility}
-          isAdmin={isAdmin}
         />
 
       <main className="pp-main">
@@ -2114,7 +2078,7 @@ export default function App() {
         )}
 
         {(activeRoute === "dashboard" || isPlatformRoute(activeRoute)) && workspaceLocked && !isPastDue && (
-          <PreviewModeBanner trialEligibility={trialEligibility} />
+          <PreviewModeBanner />
         )}
 
         {/* Dashboard */}
@@ -2130,8 +2094,7 @@ export default function App() {
             platformAccess={platformAccess}
             subscriptionSummary={subscriptionSummary}
             isWorkspaceLocked={workspaceLocked}
-            trialEligibility={trialEligibility}
-            onOpenRetentionNotice={() => setRetentionNoticeOpen(true)}
+              onOpenRetentionNotice={() => setRetentionNoticeOpen(true)}
           />
         )}
 

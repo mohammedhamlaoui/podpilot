@@ -1,4 +1,4 @@
-import Icon from "./Icon";
+import { Moon, Sun } from "lucide-react";
 
 export default function ThemeToggle({ theme, setTheme, className = "" }) {
   const toggleTheme = (e) => {
@@ -7,6 +7,7 @@ export default function ThemeToggle({ theme, setTheme, className = "" }) {
   };
 
   const isLight = theme === "light";
+  const ThemeIcon = isLight ? Moon : Sun;
 
   return (
     <button
@@ -16,7 +17,7 @@ export default function ThemeToggle({ theme, setTheme, className = "" }) {
       aria-label={isLight ? "Switch to dark mode" : "Switch to light mode"}
       title={isLight ? "Switch to dark mode" : "Switch to light mode"}
     >
-      <Icon name={isLight ? "moon" : "sun"} className="theme-toggle-icon" />
+      <ThemeIcon className="ui-icon theme-toggle-icon" strokeWidth={1.8} aria-hidden="true" />
     </button>
   );
 }

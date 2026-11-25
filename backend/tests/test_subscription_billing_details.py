@@ -53,6 +53,14 @@ class SubscriptionBillingDetailsTests(unittest.TestCase):
             })
 
         self.assertEqual(details["billing_cycle"], "monthly")
+        self.assertEqual(details["price_display"], "$8.99 / month")
+
+    def test_legacy_paid_price_keeps_original_amount(self):
+        with patch.dict(subscription_service.config.LEGACY_SUBSCRIPTION_PRICES, {("redbubble", "monthly"): "pri_old_redbubble"}):
+            details = get_subscription_billing_details({
+                "plan": "redbubble",
+                "paddle_price_id": "pri_old_redbubble",
+            })
         self.assertEqual(details["price_display"], "$4.99 / month")
 
     def test_stored_cycle_is_used_when_price_id_is_unmapped(self):
@@ -63,8 +71,8 @@ class SubscriptionBillingDetailsTests(unittest.TestCase):
         })
 
         self.assertEqual(details["billing_cycle"], "annual")
-        self.assertEqual(details["price_display"], "$49.90 annually")
-        self.assertEqual(details["monthly_equivalent_display"], "$4.16 / month")
+        self.assertIsNone(details["price_display"])
+        self.assertIsNone(details["monthly_equivalent_display"])
 
     def test_trialing_all_platforms_annual_response_is_complete(self):
         with patch(
@@ -105,7 +113,7 @@ class SubscriptionBillingDetailsTests(unittest.TestCase):
             })
 
         self.assertEqual(access["billing_cycle"], "monthly")
-        self.assertEqual(access["price_display"], "$4.99 / month")
+        self.assertEqual(access["price_display"], "$8.99 / month")
         self.assertEqual(access["renewal_behavior"], "renews_automatically")
         self.assertEqual(access["platform_access"], ["redbubble"])
 

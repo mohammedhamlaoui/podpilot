@@ -11,6 +11,7 @@ import {
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
 import { getCheckoutConfig } from "../api/client";
 import Icon from "./Icon";
+import { GUARANTEE_CONFIRMED } from "../config/commercial";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 import { useSeo } from "../utils/useSeo";
@@ -18,57 +19,23 @@ import { useSeo } from "../utils/useSeo";
 const CHECKOUT_DEBUG =
   import.meta.env.DEV ||
   import.meta.env.VITE_ENABLE_CHECKOUT_DEBUG === "true";
-const DISPLAY_TRIAL_DAYS = 7;
-
-const CONFIRMED_NO_TRIAL_REASONS = new Set([
-  "active_subscription",
-  "active_subscription_exists",
-  "already_used_trial",
-  "trial_already_used",
-  "confirmed_trial_used",
-  "completed_transaction",
-  "completed_transaction_exists",
-  "subscription_history_exists",
-  "device_or_network_trial_used",
-]);
-
-const CONFIRMED_NO_TRIAL_SOURCES = new Set([
-  "subscription",
-  "subscription_history",
-  "confirmed_trial_redemption",
-  "completed_transaction",
-  "device_or_network_trial_redemption",
-]);
-
-function isConfirmedNoTrialState(value) {
-  if (!value || value.eligible === true || value.trial_eligible === true) return false;
-  const reason = String(value.reason || value.eligibility_reason || "").toLowerCase();
-  const source = String(value.source || value.eligibility_source || "").toLowerCase();
-  return CONFIRMED_NO_TRIAL_REASONS.has(reason) || CONFIRMED_NO_TRIAL_SOURCES.has(source);
-}
-
-function isTransientNoTrialState(value) {
-  if (!value || value.trial_eligible !== false) return false;
-  return !isConfirmedNoTrialState(value);
-}
-
 const PLANS_INFO = {
   redbubble: {
     name: "Redbubble Plan",
     logo: "redbubble",
     monthly: {
-      price: "$4.99",
+      price: "$8.99",
       yearlyTotal: null,
-      subtotal: "$4.99",
-      total: "$4.99",
+      subtotal: "$8.99",
+      total: "$8.99",
       dueInterval: "month",
       billingPeriod: "billed monthly",
     },
     annual: {
-      price: "$4.16",
-      yearlyTotal: "$49.90",
-      subtotal: "$49.90",
-      total: "$49.90",
+      price: "$7.49",
+      yearlyTotal: "$89.90",
+      subtotal: "$89.90",
+      total: "$89.90",
       dueInterval: "year",
       billingPeriod: "billed annually",
     },
@@ -78,25 +45,25 @@ const PLANS_INFO = {
       "AI Copyright Check",
       "Trademark Check",
       "30 Daily AI Tokens",
-      "24/7 Support",
+      "Account and subscription management",
     ],
   },
   teepublic: {
     name: "TeePublic Plan",
     logo: "teepublic",
     monthly: {
-      price: "$4.99",
+      price: "$8.99",
       yearlyTotal: null,
-      subtotal: "$4.99",
-      total: "$4.99",
+      subtotal: "$8.99",
+      total: "$8.99",
       dueInterval: "month",
       billingPeriod: "billed monthly",
     },
     annual: {
-      price: "$4.16",
-      yearlyTotal: "$49.90",
-      subtotal: "$49.90",
-      total: "$49.90",
+      price: "$7.49",
+      yearlyTotal: "$89.90",
+      subtotal: "$89.90",
+      total: "$89.90",
       dueInterval: "year",
       billingPeriod: "billed annually",
     },
@@ -106,25 +73,25 @@ const PLANS_INFO = {
       "AI Copyright Check",
       "Trademark Check",
       "30 Daily AI Tokens",
-      "24/7 Support",
+      "Account and subscription management",
     ],
   },
   "all-platforms": {
     name: "All Platforms Plan",
     logo: "all_platforms",
     monthly: {
-      price: "$6.99",
+      price: "$10.99",
       yearlyTotal: null,
-      subtotal: "$6.99",
-      total: "$6.99",
+      subtotal: "$10.99",
+      total: "$10.99",
       dueInterval: "month",
       billingPeriod: "billed monthly",
     },
     annual: {
-      price: "$5.83",
-      yearlyTotal: "$69.90",
-      subtotal: "$69.90",
-      total: "$69.90",
+      price: "$9.16",
+      yearlyTotal: "$109.90",
+      subtotal: "$109.90",
+      total: "$109.90",
       dueInterval: "year",
       billingPeriod: "billed annually",
     },
@@ -134,7 +101,7 @@ const PLANS_INFO = {
       "AI Copyright Check",
       "Trademark Check",
       "75 Daily AI Tokens",
-      "24/7 Priority Support",
+      "Account and subscription management",
     ],
   },
 };
@@ -305,7 +272,6 @@ export default function CheckoutPage({ theme, setTheme }) {
   const aiCreditPackInfo = AI_CREDIT_PACKS_INFO[credits] || AI_CREDIT_PACKS_INFO[250];
   const planInfo = isAiCreditsCheckout ? aiCreditPackInfo : (PLANS_INFO[plan] || PLANS_INFO["all-platforms"]);
   const billingInfo = isAiCreditsCheckout ? aiCreditPackInfo : (planInfo[billing] || planInfo.annual);
-  const isTrialEligible = !isAiCreditsCheckout && !checkoutConfigLoading && checkoutConfig?.trial_eligible === true;
   const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
   const hasValidSelectedPriceId = isValidPaddlePriceId(selectedPriceId);
   const checkoutIntentId = checkoutConfig?.checkout_intent_id || "";
@@ -344,9 +310,6 @@ export default function CheckoutPage({ theme, setTheme }) {
             })
           : await getCheckoutConfig(plan, billing);
         if (active) {
-          if (isTransientNoTrialState(data)) {
-            setCheckoutNotice(null);
-          }
           setCheckoutConfig(data || null);
           setCheckoutConfigLoading(false);
         }
@@ -365,16 +328,6 @@ export default function CheckoutPage({ theme, setTheme }) {
       active = false;
     };
   }, [aiCreditPackInfo.id, billing, creditPackId, customerUserId, isAiCreditsCheckout, plan]);
-
-  function getTrialDueDate() {
-    const date = new Date();
-    date.setDate(date.getDate() + DISPLAY_TRIAL_DAYS);
-    return date.toLocaleDateString("en-US", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  }
 
   const showInlineError = useCallback((error, fallback = "Checkout could not load. Please try again.") => {
     const cleanMessage = checkoutMessageForError(error, fallback);
@@ -457,7 +410,6 @@ export default function CheckoutPage({ theme, setTheme }) {
         priceId: selectedPriceId,
         checkoutConfig,
         checkoutIntentId,
-        trialEligible: isTrialEligible,
         plan: isAiCreditsCheckout ? (checkoutConfig?.credit_pack_id || creditPackId || aiCreditPackInfo.id) : plan,
         creditPackId: isAiCreditsCheckout ? (checkoutConfig?.credit_pack_id || creditPackId || aiCreditPackInfo.id) : undefined,
         email: userEmail,
@@ -490,7 +442,7 @@ export default function CheckoutPage({ theme, setTheme }) {
       if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
       removePaddleListener?.();
     };
-  }, [aiCreditPackInfo.id, billing, checkoutConfig, checkoutConfigLoading, checkoutIntentId, creditPackId, customerCountryCode, customerUserId, hasValidSelectedPriceId, inlineAttempt, isAiCreditsCheckout, isAuthenticated, isTrialEligible, paddleReady, plan, selectedPriceId, showInlineError, userEmail]);
+  }, [aiCreditPackInfo.id, billing, checkoutConfig, checkoutConfigLoading, checkoutIntentId, creditPackId, customerCountryCode, customerUserId, hasValidSelectedPriceId, inlineAttempt, isAiCreditsCheckout, isAuthenticated, paddleReady, plan, selectedPriceId, showInlineError, userEmail]);
 
   const handleInlineRetry = async () => {
     if (loadingPaddle) return;
@@ -513,7 +465,7 @@ export default function CheckoutPage({ theme, setTheme }) {
             ? "Continue"
             : isAiCreditsCheckout
             ? "Buy AI credits"
-            : (isTrialEligible ? "Start your 7-day free trial" : "Subscribe now")
+            : "Subscribe now"
         }
       />
 
@@ -564,17 +516,11 @@ export default function CheckoutPage({ theme, setTheme }) {
                 <div className="checkout-price-hero">
                   <span className="checkout-price-amount">
                     {billingInfo?.price || "—"}
-                    <span className="checkout-price-vat"> inc. VAT</span>
+                    <span className="checkout-price-vat"> base price</span>
                   </span>
                   <span className="checkout-price-period">
                     {isAiCreditsCheckout ? "one-time AI credit pack" : (billing === "annual" ? "billed annually ⓘ" : "billed monthly ⓘ")}
                   </span>
-                  {isTrialEligible && (
-                    <div className="checkout-trial-badge">
-                      <Sparkles size={14} className="animate-pulse" />
-                      <span>{DISPLAY_TRIAL_DAYS}-Day Free Trial Included</span>
-                    </div>
-                  )}
                   {checkoutConfigError && (
                     <div className="checkout-trial-warning">
                       <span>{checkoutConfigError}</span>
@@ -585,10 +531,11 @@ export default function CheckoutPage({ theme, setTheme }) {
                       ? "Confirming your offer..."
                       : isAiCreditsCheckout
                       ? `${planInfo.name} for ${billingInfo.total}.`
-                      : isTrialEligible
-                      ? `${DISPLAY_TRIAL_DAYS} days free, then ${billingInfo.total} ${billing === "annual" ? "annually" : "monthly"}.`
-                      : `You will be charged ${billingInfo.total} today.`}
+                      : `Plan price: ${billingInfo.total}. Paddle will show applicable taxes and the final amount before payment.`}
                   </p>
+                  {GUARANTEE_CONFIRMED && !isAiCreditsCheckout && (
+                    <p className="checkout-guarantee-note"><ShieldCheck size={16} /> 3-day money-back guarantee. <a href="/refund-policy">Read the policy</a>.</p>
+                  )}
                 </div>
 
 
@@ -633,29 +580,6 @@ export default function CheckoutPage({ theme, setTheme }) {
                           <td>Offer</td>
                           <td className="text-right">Loading...</td>
                         </tr>
-                      ) : isTrialEligible ? (
-                        <>
-                          <tr>
-                            <td>Subtotal</td>
-                            <td className="text-right">{billingInfo.subtotal}</td>
-                          </tr>
-                          <tr>
-                            <td>Free Trial ({DISPLAY_TRIAL_DAYS} Days)</td>
-                            <td className="text-right" style={{ color: "#10B981", fontWeight: 700 }}>
-                              -{billingInfo.subtotal}
-                            </td>
-                          </tr>
-                          <tr className="checkout-summary-total-row">
-                            <td>Due Today</td>
-                            <td className="text-right" style={{ color: "#10B981", fontWeight: 800 }}>
-                              $0.00
-                            </td>
-                          </tr>
-                          <tr className="checkout-summary-due-row">
-                            <td>Billed starting {getTrialDueDate()}</td>
-                            <td className="text-right">{billingInfo.total}</td>
-                          </tr>
-                        </>
                       ) : (
                         <>
                           <tr>
@@ -663,16 +587,16 @@ export default function CheckoutPage({ theme, setTheme }) {
                             <td className="text-right">{billingInfo.subtotal}</td>
                           </tr>
                           <tr>
-                            <td>VAT</td>
-                            <td className="text-right">$0.00</td>
+                            <td>Taxes</td>
+                            <td className="text-right">Shown by Paddle</td>
                           </tr>
                           <tr className="checkout-summary-total-row">
-                            <td>Total</td>
+                            <td>Plan price</td>
                             <td className="text-right">{billingInfo.total}</td>
                           </tr>
                           <tr className="checkout-summary-due-row">
-                            <td>Due Today</td>
-                            <td className="text-right">{billingInfo.total}</td>
+                            <td>Final amount due</td>
+                            <td className="text-right">See Paddle checkout</td>
                           </tr>
                         </>
                       )}

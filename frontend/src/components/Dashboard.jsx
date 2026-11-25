@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import Icon from "./Icon";
+import { Sparkles, CircleArrowDown, Bell, CreditCard, Puzzle, UserRound, Download } from "lucide-react";
 import AiCreditsDashboardCard from "./AiCreditsDashboardCard";
 import ThemeToggle from "./ThemeToggle";
 import { getPricingUrl } from "../lib/subscriptionAccess";
@@ -39,7 +40,7 @@ function AiCreditsHeaderPill({ summary }) {
       title={detail}
       aria-label={`AI listing credits: ${detail}`}
     >
-      <Icon name="sparkle" strokeWidth="2.2" />
+      <Sparkles className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
       <span className="pp-header-ai-credits-text">
         <strong>{label}</strong>
         <small>AI credits</small>
@@ -49,47 +50,7 @@ function AiCreditsHeaderPill({ summary }) {
 }
 
 function ExtensionUpdateGlyph({ className = "" }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        d="M12 3.75a8.25 8.25 0 1 0 7.42 4.62"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M19.7 4.2v4.35h-4.35"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 7.4v5.15"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-      />
-      <path
-        d="m9.65 10.45 2.35 2.35 2.35-2.35"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8.4 16.35h7.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <CircleArrowDown className={className} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function ExtensionUpdateButton() {
@@ -125,7 +86,7 @@ function ExtensionUpdateButton() {
             A new PodPilot extension update is available. Update it now to get the latest upload fixes and the best automation experience.
           </p>
           <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" className="pp-extension-update-link">
-            <Icon name="download" strokeWidth="2.2" />
+            <Download className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
             <span>Open extension update</span>
           </a>
         </div>
@@ -134,13 +95,11 @@ function ExtensionUpdateButton() {
   );
 }
 
-export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, onOpenRetentionNotice, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false, trialEligibility = null }) {
+export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, onOpenRetentionNotice, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false }) {
   const pricingUrl = getPricingUrl();
   const canUseRedbubble = Boolean(platformAccess?.redbubble);
   const canUseTeePublic = Boolean(platformAccess?.teepublic);
-  const lockedTitle = trialEligibility?.eligible === true
-    ? "Start your free trial to use this feature"
-    : "Choose a plan to use this feature";
+  const lockedTitle = "Choose a plan to use this feature";
 
   const stats = useMemo(() => {
     const all = [...(redbubbleDesigns || []), ...(teepublicDesigns || [])];
@@ -186,7 +145,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
             aria-label="Design retention notice"
             title="Design retention notice"
           >
-            <Icon name="bell" strokeWidth="2.2" />
+            <Bell className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
             <span className="pp-bell-dot" aria-hidden="true" />
           </button>
           
@@ -196,7 +155,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
             rel="noopener noreferrer"
             className="pp-header-btn"
           >
-            <Icon name="card" strokeWidth="2.2" />
+            <CreditCard className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
             <span>Pricing Plans</span>
           </a>
 
@@ -206,7 +165,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
             rel="noopener noreferrer"
             className="pp-header-btn"
           >
-            <Icon name="download" strokeWidth="2.2" />
+            <Puzzle className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
             <span>Get Extension</span>
           </a>
 
@@ -218,7 +177,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
             onClick={() => onNavigate("profile")}
             aria-label="Profile"
           >
-            <Icon name="user" strokeWidth="2.2" />
+            <UserRound className="ui-icon" strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
       </div>

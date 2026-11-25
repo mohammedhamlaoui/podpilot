@@ -15,7 +15,9 @@ verified token, never from a request body or query string.
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import base64
 import httpx
+import json
 import logging
 import time
 from fastapi import Depends, Header, HTTPException, status, Request
@@ -32,6 +34,8 @@ class AuthUser:
     email: Optional[str]
     access_token: str
     app_metadata: Optional[dict[str, Any]] = None
+    auth_level: str = "aal1"
+    session_id: Optional[str] = None
 
 
 _AUTH_USER_ENDPOINT = f"{SUPABASE_URL}/auth/v1/user"
@@ -127,11 +131,48 @@ async def get_current_user(
         )
 
     app_metadata = payload.get("app_metadata")
+    # Account controls are optional until the additive Admin HQ migration is
+    # installed. Once present, a suspended/restricted customer is denied at
+    # the shared authentication boundary, so no customer endpoint can bypass
+    # the administrative decision.
+    try:
+        from app.services import supabase_service
+        control = (
+            supabase_service.admin_client()
+            .table("user_account_controls")
+            .select("status")
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+        )
+        control_rows = list(control.data or [])
+        account_status = str(control_rows[0].get("status") or "active") if control_rows else "active"
+        if account_status in {"suspended", "restricted"}:
+            logger.warning("[AUTH] request_id=%s blocked account user=%s status=%s", request_id(), str(user_id)[:8], account_status)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is currently restricted.")
+    except HTTPException:
+        raise
+    except Exception:
+        # Preserve customer availability before the additive migration exists.
+        pass
+    # Supabase has already authenticated the bearer token above. Decode only
+    # the non-secret assurance/session claims after that verification succeeds;
+    # never use an unverified claim to establish the user identity.
+    try:
+        encoded_payload = token.split(".", 2)[1]
+        encoded_payload += "=" * (-len(encoded_payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(encoded_payload).decode("utf-8"))
+        if not isinstance(claims, dict):
+            claims = {}
+    except (IndexError, ValueError, TypeError, json.JSONDecodeError):
+        claims = {}
     return AuthUser(
         id=str(user_id),
         email=email,
         access_token=token,
         app_metadata=app_metadata if isinstance(app_metadata, dict) else {},
+        auth_level=str(claims.get("aal") or "aal1"),
+        session_id=str(claims.get("session_id") or "") or None,
     )
 
 

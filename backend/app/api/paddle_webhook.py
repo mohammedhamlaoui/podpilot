@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import json
 import logging
+import httpx
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -67,6 +68,7 @@ KNOWN_EVENT_TYPES = {
     "subscription.cancelled",  # tolerate either spelling
     "transaction.completed",
     "transaction.paid",
+    "transaction.payment_failed",
     "adjustment.created",
     "adjustment.updated",
 }
@@ -680,8 +682,9 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
         # Still return — let _upsert_subscription try to match by
         # paddle_subscription_id (in case we created the row earlier).
 
-    trial_starts = _safe_iso(data.get("started_at")) or _safe_iso(data.get("first_billed_at"))
-    trial_ends = _safe_iso(data.get("trial_ends_at")) or _safe_iso(data.get("next_billed_at"))
+    trial_confirmed = status == "trialing" or config.paddle_price_has_trial(paddle_price_id or "")
+    trial_starts = _safe_iso(data.get("started_at")) if trial_confirmed else None
+    trial_ends = _safe_iso(data.get("trial_ends_at")) if trial_confirmed else None
     current_period = data.get("current_billing_period") or {}
     current_period_starts_at = _safe_iso(current_period.get("starts_at"))
     current_period_ends_at = _safe_iso(current_period.get("ends_at"))
@@ -732,7 +735,7 @@ def _handle_subscription_event(event_type: str, data: dict[str, Any]) -> None:
                 short_id(checkout_intent_id),
                 safe_error_type(error),
             )
-    if user_id and (status == "trialing" or trial_starts or trial_ends):
+    if user_id and trial_confirmed:
         subscription_service.mark_trial_usage_from_paddle(
             user_id=user_id,
             email=custom_email,
@@ -1048,6 +1051,138 @@ def _handle_adjustment_event(event_type: str, data: dict[str, Any]) -> None:
             short_id(transaction_id),
             action,
         )
+    if action in {"refund", "chargeback"} and data.get("type") == "full":
+        _cancel_fully_refunded_subscription(transaction_id)
+
+
+def _minor_total(data: dict[str, Any], *keys: str) -> Optional[int]:
+    details = data.get("details") if isinstance(data.get("details"), dict) else {}
+    totals = details.get("totals") if isinstance(details.get("totals"), dict) else {}
+    if not totals and isinstance(data.get("totals"), dict):
+        totals = data["totals"]
+    for key in keys:
+        raw = totals.get(key)
+        if raw is None:
+            raw = data.get(key)
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _mirror_admin_financial_event(event_type: str, data: dict[str, Any]) -> None:
+    """Best-effort Admin HQ financial mirror.
+
+    Paddle remains the source of truth. A missing additive Admin HQ migration
+    must never cause Paddle to retry an otherwise valid customer webhook.
+    """
+    client = supabase_service.admin_client()
+    now = _utc_now_iso()
+    try:
+        if event_type.startswith("transaction."):
+            transaction_id = _safe_iso(data.get("id"))
+            if not transaction_id:
+                return
+            custom = _extract_custom_data(data)
+            customer_user_id = None
+            subscription_id = _safe_iso(data.get("subscription_id"))
+            customer_id = _safe_iso(data.get("customer_id"))
+            if subscription_id:
+                existing = _find_existing_row(paddle_subscription_id=subscription_id, user_id=None)
+                customer_user_id = (existing or {}).get("user_id")
+            if not customer_user_id:
+                customer_user_id = _extract_user_id(custom)
+            payload = {
+                "paddle_transaction_id": transaction_id,
+                "customer_user_id": customer_user_id,
+                "paddle_customer_id": customer_id,
+                "paddle_subscription_id": subscription_id,
+                "status": str(data.get("status") or event_type.removeprefix("transaction.")),
+                "currency_code": str(data.get("currency_code") or "USD").upper(),
+                "gross_amount_minor": _minor_total(data, "grand_total", "total"),
+                "tax_amount_minor": _minor_total(data, "tax"),
+                "fee_amount_minor": None,
+                "occurred_at": _safe_iso(data.get("billed_at") or data.get("updated_at") or data.get("created_at")),
+                "updated_at": now,
+            }
+            client.table("billing_transactions").upsert(payload, on_conflict="paddle_transaction_id").execute()
+            if event_type == "transaction.payment_failed":
+                client.table("admin_notifications").upsert({
+                    "event_type": "payment_failed", "severity": "warning",
+                    "title": "Paddle payment failed",
+                    "message": "A Paddle transaction reported a failed payment. Review the transaction in Billing.",
+                    "target_type": "paddle_transaction", "target_id": transaction_id,
+                    "source_event_id": transaction_id,
+                }, on_conflict="event_type,source_event_id").execute()
+        elif event_type.startswith("adjustment."):
+            adjustment_id = _safe_iso(data.get("id"))
+            if not adjustment_id:
+                return
+            transaction_id = _safe_iso(data.get("transaction_id"))
+            payload = {
+                "paddle_adjustment_id": adjustment_id,
+                "paddle_transaction_id": transaction_id,
+                "action": str(data.get("action") or data.get("type") or "adjustment"),
+                "status": str(data.get("status") or "unknown"),
+                "currency_code": str(data.get("currency_code") or "USD").upper(),
+                "amount_minor": _minor_total(data, "total", "grand_total", "amount"),
+                "occurred_at": _safe_iso(data.get("updated_at") or data.get("created_at")),
+                "updated_at": now,
+            }
+            client.table("billing_adjustments").upsert(payload, on_conflict="paddle_adjustment_id").execute()
+            client.table("admin_notifications").upsert({
+                "event_type": "refund_update", "severity": "info",
+                "title": "Paddle adjustment updated",
+                "message": f"A Paddle adjustment is now {payload['status']}.",
+                "target_type": "paddle_adjustment", "target_id": adjustment_id,
+                "source_event_id": f"{adjustment_id}:{payload['status']}",
+            }, on_conflict="event_type,source_event_id").execute()
+    except Exception as error:
+        logger.warning("[Admin HQ] financial mirror unavailable event_type=%s error_type=%s", event_type, safe_error_type(error))
+
+
+def _cancel_fully_refunded_subscription(transaction_id: str) -> None:
+    """Cancel the first subscription whose checkout payment was fully refunded.
+
+    Renewal refunds need manual review because they have no checkout intent.
+    Never cancel an unrelated subscription based on customer email alone.
+    """
+    response = (
+        supabase_service.admin_client()
+        .table(subscription_service.CHECKOUT_INTENT_TABLE)
+        .select("intent_type,paddle_subscription_id")
+        .eq("paddle_transaction_id", transaction_id)
+        .limit(1)
+        .execute()
+    )
+    rows = list(response.data or [])
+    if not rows or rows[0].get("intent_type") != "subscription":
+        logger.warning("[Paddle] full refund has no first-subscription checkout intent transaction=%s", short_id(transaction_id))
+        return
+    subscription_id = str(rows[0].get("paddle_subscription_id") or "")
+    if not subscription_id.startswith("sub_"):
+        logger.warning("[Paddle] refunded checkout is missing subscription id transaction=%s", short_id(transaction_id))
+        return
+
+    api_key = str(config.PADDLE_API_KEY or "").strip()
+    if not api_key:
+        raise RuntimeError("Paddle API key is required to cancel a fully refunded subscription")
+    base = "https://api.paddle.com" if config.PADDLE_ENVIRONMENT == "production" else "https://sandbox-api.paddle.com"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    with httpx.Client(timeout=10.0) as client:
+        current = client.get(f"{base}/subscriptions/{subscription_id}", headers=headers)
+        current.raise_for_status()
+        status = str((current.json().get("data") or {}).get("status") or "")
+        if status == "canceled":
+            return
+        cancellation = client.post(
+            f"{base}/subscriptions/{subscription_id}/cancel",
+            headers=headers,
+            json={"effective_from": "immediately"},
+        )
+        cancellation.raise_for_status()
+    logger.info("[Paddle] canceled fully refunded subscription=%s", short_id(subscription_id))
 
 
 # ── Route ────────────────────────────────────────────────────────────────
@@ -1119,10 +1254,13 @@ async def paddle_webhook(request: Request) -> dict[str, Any]:
     try:
         if event_type.startswith("subscription."):
             _handle_subscription_event(event_type, data)
+        elif event_type == "transaction.payment_failed":
+            pass
         elif event_type.startswith("transaction."):
             _handle_transaction_event(event_id, event_type, data)
         elif event_type.startswith("adjustment."):
             _handle_adjustment_event(event_type, data)
+        _mirror_admin_financial_event(event_type, data)
     except HTTPException as error:
         _mark_webhook_event(event_id, "failed", last_error=str(error.detail))
         logger.warning(

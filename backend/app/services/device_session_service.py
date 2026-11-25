@@ -233,6 +233,13 @@ def register_device(
             short_user_id(user_id),
             safe_error_type(exc),
         )
+        active = _active_device_for_user(user_id)
+        if active and str(active.get("device_id") or "") != clean_device_id and not force and not _is_stale(active):
+            raise _device_error(
+                status.HTTP_409_CONFLICT,
+                DEVICE_ALREADY_ACTIVE_CODE,
+                DEVICE_ALREADY_ACTIVE_MESSAGE,
+            ) from exc
         _revoke_active_devices(user_id, except_device_id=clean_device_id)
         device = _upsert_current_device(
             user_id,
@@ -290,10 +297,10 @@ def validate_device(user_id: str, device_id: Optional[str]) -> None:
     active = _active_device_for_user(user_id)
     if not active:
         raise _device_error(status.HTTP_403_FORBIDDEN, DEVICE_REQUIRED_CODE, DEVICE_REQUIRED_MESSAGE)
-    if _is_stale(active):
-        _revoke_active_devices(user_id)
-        raise _device_error(status.HTTP_403_FORBIDDEN, DEVICE_REQUIRED_CODE, DEVICE_REQUIRED_MESSAGE)
     if str(active.get("device_id") or "") != clean_device_id:
+        if _is_stale(active):
+            _revoke_active_devices(user_id)
+            raise _device_error(status.HTTP_403_FORBIDDEN, DEVICE_REQUIRED_CODE, DEVICE_REQUIRED_MESSAGE)
         raise _device_error(
             status.HTTP_403_FORBIDDEN,
             DEVICE_SESSION_REVOKED_CODE,

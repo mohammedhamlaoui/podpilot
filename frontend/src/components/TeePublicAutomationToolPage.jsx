@@ -228,7 +228,7 @@ export default function TeePublicAutomationToolPage() {
 
   return (
     <div className="rb-tool-page tp-tool-page">
-      <PublicHeader guestCtaLabel="Start your 7-day free trial" />
+      <PublicHeader guestCtaLabel="View subscription plans" />
 
       <main>
         <section className="rb-tool-hero tp-tool-hero">
@@ -242,7 +242,7 @@ export default function TeePublicAutomationToolPage() {
                 TeePublic upload tasks through a browser-based workflow.
               </p>
               <div className="rb-tool-actions">
-                <LandingButton href="/dashboard">Start your 7-day free trial</LandingButton>
+                <LandingButton href="/pricing">View subscription plans</LandingButton>
                 <LandingButton href="#workflow" variant="secondary">See how it works</LandingButton>
               </div>
               <ul className="rb-tool-trust-row" aria-label="PodPilot TeePublic product highlights">
@@ -569,7 +569,7 @@ export default function TeePublicAutomationToolPage() {
               repetitive TeePublic upload tasks from one focused workflow.
             </p>
             <div className="rb-tool-actions">
-              <LandingButton href="/dashboard">Start your 7-day free trial</LandingButton>
+              <LandingButton href="/pricing">View subscription plans</LandingButton>
               <LandingButton href="/pricing" variant="secondary">View pricing</LandingButton>
             </div>
             <small>No long-term commitment. Review your listings before uploading.</small>

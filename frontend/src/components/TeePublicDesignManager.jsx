@@ -2618,7 +2618,7 @@ export default function DesignManager({
               loading={isCopyingSelected}
               loadingText="Copying..."
             >
-              Copy to Redbubble
+              <span className="manager-bulk-action-label"><Icon name="copy" />Copy to Redbubble</span>
             </LoadingButton>
           )}
           <button
@@ -2627,7 +2627,7 @@ export default function DesignManager({
             onClick={() => setConfirmDelete({ type: 'many', count: selectedIds.length })}
             disabled={selectedIds.length === 0}
           >
-            Delete Selected
+            <span className="manager-bulk-action-label"><Icon name="trash" />Delete Selected</span>
           </button>
         </div>
       </div>

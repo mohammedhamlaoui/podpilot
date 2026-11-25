@@ -5,6 +5,12 @@ import {
   LayoutDashboard,
   LogOut,
   CircleUserRound,
+  Gift,
+  Star,
+  Monitor,
+  LockKeyhole,
+  ListChecks,
+  FolderOpen,
 } from "lucide-react";
 import Icon from "./Icon";
 import ThemeToggle from "./ThemeToggle";
@@ -26,27 +32,24 @@ const navItems = [
 ];
 
 const safetyPoints = [
-  "Uploads run through your own Chrome or Brave session",
-  "No marketplace passwords stored in PodPilot",
-  "Review every listing before the extension uploads",
-  "Keep your design files and listing data in your workspace",
+  { icon: Monitor, title: "Your browser, your session", detail: "Uploads run through your own Chrome or Brave session." },
+  { icon: LockKeyhole, title: "No marketplace passwords", detail: "PodPilot does not store your marketplace passwords." },
+  { icon: ListChecks, title: "Review before upload", detail: "Check every listing before the extension starts uploading." },
+  { icon: FolderOpen, title: "Everything in one place", detail: "Keep design files and listing details in your workspace." },
 ];
 
-const testimonials = [
+const customerReviews = [
   {
-    quote: "Prepare image files, titles, tags, descriptions, and platform settings in one place before you start uploading.",
-    name: "Batch prep",
-    role: "Less tab switching",
+    name: "James Anderson",
+    quote: "PodPilot has made managing my print-on-demand designs so much easier. I love how everything is organized in one place, and the AI tools save me time when preparing my listings. It's simple to use, practical, and definitely worth trying. Highly recommended!",
   },
   {
-    quote: "Use AI listing tools and trademark checks while you review each design, instead of copying text between spreadsheets and marketplace forms.",
-    name: "Listing review",
-    role: "Less manual copy-paste",
+    name: "Ethan Parker",
+    quote: "What I love most about PodPilot is how much time it saves me. Managing my Redbubble and TeePublic designs is now much easier, and the AI listing tools make the whole process smoother. The interface is clean, everything is easy to find, and it has become a useful part of my workflow. Definitely recommend it!",
   },
   {
-    quote: "Send prepared designs to Redbubble and TeePublic through the browser extension when your batch is ready.",
-    name: "Browser upload",
-    role: "More control before publishing",
+    name: "Youssef Mansour",
+    quote: "PodPilot makes managing my designs much easier. I love how simple it is to use and how everything is organized in one place. Definitely recommend it!",
   },
 ];
 
@@ -158,16 +161,11 @@ export function LogoMark() {
   );
 }
 
-export function LandingButton({ href = authHref, children, variant = "primary", extensionIcon = false, ...props }) {
+export function LandingButton({ href = authHref, children, variant = "primary", extensionIcon = false, giftIcon = false, ...props }) {
   const isPrimary = variant === "primary";
   return (
     <a className={`landing-btn landing-btn-${variant}`} href={href} {...props}>
-      {isPrimary && (
-        <span className="landing-btn-icon-bubble" aria-hidden="true">
-          <span className="landing-btn-svg landing-btn-gift" />
-          <span className="landing-btn-svg landing-btn-sparkle" />
-        </span>
-      )}
+      {giftIcon && <span className="landing-get-started-icon" aria-hidden="true"><Gift size={19} strokeWidth={1.8} /></span>}
       <span>{children}</span>
       {isPrimary ? (
         <span className="landing-btn-svg landing-btn-arrow" aria-hidden="true" />
@@ -395,15 +393,16 @@ export default function LandingPage({ theme, setTheme }) {
       <section className="landing-hero">
         <div className="landing-container landing-hero-grid">
           <div className="landing-hero-copy">
-            <h1>Redbubble & TeePublic Upload Automation for POD Sellers</h1>
+            <span className="landing-hero-eyebrow">A better workflow for POD sellers</span>
+            <h1>Less copy-paste.<br /><span>More designs ready.</span></h1>
             <p>
-              Bulk upload print on demand designs, edit listing metadata, generate AI listing Content, check trademarks, and publish through the PodPilot browser extension.
+              Organize designs, prepare listings with AI tools, and run Redbubble and TeePublic upload queues from your browser.
             </p>
             <div className="landing-hero-actions">
-              <LandingButton>Start Free Trial</LandingButton>
+              <LandingButton href="/pricing" giftIcon>Get Started Now</LandingButton>
               <LandingButton href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb" variant="secondary" extensionIcon>Download Extension</LandingButton>
             </div>
-            <small>Built for POD sellers who prepare and upload designs in batches.</small>
+            <small>One workspace for your designs, listings, and upload queues.</small>
           </div>
           <ProductDemoVideo />
         </div>
@@ -415,36 +414,50 @@ export default function LandingPage({ theme, setTheme }) {
 
       <section className="landing-section landing-safety">
         <div className="landing-container landing-safety-grid">
-          <div>
-            <h2>Browser-based POD upload automation with seller control</h2>
+          <div className="landing-safety-intro">
+            <span className="landing-safety-eyebrow">Built around your browser</span>
+            <h2>Keep the process moving. <span>Stay in control.</span></h2>
             <p>
-              PodPilot helps you prepare the batch first, then uses your browser session to handle the upload workflow you would otherwise repeat by hand.
+              Prepare a batch in PodPilot, review the details, then let the extension handle repeated upload steps in your browser session.
             </p>
           </div>
           <div className="landing-safety-list">
-            {safetyPoints.map((point) => (
-              <div key={point}>
-                <Icon name="check" />
-                <span>{point}</span>
-              </div>
+            {safetyPoints.map(({ icon: PointIcon, title, detail }, index) => (
+              <article key={title} className="landing-safety-point">
+                <div className="landing-safety-point-top">
+                  <span className="landing-safety-point-icon"><PointIcon size={22} strokeWidth={1.8} aria-hidden="true" /></span>
+                  <span className="landing-safety-point-number">0{index + 1}</span>
+                </div>
+                <h3>{title}</h3>
+                <p>{detail}</p>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="landing-section landing-section-soft">
+      <section className="landing-section landing-section-soft landing-reviews" id="reviews">
         <div className="landing-container">
           <div className="landing-section-heading">
-            <h2>Print on demand listing tools for batch sellers</h2>
-            <p>PodPilot is built around the daily work of preparing Redbubble and TeePublic listings in batches.</p>
+            <span className="landing-reviews-eyebrow">Community feedback</span>
+            <h2>A little less work. A better workflow.</h2>
+            <p>What sellers say about organizing designs and preparing listings with PodPilot.</p>
           </div>
-          <div className="landing-testimonial-grid">
-            {testimonials.map((item) => (
-              <article className="landing-testimonial-card" key={item.name}>
-                <p>&ldquo;{item.quote}&rdquo;</p>
-                <strong>{item.name}</strong>
-                <span>{item.role}</span>
-              </article>
+          <div className="landing-customer-reviews">
+            {customerReviews.map((review) => (
+              <figure className="landing-customer-review" key={review.name}>
+                <figcaption>
+                  <span className="landing-review-avatar" aria-hidden="true">{review.name.split(" ").map((part) => part[0]).join("")}</span>
+                  <strong>{review.name}</strong>
+                </figcaption>
+                <div className="landing-review-rating" aria-label="5 out of 5 stars">
+                  <span className="landing-review-stars" aria-hidden="true">
+                    {[1, 2, 3, 4, 5].map((star) => <Star key={star} size={17} fill="currentColor" strokeWidth={1.5} />)}
+                  </span>
+                  <span className="landing-review-score">5/5</span>
+                </div>
+                <blockquote><p>{review.quote}</p></blockquote>
+              </figure>
             ))}
           </div>
         </div>
@@ -473,7 +486,7 @@ export default function LandingPage({ theme, setTheme }) {
         <div className="landing-container landing-final-inner">
           <h2>Ready to bulk upload POD designs with less copy-paste?</h2>
           <div className="landing-hero-actions">
-            <LandingButton>Start Free Trial</LandingButton>
+            <LandingButton href="/pricing" giftIcon>Get Started Now</LandingButton>
             <LandingButton href="https://chromewebstore.google.com/detail/aloidebamibhnggbnlhoemnokkllkgdn?utm_source=item-share-cb" variant="secondary" extensionIcon>Download Extension</LandingButton>
           </div>
         </div>

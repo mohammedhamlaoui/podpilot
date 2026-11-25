@@ -1,0 +1,217 @@
+.landing-page .landing-platform-logo-strip {
+  overflow: hidden;
+  padding: 54px 0 60px;
+  border-top: 1px solid rgba(124, 58, 237, 0.1);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+  background: #f7f4fc;
+}
+
+.landing-page .landing-platform-logo-inner {
+  width: min(1760px, calc(100% - 96px));
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 100px);
+}
+
+.landing-page .landing-platform-logo-eyebrow {
+  display: block;
+  margin-bottom: 16px;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.landing-page .landing-platform-logo-title {
+  max-width: 650px;
+  margin: 0;
+  color: #171329;
+  text-align: left;
+  font-size: clamp(31px, 2.7vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.12;
+}
+
+.landing-page .landing-platform-logo-title span {
+  color: #7c3aed;
+}
+
+.landing-page .landing-platform-logo-intro p {
+  max-width: 560px;
+  margin: 16px 0 0;
+  color: #64748b;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.landing-page .landing-platform-logo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.landing-page .landing-platform-logo-item {
+  min-width: 0;
+  height: auto;
+  min-height: 196px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px;
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 32px rgba(51, 29, 98, 0.04);
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.landing-page .landing-platform-logo-item:hover,
+.landing-page .landing-platform-logo-item:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgba(124, 58, 237, 0.45);
+  box-shadow: 0 18px 40px rgba(51, 29, 98, 0.11);
+}
+
+.landing-page .landing-platform-logo-item:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 3px;
+}
+
+.landing-page .landing-platform-logo-card-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.landing-page .landing-platform-logo-card-top svg {
+  transition: transform 200ms ease;
+}
+
+.landing-page .landing-platform-logo-item:hover .landing-platform-logo-card-top svg {
+  transform: translate(2px, -2px);
+}
+
+.landing-page .landing-platform-logo-img {
+  width: auto;
+  max-width: min(100%, 216px);
+  max-height: 64px;
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+
+.landing-page .landing-platform-logo-item:hover .landing-platform-logo-img {
+  filter: none;
+  transform: none;
+}
+
+.landing-page .landing-platform-logo-description {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-strip {
+  border-color: rgba(167, 139, 250, 0.12) !important;
+  background: #0d0b12 !important;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-eyebrow,
+[data-theme="dark"] .landing-page .landing-platform-logo-title span,
+[data-theme="dark"] .landing-page .landing-platform-logo-card-top {
+  color: #b895ff;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-title {
+  color: #f5f3fa !important;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-intro p,
+[data-theme="dark"] .landing-page .landing-platform-logo-description {
+  color: #a6a0b6;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-item {
+  border-color: rgba(167, 139, 250, 0.16);
+  background: #181420;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-item:hover,
+[data-theme="dark"] .landing-page .landing-platform-logo-item:focus-visible {
+  border-color: rgba(184, 149, 255, 0.5);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-img,
+[data-theme="dark"] .landing-page .landing-platform-logo-item:hover .landing-platform-logo-img {
+  filter: none;
+  opacity: 1;
+}
+
+[data-theme="dark"] .landing-page .landing-platform-logo-img--teepublic,
+[data-theme="dark"] .landing-page .landing-platform-logo-item:hover .landing-platform-logo-img--teepublic {
+  filter: brightness(0) invert(1);
+}
+
+@media (max-width: 980px) {
+  .landing-page .landing-platform-logo-inner {
+    width: min(100% - 48px, 720px);
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+}
+
+@media (max-width: 600px) {
+  .landing-page .landing-platform-logo-strip {
+    padding: 42px 0 50px;
+  }
+
+  .landing-page .landing-platform-logo-inner {
+    width: calc(100% - 36px);
+  }
+
+  .landing-page .landing-platform-logo-grid {
+    gap: 10px;
+  }
+
+  .landing-page .landing-platform-logo-item {
+    min-height: 180px;
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .landing-page .landing-platform-logo-img {
+    max-height: 52px;
+  }
+
+  .landing-page .landing-platform-logo-description {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 390px) {
+  .landing-page .landing-platform-logo-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-page .landing-platform-logo-item {
+    min-height: 150px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page .landing-platform-logo-item,
+  .landing-page .landing-platform-logo-card-top svg {
+    transition: none;
+  }
+}

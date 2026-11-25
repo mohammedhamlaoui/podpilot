@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createUploadJob, listUploadJobs } from "../api/client";
 import { EXTENSION_ID } from "../config";
+import { getDeviceId } from "../lib/deviceSession";
 
 const TERMINAL_STATUSES = new Set(["uploaded", "failed"]);
 
@@ -59,7 +60,7 @@ function sendExtensionMessage(message) {
       reject(new Error("Chrome extension messaging is not available in this browser."));
       return;
     }
-    window.chrome.runtime.sendMessage(EXTENSION_ID, message, (response) => {
+    window.chrome.runtime.sendMessage(EXTENSION_ID, { ...message, device_id: getDeviceId() }, (response) => {
       if (window.chrome.runtime.lastError) {
         reject(new Error(window.chrome.runtime.lastError.message));
         return;

@@ -23,6 +23,7 @@ const API_BASE = "https://api.podpilot.space";
 
 const SESSION_STORAGE_KEY = "podpilot_session_v1";
 const PLATFORM_ACCESS_STORAGE_KEY = "podpilot_platform_access";
+const UPLOAD_DEVICE_STORAGE_KEY = "podpilot_upload_device_id";
 // Refresh the access token when it has less than this many seconds left.
 const REFRESH_LEEWAY_SECONDS = 60;
 
@@ -86,6 +87,21 @@ async function setStoredSession(session) {
     }
     chrome.storage.local.set({ [SESSION_STORAGE_KEY]: session }, () => resolve());
   });
+}
+
+async function getUploadDeviceId() {
+  const stored = await chrome.storage.local.get(UPLOAD_DEVICE_STORAGE_KEY);
+  const existing = String(stored?.[UPLOAD_DEVICE_STORAGE_KEY] || "").trim();
+  if (existing) return existing;
+  const next = crypto.randomUUID();
+  await chrome.storage.local.set({ [UPLOAD_DEVICE_STORAGE_KEY]: next });
+  return next;
+}
+
+async function adoptUploadDeviceId(deviceId) {
+  const clean = String(deviceId || "").trim();
+  if (!clean || clean.length > 128) return;
+  await chrome.storage.local.set({ [UPLOAD_DEVICE_STORAGE_KEY]: clean });
 }
 
 function normalizePlatformAccess(raw) {
@@ -305,9 +321,11 @@ async function apiFetch(path, options = {}) {
     throw new ApiAuthError("Not signed in.");
   }
 
+  const deviceId = await getUploadDeviceId();
   const buildHeaders = (accessToken) => {
     const headers = new Headers(options.headers || {});
     headers.set("Authorization", `Bearer ${accessToken}`);
+    headers.set("X-PodPilot-Device-Id", deviceId);
     if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
@@ -316,7 +334,10 @@ async function apiFetch(path, options = {}) {
 
   let response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
   logBackendResponse(path, response, { attempt: 1 });
-  if ((response.status === 401 || response.status === 403) && session.refresh_token) {
+  const deviceError = response.status === 403 && Boolean(
+    (await response.clone().json().catch(() => null))?.detail?.code?.startsWith("device_")
+  );
+  if (!deviceError && (response.status === 401 || response.status === 403) && session.refresh_token) {
     try {
       session = await refreshSession(session.refresh_token);
       response = await fetch(`${API_BASE}${path}`, { ...options, headers: buildHeaders(session.access_token) });
@@ -329,12 +350,36 @@ async function apiFetch(path, options = {}) {
     }
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (!deviceError && (response.status === 401 || response.status === 403)) {
     await setStoredSession(null);
     await setStoredPlatformAccess(LOCKED_PLATFORM_ACCESS);
     throw new ApiAuthError("Session expired. Please sign in again.");
   }
   return response;
+}
+
+async function registerUploadDevice() {
+  const deviceId = await getUploadDeviceId();
+  const response = await apiFetch("/api/device/register", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId, device_label: "PodPilot browser extension" }),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(detail?.message || "Upload control is active on another device. Open PodPilot to switch devices.");
+  }
+  return response.json();
+}
+
+async function assertUploadDeviceActive() {
+  const response = await apiFetch("/api/device/heartbeat", {
+    method: "POST",
+    body: JSON.stringify({ device_id: await getUploadDeviceId() }),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(detail?.message || "Upload control is no longer active on this device.");
+  }
 }
 
 /**
@@ -421,33 +466,6 @@ async function getSubscriptionStatus() {
   } catch (error) {
     console.warn(
       "[Extension Account] subscription load failed",
-      error?.message || error,
-    );
-    return null;
-  }
-}
-
-async function getTrialEligibility() {
-  try {
-    const response = await apiFetch("/api/billing/trial-eligibility", {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-    if (!response.ok) {
-      console.warn(
-        "[Extension Account] trial eligibility load failed status=",
-        response.status,
-        "request_id=",
-        getResponseRequestId(response) || "none",
-      );
-      return null;
-    }
-    return response.json();
-  } catch (error) {
-    console.warn(
-      "[Extension Account] trial eligibility load failed",
       error?.message || error,
     );
     return null;
@@ -700,6 +718,9 @@ const PodPilotAuth = {
   getValidSession,
   refreshSession,
   adoptSession,
+  adoptUploadDeviceId,
+  registerUploadDevice,
+  assertUploadDeviceActive,
   apiFetch,
   checkUploadAccess,
   refreshPlatformAccess,
@@ -710,7 +731,6 @@ const PodPilotAuth = {
   incrementUploadUsage,
   getCurrentUser,
   getSubscriptionStatus,
-  getTrialEligibility,
   getResponseRequestId,
 };
 

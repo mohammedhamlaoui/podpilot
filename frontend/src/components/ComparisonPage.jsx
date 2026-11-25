@@ -149,7 +149,7 @@ const comparisonRows = [
   },
   {
     feature: "Pricing position",
-    podpilot: "Focused low-cost plans: Redbubble or TeePublic from $4.99/mo, both from $6.99/mo monthly.",
+    podpilot: "Focused low-cost plans: Redbubble or TeePublic from $8.99/mo, both from $10.99/mo monthly.",
     merchghost: "Public pricing reviewed showed plans from $14.99/mo, but check the official pricing page for latest details.",
     merchtitans: "Public pricing reviewed showed $39.99/mo monthly or $29.99/mo annually.",
   },
@@ -182,21 +182,21 @@ const schemaGraph = [
       {
         "@type": "Offer",
         name: "Redbubble",
-        price: "4.99",
+        price: "8.99",
         priceCurrency: "USD",
         url: "https://podpilot.space/pricing",
       },
       {
         "@type": "Offer",
         name: "Redbubble + TeePublic",
-        price: "6.99",
+        price: "10.99",
         priceCurrency: "USD",
         url: "https://podpilot.space/pricing",
       },
       {
         "@type": "Offer",
         name: "TeePublic",
-        price: "4.99",
+        price: "8.99",
         priceCurrency: "USD",
         url: "https://podpilot.space/pricing",
       },
@@ -292,7 +292,7 @@ export default function ComparisonPage({ theme, setTheme }) {
 
   return (
     <main className="comparison-page">
-      <PublicHeader theme={theme} setTheme={setTheme} guestCtaLabel="Start your 7-day free trial" />
+      <PublicHeader theme={theme} setTheme={setTheme} guestCtaLabel="View subscription plans" />
 
       <section className="comparison-hero">
         <div className="landing-container comparison-hero-grid">
@@ -304,7 +304,7 @@ export default function ComparisonPage({ theme, setTheme }) {
               browser-based automation, pricing, and seller workflow.
             </p>
             <div className="comparison-hero-actions">
-              <LandingButton href="/dashboard">Start your 7-day free trial</LandingButton>
+              <LandingButton href="/pricing">View subscription plans</LandingButton>
               <LandingButton href="/pricing" variant="secondary">See PodPilot pricing</LandingButton>
             </div>
             <p className="comparison-disclaimer">
@@ -327,7 +327,7 @@ export default function ComparisonPage({ theme, setTheme }) {
               review settings, and upload through your browser without paying for marketplace coverage you do not use.
             </p>
             <div className="comparison-mini-metrics">
-              <span><Wallet size={16} /> From $6.99/mo for both</span>
+              <span><Wallet size={16} /> From $10.99/mo for both</span>
               <span><Sparkles size={16} /> AI listing drafts</span>
               <span><Monitor size={16} /> Browser workflow</span>
             </div>
@@ -419,8 +419,8 @@ export default function ComparisonPage({ theme, setTheme }) {
             <p>
               If a seller mainly uploads to Redbubble and TeePublic, PodPilot is the lower-cost, focused option
               because users are not paying for extra marketplace coverage they may not use. PodPilot's current
-              public plans in this repo show Redbubble at $4.99/month, TeePublic at $4.99/month, and Redbubble +
-              TeePublic at $6.99/month, with lower effective monthly pricing on annual billing.
+              public plans in this repo show Redbubble at $8.99/month, TeePublic at $8.99/month, and Redbubble +
+              TeePublic at $10.99/month, with lower effective monthly pricing on annual billing.
             </p>
             <p>
               Based on official public pages reviewed for this comparison, MerchGhost lists plans beginning at
@@ -430,7 +430,7 @@ export default function ComparisonPage({ theme, setTheme }) {
           </div>
           <div className="comparison-price-card">
             <span>Focused value</span>
-            <strong>$6.99/mo</strong>
+            <strong>$10.99/mo</strong>
             <p>PodPilot Redbubble + TeePublic monthly plan, based on the current PodPilot pricing component.</p>
             <a className="comparison-text-link" href="/pricing">
               See PodPilot pricing <ArrowRight size={16} />
@@ -578,7 +578,7 @@ export default function ComparisonPage({ theme, setTheme }) {
             without paying for extra marketplace features you may not need.
           </p>
           <div className="comparison-hero-actions">
-            <LandingButton href="/dashboard">Start your 7-day free trial today</LandingButton>
+            <LandingButton href="/pricing">View subscription plans</LandingButton>
             <LandingButton href="/blog/redbubble-vs-teepublic-upload-workflow" variant="secondary">
               Read the workflow guide
             </LandingButton>

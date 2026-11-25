@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.production.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+*.log
+*.sqlite
+*.db
+*.pem
+*.key
+*.p12
+*.pfx
+id_*
