@@ -313,3 +313,77 @@
 .pp-credits-cta-dismiss { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--pp-text-muted, #64748b); cursor: pointer; }
 .pp-credits-cta-dismiss:hover { background: rgba(124, 58, 237, .08); color: #7c3aed; }
 .pp-credits-cta-dismiss .ui-icon { width: 16px; height: 16px; }
+/* Marketplace accents distinguish actions and progress without changing the layout. */
+.pp-dashboard [data-platform="teepublic"] {
+  --market-accent: oklch(41% 0.092 178);
+  --market-ink: oklch(97% 0.012 178);
+  --market-tint: oklch(95% 0.028 178);
+  --market-hover: oklch(35% 0.083 178);
+}
+.pp-dashboard [data-platform="redbubble"] {
+  --market-accent: oklch(45% 0.162 16);
+  --market-ink: oklch(97% 0.012 16);
+  --market-tint: oklch(94% 0.036 16);
+  --market-hover: oklch(39% 0.145 16);
+}
+[data-theme="dark"] .pp-dashboard [data-platform="teepublic"] {
+  --market-accent: oklch(78% 0.106 178);
+  --market-ink: oklch(23% 0.036 178);
+  --market-tint: oklch(30% 0.05 178);
+  --market-hover: oklch(85% 0.09 178);
+}
+[data-theme="dark"] .pp-dashboard [data-platform="redbubble"] {
+  --market-accent: oklch(77% 0.121 16);
+  --market-ink: oklch(23% 0.045 16);
+  --market-tint: oklch(31% 0.07 16);
+  --market-hover: oklch(84% 0.083 16);
+}
+.pp-dashboard [data-platform] {
+  border-color: color-mix(in oklch, var(--market-accent) 20%, var(--border-soft));
+}
+.pp-dashboard [data-platform] :is(.pp-dash-platform-title .ui-icon, .pp-dash-badge-accent) {
+  background: var(--market-tint);
+  color: var(--market-accent);
+  border-color: color-mix(in oklch, var(--market-accent) 22%, var(--market-tint));
+}
+.pp-dashboard .pp-platform-metric small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.pp-dashboard .pp-platform-metric svg { flex: none; }
+.pp-dashboard .pp-platform-metric-total svg { color: var(--market-accent); }
+.pp-dashboard .pp-platform-metric-uploaded svg { color: oklch(46% 0.104 149); }
+.pp-dashboard .pp-platform-metric-pending svg { color: oklch(49% 0.108 68); }
+.pp-dashboard .pp-platform-metric-failed svg { color: oklch(47% 0.159 23); }
+[data-theme="dark"] .pp-dashboard .pp-platform-metric-uploaded svg { color: oklch(77% 0.11 149); }
+[data-theme="dark"] .pp-dashboard .pp-platform-metric-pending svg { color: oklch(81% 0.11 68); }
+[data-theme="dark"] .pp-dashboard .pp-platform-metric-failed svg { color: oklch(76% 0.12 23); }
+.pp-dashboard [data-platform] .pp-dash-progress-fill {
+  width: 100%;
+  background: var(--market-accent);
+  transform: scaleX(var(--platform-progress, 0));
+  transform-origin: left;
+  transition: transform 240ms cubic-bezier(.22, 1, .36, 1);
+}
+.pp-dashboard [data-platform]:not(.pp-dash-platform-card-locked) .pp-dash-manage-btn {
+  background: var(--market-accent);
+  color: var(--market-ink);
+}
+.pp-dashboard [data-platform]:not(.pp-dash-platform-card-locked) .pp-dash-manage-btn:hover {
+  background: var(--market-hover);
+}
+.pp-dashboard .pp-platform-manage-icon {
+  transition: transform 180ms cubic-bezier(.22, 1, .36, 1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pp-dashboard .pp-dash-manage-btn:is(:hover, :focus-visible) .pp-platform-manage-icon {
+    transform: translate(2px, -2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pp-dashboard [data-platform]:hover,
+  .pp-dashboard [data-platform] .pp-dash-manage-btn:hover {
+    transform: none;
+  }
+}
