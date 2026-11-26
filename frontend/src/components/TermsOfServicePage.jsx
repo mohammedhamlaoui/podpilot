@@ -92,7 +92,7 @@ export default function TermsOfServicePage() {
             <span>Legal Agreement</span>
           </div>
           <h1>Terms of Service</h1>
-          <p>Effective Date: May 2026</p>
+          <p>Effective Date: November 2026</p>
           <div className="privacy-note" style={{ background: "rgba(124,58,237,0.05)", border: "1px solid rgba(124,58,237,0.15)", borderRadius: "8px", padding: "1rem", display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "1rem" }}>
             <FileText size={18} strokeWidth={2.2} style={{ color: "#7C3AED" }} />
             <span style={{ fontSize: "0.9rem" }}>Please read these terms carefully before automating print-on-demand listings with PodPilot.</span>
