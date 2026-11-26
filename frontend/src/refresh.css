@@ -387,3 +387,54 @@
     transform: none;
   }
 }
+
+/* Create designs: keep the drop area compact, with a clear browse action. */
+.pp-main .create-image-dropzone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  min-height: 132px;
+  padding: 24px;
+  justify-items: start;
+  text-align: left;
+  border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border-color));
+  background: color-mix(in oklch, var(--accent-soft) 45%, var(--card-bg));
+}
+.pp-main .create-image-dropzone:is(:hover, :focus-within, [data-state="active"]) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.pp-main .create-image-dropzone[data-state="reject"] {
+  border-color: currentColor;
+  color: var(--text-secondary);
+}
+.pp-main .create-image-dropzone[data-state="uploading"] { cursor: progress; }
+.create-image-dropzone-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: transform 170ms cubic-bezier(.22, 1, .36, 1);
+}
+.create-image-dropzone-copy p { margin: 4px 0 10px; color: var(--text-secondary); }
+.create-image-dropzone-details { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-main .create-image-dropzone-details small {
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pp-main .create-image-dropzone-button { white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .create-image-dropzone[data-state="active"] .create-image-dropzone-mark { transform: translateY(-3px); }
+}
+@media (max-width: 640px) {
+  .pp-main .create-image-dropzone { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 12px; }
+}

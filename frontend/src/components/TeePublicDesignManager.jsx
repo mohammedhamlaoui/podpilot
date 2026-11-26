@@ -26,6 +26,7 @@ function makeTempDraftId() {
   return `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 import Icon from "./Icon";
+import CreateImageDropzone from "./CreateImageDropzone";
 import ColorDropdown from "./ColorDropdown";
 import CopyrightRiskModal from "./CopyrightRiskModal";
 import { LoadingButton, ProgressLoader, SavingOverlay, TableSkeleton } from "./LoadingComponents";
@@ -1795,31 +1796,7 @@ export default function DesignManager({
         )}
 
         {createImageIds.length === 0 ? (
-          <div className="create-upload-card">
-            <div
-              {...createDropzone.getRootProps({
-                className: createDropzone.isDragActive ? "create-upload-drop create-upload-drop-active" : "create-upload-drop",
-                onClick: isCreateUploading ? undefined : createDropzone.open
-              })}
-            >
-              <input {...createDropzone.getInputProps()} />
-              <div className="create-upload-icon">
-                <Icon name="upload" />
-              </div>
-              <strong>Drag & Drop Your Design Images Here</strong>
-              <span>Select multiple images to create designs in bulk</span>
-              <small>Maximum 50 designs per session</small>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={isCreateUploading}
-              >
-                <Icon name="images" />
-                {isCreateUploading ? "Uploading..." : "Or Click to Browse Files"}
-              </button>
-            </div>
-            {createUploadError && <div className="alert alert-error">{createUploadError}</div>}
-          </div>
+          <CreateImageDropzone dropzone={createDropzone} uploading={isCreateUploading} error={createUploadError} />
         ) : (
           <form className="create-config-form" onSubmit={saveCreatedDesigns}>
             <div className="create-command-bar">
