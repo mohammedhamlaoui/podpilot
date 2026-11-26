@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import Icon from "./Icon";
-import { Sparkles, CircleArrowDown, Bell, CreditCard, Puzzle, UserRound, Download } from "lucide-react";
+import { Sparkles, CircleArrowDown, Bell, CreditCard, Puzzle, UserRound, Download, Layers3, CircleCheck, Clock3, CircleAlert, ArrowUpRight } from "lucide-react";
 import AiCreditsDashboardCard from "./AiCreditsDashboardCard";
 import ThemeToggle from "./ThemeToggle";
 import { getPricingUrl } from "../lib/subscriptionAccess";
@@ -10,6 +10,28 @@ const EXTENSION_URL = "https://chromewebstore.google.com/detail/aloidebamibhnggb
 function percent(uploaded, total) {
   if (!total || total === 0) return 0;
   return Math.round((uploaded / total) * 100);
+}
+
+const PLATFORM_METRICS = [
+  { label: "Total", icon: Layers3, tone: "total" },
+  { label: "Uploaded", icon: CircleCheck, tone: "uploaded" },
+  { label: "Pending", icon: Clock3, tone: "pending" },
+  { label: "Failed", icon: CircleAlert, tone: "failed" },
+];
+
+function PlatformStats({ total, uploaded, pending, failed }) {
+  const values = { total, uploaded, pending, failed };
+
+  return (
+    <div className="pp-dash-platform-stats">
+      {PLATFORM_METRICS.filter(({ tone }) => tone !== "failed" || failed > 0).map(({ label, icon: MetricIcon, tone }) => (
+        <div className={`pp-platform-metric pp-platform-metric-${tone}`} key={tone}>
+          <strong>{values[tone]}</strong>
+          <small><MetricIcon size={14} strokeWidth={1.8} aria-hidden="true" />{label}</small>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CardSkeleton() {
@@ -193,6 +215,7 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
         <div className="pp-dash-platforms">
           <div
             className={`pp-dash-platform-card${!canUseTeePublic ? " pp-dash-platform-card-locked" : ""}`}
+            data-platform="teepublic"
             title={!canUseTeePublic ? lockedTitle : undefined}
           >
             <div className="pp-dash-platform-head">
@@ -205,26 +228,22 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
               </span>
             </div>
             <p>Prepare TeePublic metadata, colors, products, queues, and upload status.</p>
-            <div className="pp-dash-platform-stats">
-              <div><strong>{stats.tpTotal}</strong><small>Total</small></div>
-              <div><strong className="pp-dash-success">{stats.tpUploaded}</strong><small>Uploaded</small></div>
-              <div><strong className="pp-dash-warning">{stats.tpPending}</strong><small>Pending</small></div>
-              {stats.tpFailed > 0 && <div><strong className="pp-dash-danger">{stats.tpFailed}</strong><small>Failed</small></div>}
-            </div>
+            <PlatformStats total={stats.tpTotal} uploaded={stats.tpUploaded} pending={stats.tpPending} failed={stats.tpFailed} />
             <div className="pp-dash-platform-progress">
               <span>Upload Progress</span>
               <span>{stats.tpProgress}%</span>
             </div>
             <div className="pp-dash-progress-bar">
-              <div className="pp-dash-progress-fill" style={{ width: `${stats.tpProgress}%` }} />
+              <div className="pp-dash-progress-fill" style={{ "--platform-progress": stats.tpProgress / 100 }} />
             </div>
             <button type="button" className="pp-dash-manage-btn" onClick={() => { console.log("[PodPilot] Manage clicked", "teepublic"); onNavigate("teepublic"); }}>
-              <Icon name="upload" /> Manage
+              Manage <ArrowUpRight className="pp-platform-manage-icon" aria-hidden="true" />
             </button>
           </div>
 
           <div
             className={`pp-dash-platform-card${!canUseRedbubble ? " pp-dash-platform-card-locked" : ""}`}
+            data-platform="redbubble"
             title={!canUseRedbubble ? lockedTitle : undefined}
           >
             <div className="pp-dash-platform-head">
@@ -237,21 +256,16 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
               </span>
             </div>
             <p>Manage Redbubble imports, image matching, queue progress, and upload status.</p>
-            <div className="pp-dash-platform-stats">
-              <div><strong>{stats.rbTotal}</strong><small>Total</small></div>
-              <div><strong className="pp-dash-success">{stats.rbUploaded}</strong><small>Uploaded</small></div>
-              <div><strong className="pp-dash-warning">{stats.rbPending}</strong><small>Pending</small></div>
-              {stats.rbFailed > 0 && <div><strong className="pp-dash-danger">{stats.rbFailed}</strong><small>Failed</small></div>}
-            </div>
+            <PlatformStats total={stats.rbTotal} uploaded={stats.rbUploaded} pending={stats.rbPending} failed={stats.rbFailed} />
             <div className="pp-dash-platform-progress">
               <span>Upload Progress</span>
               <span>{stats.rbProgress}%</span>
             </div>
             <div className="pp-dash-progress-bar">
-              <div className="pp-dash-progress-fill" style={{ width: `${stats.rbProgress}%` }} />
+              <div className="pp-dash-progress-fill" style={{ "--platform-progress": stats.rbProgress / 100 }} />
             </div>
             <button type="button" className="pp-dash-manage-btn" onClick={() => { console.log("[PodPilot] Manage clicked", "redbubble"); onNavigate("redbubble"); }}>
-              <Icon name="upload" /> Manage
+              Manage <ArrowUpRight className="pp-platform-manage-icon" aria-hidden="true" />
             </button>
           </div>
         </div>

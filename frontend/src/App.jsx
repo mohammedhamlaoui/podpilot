@@ -164,9 +164,7 @@ function canAccessRoute(route, platformAccess) {
   return Boolean(platformAccess?.[route]);
 }
 
-function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, platformAccess }) {
-  const userLabel = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Account";
-
+function Sidebar({ activeRoute, onNavigate, platformAccess }) {
   return (
     <aside className="pp-sidebar" aria-label="Main navigation">
       <div className="pp-sidebar-top">
@@ -205,19 +203,6 @@ function Sidebar({ activeRoute, onNavigate, user, onSignOut, theme, setTheme, pl
         </nav>
       </div>
 
-      <div className="pp-sidebar-bottom">
-        <button
-          type="button"
-          className={`pp-sidebar-btn${activeRoute === "profile" ? " pp-sidebar-btn-active" : ""}`}
-          onClick={() => onNavigate("profile")}
-          data-tooltip={userLabel}
-          aria-label={userLabel}
-          aria-current={activeRoute === "profile" ? "page" : undefined}
-        >
-          <Icon name="user" />
-          <span className="pp-sidebar-label">{userLabel}</span>
-        </button>
-      </div>
     </aside>
   );
 }
@@ -2033,10 +2018,6 @@ export default function App() {
         <Sidebar
           activeRoute={activeRoute}
           onNavigate={handleNavigate}
-          user={user}
-          onSignOut={handleSignOut}
-          theme={theme}
-          setTheme={setTheme}
           platformAccess={platformAccess}
         />
 
