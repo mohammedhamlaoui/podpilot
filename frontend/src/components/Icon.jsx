@@ -6,7 +6,7 @@ export default function Icon({ name, className = "", ...props }) {
         aria-hidden="true"
         {...props}
       >
-        <img className="platform-theme-logo platform-theme-logo-light" src={`/brand/${name}-logo.svg`} alt="" />
+        <img className="platform-theme-logo platform-theme-logo-light" src={name === "redbubble" ? "/brand/redbubble-light-logo.png" : `/brand/${name}-logo.svg`} alt="" />
         <img className="platform-theme-logo platform-theme-logo-dark" src={`/brand/${name}-upload-dark-mode-logo.svg`} alt="" />
       </span>
     );
