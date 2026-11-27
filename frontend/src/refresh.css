@@ -441,15 +441,7 @@
 
 /* TeePublic creation studio: restrained color and clear editing states. */
 .tp-design-create-page { --tp-studio-accent: #7141df; --tp-studio-tint: #f4efff; }
-.tp-design-create-page .create-page-header { align-items: center; padding: 24px 28px; border: 1px solid #e5def6; border-radius: 16px; background: linear-gradient(110deg, #faf7ff 0%, #f7f9ff 62%, #f7fbfa 100%); }
-.tp-design-create-page .create-page-header h2 { margin: 4px 0 12px; letter-spacing: -.025em; }
-.tp-design-create-page .tp-create-eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #6745ad; font-size: 12px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
-.tp-design-create-page .tp-create-eyebrow .ui-icon { width: 17px; height: 17px; }
-.tp-design-create-page .create-page-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.tp-design-create-page .tp-create-design-count, .tp-design-create-page .tp-create-unsaved { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #e5def6; border-radius: 99px; background: #fff; color: #5c5272; font-weight: 650; }
-.tp-design-create-page .tp-create-design-count .ui-icon { width: 16px; height: 16px; color: var(--tp-studio-accent); }
-.tp-design-create-page .tp-create-unsaved { color: #96600e; border-color: #f4dfb6; background: #fff9eb; }
-.tp-design-create-page .tp-create-unsaved > span { width: 7px; height: 7px; border-radius: 50%; background: #e7a437; }
+.tp-design-create-page .create-page-header { align-items: center; justify-content: flex-start; padding: 0; border: 0; background: transparent; }
 .tp-design-create-page .create-command-bar { border-color: #e6e1f0; background: #fcfbff; }
 .tp-design-create-page .create-command-bar .secondary-button, .tp-design-create-page .create-command-bar .primary-button { transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease; }
 .tp-design-create-page .create-command-bar button:hover:not(:disabled) { transform: translateY(-2px); }
@@ -463,11 +455,6 @@
 .tp-design-create-page .tp-tab:hover { background: var(--tp-studio-tint); }
 .tp-design-create-page .tp-tab.active { color: var(--tp-studio-accent); }
 .tp-design-create-page .tp-field :is(input, textarea):focus-visible { border-color: var(--tp-studio-accent); box-shadow: 0 0 0 3px rgba(113, 65, 223, .12); }
-[data-theme="dark"] .tp-design-create-page .create-page-header { background: linear-gradient(110deg, #241a34, #202537); border-color: #4a395f; }
-[data-theme="dark"] .tp-design-create-page .tp-create-eyebrow { color: #c7afff; }
-[data-theme="dark"] .tp-design-create-page .tp-create-design-count { color: #ddd4ec; background: #2a2138; border-color: #4a395f; }
-[data-theme="dark"] .tp-design-create-page .tp-create-unsaved { color: #f7ce83; background: #3d3025; border-color: #6c5031; }
 [data-theme="dark"] .tp-design-create-page .create-command-bar { background: #231d30; border-color: #4a395f; }
 [data-theme="dark"] .tp-design-create-page .create-config-card { border-color: #4a395f; }
-@media (max-width: 760px) { .tp-design-create-page .create-page-header { padding: 18px; flex-wrap: wrap; } .tp-design-create-page .create-page-status { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .tp-design-create-page .create-command-bar button:hover:not(:disabled) { transform: none; } }
