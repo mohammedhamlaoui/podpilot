@@ -503,3 +503,15 @@
 .pp-main .tp-editor .tp-product-card > span { min-width: 0; overflow-wrap: anywhere; }
 .pp-main .tp-editor .tp-toggle { flex-shrink: 0; }
 @media (max-width: 900px) { .pp-main .tp-editor-body { grid-template-columns: minmax(0, 1fr); } .pp-main .tp-editor .tp-preview { position: static; max-width: 360px; } }
+
+/* Wrap editor controls as one toolbar, keeping navigation together. */
+.pp-main .tp-editor .tp-toolbar { align-items: center !important; justify-content: flex-start; gap: 10px; }
+.pp-main .tp-editor .tp-toolbar-right { display: contents; }
+.pp-main .tp-editor .tp-toolbar > .tp-btn-back { height: 36px; margin-left: 0 !important; padding-block: 0 !important; }
+.pp-main .tp-editor .tp-design-navigation { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; height: 36px; }
+.pp-main .tp-editor .tp-toolbar :is(.tp-nav-btn, .tp-toolbar-btn) { height: 36px !important; min-height: 36px !important; }
+.pp-main .tp-editor .tp-toolbar .tp-dropdown-wrap { flex-shrink: 0; }
+.pp-main .tp-editor .tp-preview-heading { display: flex; align-items: center; min-height: 40px; margin-bottom: 16px; }
+.pp-main .tp-editor .tp-preview-heading h2 { margin: 0; }
+.pp-main .tp-editor .tp-settings > .tp-tab-bar { align-items: stretch; min-height: 40px; margin-bottom: 16px; padding-right: 42px; }
+.pp-main .tp-editor .tp-settings > .tp-tab-bar .tp-tab { display: inline-flex; align-items: center; }
