@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { mergeUploadStatuses } from './uploadStatusSync.mjs';
+const current=[{id:'a',title:'Unsaved edit',status:'uploading'},{id:'local',title:'Draft'}];
+const fresh=[{id:'a',title:'Old saved title',status:'uploaded',uploaded_at:'2026-11-27T10:00:00Z'},{id:'server-only',status:'uploaded'}];
+const next=mergeUploadStatuses(current,fresh);
+assert.equal(next[0].status,'uploaded');
+assert.equal(next[0].uploaded_at,fresh[0].uploaded_at);
+assert.equal(next[0].title,'Unsaved edit');
+assert.equal(next[1],current[1]);
+assert.equal(next.length,2);
+assert.equal(mergeUploadStatuses(next,fresh),next);
+assert.equal(mergeUploadStatuses(current,[]),current);
+console.log('PASS live status/date; preserve drafts, edits, order; no render for unchanged state');

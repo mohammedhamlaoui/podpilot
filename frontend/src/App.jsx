@@ -41,6 +41,7 @@ import DesignRetentionNotice, {
 } from "./components/DesignRetentionNotice";
 import UnsavedChangesModal from "./components/UnsavedChangesModal";
 import { EXTENSION_ID } from "./config";
+import { mergeUploadStatuses } from "./utils/uploadStatusSync.mjs";
 import { AUTH_MESSAGES, supabase } from "./lib/supabaseClient";
 import {
   getMyPlatformAccess,
@@ -1066,6 +1067,46 @@ export default function App() {
   }, [isAuthenticated, userId, fetchSubscriptionAndAccess]);
 
   useEffect(() => { refreshDesigns(); }, [refreshDesigns]);
+
+  // Persisted status also arrives without an extension connection or manual refresh.
+  useEffect(() => {
+    const marketplaces = activeRoute === "dashboard" ? DESIGN_MARKETPLACES
+      : DESIGN_MARKETPLACES.includes(activeRoute) ? [activeRoute] : [];
+    if (!isAuthenticated || !userId || !marketplaces.length) return undefined;
+    let cancelled = false;
+    let inFlight = false;
+    let timer;
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        if (document.visibilityState === "visible") {
+          await Promise.allSettled(marketplaces.map(async (marketplace) => {
+            const data = await listDesigns(marketplace);
+            if (cancelled || !Array.isArray(data?.designs)) return;
+            setMarketplaceDesigns(marketplace, (current) => mergeUploadStatuses(current, data.designs));
+          }));
+        }
+      } finally {
+        inFlight = false;
+        if (!cancelled) timer = window.setTimeout(tick, 3000);
+      }
+    };
+    const checkNow = () => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      window.clearTimeout(timer);
+      void tick();
+    };
+    void tick();
+    window.addEventListener("focus", checkNow);
+    document.addEventListener("visibilitychange", checkNow);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", checkNow);
+      document.removeEventListener("visibilitychange", checkNow);
+    };
+  }, [activeRoute, isAuthenticated, userId, setMarketplaceDesigns]);
 
   // Read the extension's local queue frequently while an upload is active. This is a
   // local browser message (not backend polling), so rows can update promptly without
