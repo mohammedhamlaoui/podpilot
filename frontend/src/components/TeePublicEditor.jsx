@@ -1521,7 +1521,7 @@ export default function TeePublicEditor({
       {/* Toolbar */}
       <div className="tp-toolbar">
         <button type="button" className="tp-btn-back tp-back-icon" onClick={handleBack} aria-label="Back to Designs" title="Back to Designs">
-          <Icon name="chevronLeft" />
+          <Icon name="arrowLeft" />
         </button>
         <button type="button" className="tp-btn-back" onClick={handleAddLocalDesignDraft} style={{ marginLeft: "10px", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: "6px" }} aria-label="Add design" title="Add design">
           <Icon name="upload" />
