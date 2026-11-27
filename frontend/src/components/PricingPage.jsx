@@ -171,6 +171,8 @@ const aiCreditPacks = [
   },
 ];
 
+const visibleAiCreditPacks = aiCreditPacks.filter((pack) => [1000, 10000].includes(pack.credits));
+
 export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
   const [billingInterval, setBillingInterval] = useState("annual");
   const [checkoutPlan, setCheckoutPlan] = useState(null);
@@ -489,8 +491,8 @@ export default function PricingPage({ theme, setTheme, subscriptionSummary }) {
             </p>
           </div>
 
-          <div className="pricing-tokens-grid">
-            {aiCreditPacks.map((pack) => {
+          <div className="pricing-tokens-grid pricing-tokens-grid-curated">
+            {visibleAiCreditPacks.map((pack) => {
               const badgeClass = pack.badge ? pack.badge.toLowerCase().replace(" ", "-") : "";
               return (
                 <article className="pricing-tokens-item" key={pack.id}>
