@@ -2106,6 +2106,13 @@ export default function App() {
         {/* Dashboard */}
         {activeRoute === "dashboard" && (
           <Dashboard
+            userId={userId}
+            onUploadedDesignsDeleted={(ids) => {
+              const deleted = new Set(ids);
+              DESIGN_MARKETPLACES.forEach(platform => {
+                setMarketplaceDesigns(platform, current => current.filter(row => !deleted.has(row.id)));
+              });
+            }}
             redbubbleDesigns={redbubbleDesigns}
             teepublicDesigns={teepublicDesigns}
             isLoading={isLoadingDesigns}
