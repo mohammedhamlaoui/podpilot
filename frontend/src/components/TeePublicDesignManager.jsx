@@ -1700,9 +1700,10 @@ export default function DesignManager({
 
   if (editorMode && editingId === "new") {
     return (
-      <section className="workflow-panel manager-panel create-page">
+      <section className="workflow-panel manager-panel create-page tp-design-create-page">
         <div className="create-page-header">
           <div>
+            <span className="tp-create-eyebrow"><Icon name="teepublic" /> TeePublic studio</span>
             <h2>Create TeePublic Design</h2>
             <button type="button" className="secondary-button" onClick={onBackToDesigns}>
               <Icon name="chevronLeft" />
@@ -1711,8 +1712,8 @@ export default function DesignManager({
           </div>
           {selectedCreateImages.length > 0 && (
             <div className="create-page-status">
-              <span>Design {activeCreateIndex + 1} of {selectedCreateImages.length}</span>
-              <strong>{selectedCreateImages.length - completedCreateCount} Unsaved</strong>
+              <span className="tp-create-design-count"><Icon name="images" /> Design {activeCreateIndex + 1} of {selectedCreateImages.length}</span>
+              <strong className="tp-create-unsaved"><span aria-hidden="true" />{selectedCreateImages.length - completedCreateCount} Unsaved</strong>
             </div>
           )}
         </div>
@@ -2048,8 +2049,10 @@ export default function DesignManager({
                           key={tab}
                           type="button"
                           className={`tp-tab${activeTab === tab ? " active" : ""}`}
+                          aria-current={activeTab === tab ? "page" : undefined}
                           onClick={() => setActiveTab(tab)}
                         >
+                          <Icon name={{ Info: "edit", Colors: "palette", Products: "designs" }[tab]} />
                           {tab}
                         </button>
                       ))}
