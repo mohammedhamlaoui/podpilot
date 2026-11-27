@@ -488,3 +488,18 @@
 .pp-cleanup-confirm button:focus-visible { outline: 2px solid #9864c5; outline-offset: 3px; }
 @keyframes cleanup-confirm-enter { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .pp-cleanup-confirm[open] { animation: none; } }
+
+/* TeePublic editor sits directly on the workspace, without an outer card. */
+.pp-main .tp-editor { min-width: 0; width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.pp-main .tp-editor .tp-toolbar { min-width: 0; max-width: 100%; flex-wrap: wrap !important; gap: 10px; background: transparent; }
+.pp-main .tp-editor .tp-toolbar-right { min-width: 0; max-width: 100%; flex: 1 1 600px; flex-wrap: wrap !important; justify-content: flex-start; gap: 8px; margin-left: 0; }
+.pp-main .tp-editor .tp-btn-back { flex-shrink: 0; white-space: nowrap; }
+.pp-main .tp-editor .tp-dots { min-width: 0; max-width: 160px; overflow-x: auto; }
+.pp-main .tp-editor .tp-dot { flex-shrink: 0; }
+.pp-main .tp-editor-body { min-width: 0; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); }
+.pp-main .tp-editor :is(.tp-settings, .tp-tab-content, .tp-preview, .tp-product-grid, .tp-color-grid) { min-width: 0; max-width: 100%; }
+.pp-main .tp-editor .tp-product-grid { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); }
+.pp-main .tp-editor .tp-product-card { min-width: 0; gap: 12px; }
+.pp-main .tp-editor .tp-product-card > span { min-width: 0; overflow-wrap: anywhere; }
+.pp-main .tp-editor .tp-toggle { flex-shrink: 0; }
+@media (max-width: 900px) { .pp-main .tp-editor-body { grid-template-columns: minmax(0, 1fr); } .pp-main .tp-editor .tp-preview { position: static; max-width: 360px; } }
