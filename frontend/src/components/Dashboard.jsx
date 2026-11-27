@@ -207,8 +207,6 @@ export default function Dashboard({ userId, onUploadedDesignsDeleted, redbubbleD
 
       <AiCreditsDashboardCard />
 
-      <UploadedDesignCleanup userId={userId} onDeleted={onUploadedDesignsDeleted} disabled={isLoading || isWorkspaceLocked} />
-
       <div className="pp-dash-section pp-dash-platform-section">
         <div className="pp-dash-section-head">
           <h2>Platform Overview</h2>
@@ -242,6 +240,7 @@ export default function Dashboard({ userId, onUploadedDesignsDeleted, redbubbleD
             <button type="button" className="pp-dash-manage-btn" onClick={() => { console.log("[PodPilot] Manage clicked", "teepublic"); onNavigate("teepublic"); }}>
               Manage <ArrowUpRight className="pp-platform-manage-icon" aria-hidden="true" />
             </button>
+            <UploadedDesignCleanup platform="teepublic" userId={userId} onDeleted={onUploadedDesignsDeleted} disabled={isLoading || isWorkspaceLocked || !canUseTeePublic} />
           </div>
 
           <div
@@ -270,6 +269,7 @@ export default function Dashboard({ userId, onUploadedDesignsDeleted, redbubbleD
             <button type="button" className="pp-dash-manage-btn" onClick={() => { console.log("[PodPilot] Manage clicked", "redbubble"); onNavigate("redbubble"); }}>
               Manage <ArrowUpRight className="pp-platform-manage-icon" aria-hidden="true" />
             </button>
+            <UploadedDesignCleanup platform="redbubble" userId={userId} onDeleted={onUploadedDesignsDeleted} disabled={isLoading || isWorkspaceLocked || !canUseRedbubble} />
           </div>
         </div>
       </div>
