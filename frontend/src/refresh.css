@@ -515,3 +515,14 @@
 .pp-main .tp-editor .tp-preview-heading h2 { margin: 0; }
 .pp-main .tp-editor .tp-settings > .tp-tab-bar { align-items: stretch; min-height: 40px; margin-bottom: 16px; padding-right: 42px; }
 .pp-main .tp-editor .tp-settings > .tp-tab-bar .tp-tab { display: inline-flex; align-items: center; }
+
+/* Compact desktop editing controls without shortening their action labels. */
+.pp-main .tp-editor .tp-toolbar { gap: 6px; }
+.pp-main .tp-editor .tp-toolbar > .tp-btn-back { width: 36px; min-width: 36px; justify-content: center; padding: 0 !important; }
+.pp-main .tp-editor .tp-toolbar .tp-toolbar-btn { padding-inline: 9px; font-size: 12px; gap: 5px !important; white-space: nowrap; }
+.pp-main .tp-editor .tp-toolbar .pp-ai-listing-btn { min-width: 112px !important; }
+.pp-main .tp-editor .tp-toolbar .pp-ai-check-btn { min-width: 96px !important; }
+.pp-main .tp-editor .tp-toolbar .pp-trademark-btn { min-width: 152px !important; }
+.pp-main .tp-editor .tp-toolbar .tp-design-navigation { gap: 6px; }
+.pp-main .tp-editor .tp-toolbar .tp-dots { max-width: 88px; gap: 4px; }
+.pp-main .tp-editor .tp-toolbar :is(.tp-toolbar-btn, .tp-btn-back) > :is(svg, .ui-icon) { width: 18px; height: 18px; }
