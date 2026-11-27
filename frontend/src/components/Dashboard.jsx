@@ -1,3 +1,4 @@
+import PlatformIndependenceNotice from "./PlatformIndependenceNotice";
 import UploadedDesignCleanup from "./UploadedDesignCleanup";
 import { useMemo, useState } from "react";
 import Icon from "./Icon";
@@ -151,6 +152,7 @@ export default function Dashboard({ userId, onUploadedDesignsDeleted, redbubbleD
 
   return (
     <div className="pp-dashboard">
+      <PlatformIndependenceNotice key={userId || "guest"} userId={userId} />
       <div className="pp-dash-header">
         <div>
           <h1>Dashboard</h1>
