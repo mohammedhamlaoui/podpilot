@@ -1700,13 +1700,8 @@ export default function DesignManager({
 
   if (editorMode && editingId === "new") {
     return (
-      <section className="workflow-panel manager-panel create-page tp-design-create-page">
-        <div className="create-page-header">
-          <button type="button" className="secondary-button" onClick={onBackToDesigns}>
-            <Icon name="chevronLeft" />
-            <span>Back to Designs</span>
-          </button>
-        </div>
+      <section className="workflow-panel manager-panel create-page tp-design-create-page pp-unified-design-editor">
+        {createImageIds.length === 0 && <div className="create-page-header"><button type="button" className="secondary-button icon-only-button editor-back-icon" onClick={onBackToDesigns} aria-label="Back to Designs" title="Back to Designs"><Icon name="chevronLeft" /></button></div>}
 
         <TrademarkModal
           open={trademarkModalOpen}
@@ -1791,6 +1786,7 @@ export default function DesignManager({
         ) : (
           <form className="create-config-form" onSubmit={saveCreatedDesigns}>
             <div className="create-command-bar">
+              <button type="button" className="secondary-button icon-only-button editor-back-icon" onClick={onBackToDesigns} aria-label="Back to Designs" title="Back to Designs"><Icon name="chevronLeft" /></button>
               <div className="create-nav-buttons">
                 <button type="button" className="secondary-button icon-only-button" onClick={() => moveCreateIndex(-1)} aria-label="Previous design">
                   <Icon name="chevronLeft" />
