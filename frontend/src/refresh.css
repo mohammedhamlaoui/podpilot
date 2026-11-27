@@ -554,3 +554,14 @@
 .pp-main .pp-unified-design-editor .create-command-bar .primary-button { min-height: 36px; padding: 0 12px; font-size: 12px; }
 
 @media (min-width: 641px) { .pricing-tokens-grid.pricing-tokens-grid-curated { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.pp-independence-notice { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px; padding: 14px 16px; border: 1px solid var(--accent-border); border-radius: 12px; background: color-mix(in srgb, var(--accent-soft) 45%, var(--pp-card, #fcfaff)); }
+.pp-independence-mark { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 9px; color: var(--accent); background: var(--accent-soft); }
+.pp-independence-notice > div { flex: 1; min-width: 0; }
+.pp-independence-notice strong { display: block; margin: 0 0 4px; color: var(--pp-text, #302343); font-size: 12px; font-weight: 700; }
+.pp-independence-notice p { margin: 0; color: var(--pp-text-muted, #64748b); font-size: 12px; line-height: 1.65; }
+.pp-independence-dismiss { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--pp-text-muted, #64748b); cursor: pointer; transition: color 160ms ease, background-color 160ms ease; }
+.pp-independence-dismiss:hover { background: var(--accent-soft); color: var(--accent); }
+.pp-independence-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .pp-independence-notice { gap: 9px; padding: 12px; } .pp-independence-mark { display: none; } }
+@media (prefers-reduced-motion: reduce) { .pp-independence-dismiss { transition: none; } }
