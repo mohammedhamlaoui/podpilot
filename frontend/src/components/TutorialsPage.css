@@ -1,0 +1,44 @@
+.pp-tutorials { max-width: 1180px; margin: 0 auto; color: var(--pp-text, #302343); }
+.pp-tutorials-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; padding: 6px 0 30px; }
+.pp-tutorials-eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--accent, #7c3aed); font-size: 11px; font-weight: 750; letter-spacing: .13em; }
+.pp-tutorials h1 { margin: 12px 0; font-size: 32px; line-height: 1.2; letter-spacing: -.035em; }
+.pp-tutorials-header p, .pp-tutorials-description p { color: var(--pp-text-muted, #64748b); font-size: 14px; line-height: 1.7; margin: 0; max-width: 65ch; }
+.pp-tutorials .secondary-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.pp-tutorials-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+.pp-tutorials-choice { --lesson-color: #9c2845; --lesson-soft: #fff0f3; display: flex; align-items: center; gap: 14px; padding: 18px 20px; border: 1px solid var(--pp-border, #e5dfee); border-radius: 12px; background: var(--pp-card, #fcfaff); color: var(--pp-text, #302343); text-align: left; cursor: pointer; transition: border-color 180ms ease, background-color 180ms ease; }
+.pp-tutorials-choice[data-platform="teepublic"] { --lesson-color: #176c64; --lesson-soft: #eaf7f3; }
+.pp-tutorials-choice.is-selected { border-color: var(--lesson-color); background: color-mix(in srgb, var(--lesson-soft) 55%, var(--pp-card, #fcfaff)); }
+.pp-tutorials-choice:hover { border-color: var(--lesson-color); }
+.pp-tutorials-number { color: var(--pp-text-muted, #64748b); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pp-tutorials-choice > .ui-icon { width: 28px; height: 28px; flex: none; }
+.pp-tutorials-choice strong, .pp-tutorials-choice small { display: block; }
+.pp-tutorials-choice strong { font-size: 16px; }
+.pp-tutorials-choice small { margin-top: 4px; color: var(--pp-text-muted, #64748b); font-size: 12px; }
+.pp-tutorials-choice-mark { display: grid; place-items: center; margin-left: auto; color: var(--lesson-color); }
+.pp-tutorials-lesson { border: 1px solid var(--pp-border, #e5dfee); background: var(--pp-card, #fcfaff); border-radius: 16px; overflow: hidden; }
+.pp-tutorials-stage { aspect-ratio: 16 / 9; background: #21192d; position: relative; }
+.pp-tutorials-stage iframe { display: block; border: 0; width: 100%; height: 100%; position: absolute; inset: 0; }
+.pp-tutorials-poster { display: grid; place-items: center; position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; cursor: pointer; color: #fbf8ff; background: #21192d; }
+.pp-tutorials-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: .65; }
+.pp-tutorials-play { position: relative; display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: #7c3aed; box-shadow: 0 0 0 10px rgba(225, 210, 249, .14); transition: transform 180ms ease, background-color 180ms ease; }
+.pp-tutorials-poster:hover .pp-tutorials-play { transform: scale(1.07); background: #8c4df4; }
+.pp-tutorials-poster:focus-visible { outline: 3px solid #c3a1ff; outline-offset: -5px; }
+.pp-tutorials-poster-label { position: absolute; left: 24px; bottom: 24px; font-size: 13px; font-weight: 650; padding: 8px 12px; border-radius: 7px; background: rgba(33, 25, 45, .8); }
+.pp-tutorials-description { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 24px; padding: 26px 28px; }
+.pp-tutorials-platform { display: inline-flex; align-items: center; gap: 7px; color: var(--pp-text-muted, #64748b); font-size: 12px; font-weight: 600; }
+.pp-tutorials-platform .ui-icon { width: 18px; height: 18px; }
+.pp-tutorials h2 { margin: 10px 0 8px; font-size: 23px; letter-spacing: -.02em; }
+.pp-tutorials-topics { padding: 20px 28px; border-top: 1px solid var(--pp-border, #e5dfee); }
+.pp-tutorials-topics > span { display: inline-flex; align-items: center; gap: 7px; color: var(--pp-text-muted, #64748b); font-size: 12px; font-weight: 650; }
+.pp-tutorials-topics ol { display: flex; flex-wrap: wrap; gap: 14px 28px; list-style: none; padding: 0; margin: 14px 0 0; }
+.pp-tutorials-topics li { display: flex; gap: 8px; font-size: 13px; align-items: center; }
+.pp-tutorials-topics li > span { color: var(--accent, #7c3aed); font-size: 11px; font-weight: 700; }
+.pp-tutorials-footer { color: var(--pp-text-muted, #64748b); font-size: 12px; margin: 18px 0; }
+[data-theme="dark"] .pp-tutorials-choice { --lesson-soft: #3d2534; --lesson-color: #f0a1b3; }
+[data-theme="dark"] .pp-tutorials-choice[data-platform="teepublic"] { --lesson-soft: #203e39; --lesson-color: #87d5c6; }
+@media (max-width: 640px) { .pp-tutorials h1 { font-size: 26px; } .pp-tutorials-choices { gap: 10px; } .pp-tutorials-choice { padding: 14px 10px; gap: 8px; } .pp-tutorials-number { display: none; } .pp-tutorials-choice small { font-size: 11px; } .pp-tutorials-description, .pp-tutorials-topics { padding: 20px; } .pp-tutorials-play { width: 52px; height: 52px; } .pp-tutorials-poster-label { left: 12px; bottom: 12px; font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { .pp-tutorials-choice, .pp-tutorials-play { transition: none; } .pp-tutorials-poster:hover .pp-tutorials-play { transform: none; } }
+.pp-tutorials { width: 100%; min-width: 0; }
+.pp-tutorials-header > div, .pp-tutorials-description > div { min-width: 0; max-width: 100%; flex: 1 1 460px; }
+.pp-tutorials-choice > span { min-width: 0; }
+@media (max-width: 480px) { .pp-tutorials-choices { grid-template-columns: minmax(0, 1fr); } }
