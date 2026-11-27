@@ -1702,20 +1702,10 @@ export default function DesignManager({
     return (
       <section className="workflow-panel manager-panel create-page tp-design-create-page">
         <div className="create-page-header">
-          <div>
-            <span className="tp-create-eyebrow"><Icon name="teepublic" /> TeePublic studio</span>
-            <h2>Create TeePublic Design</h2>
-            <button type="button" className="secondary-button" onClick={onBackToDesigns}>
-              <Icon name="chevronLeft" />
-              <span>Back to Designs</span>
-            </button>
-          </div>
-          {selectedCreateImages.length > 0 && (
-            <div className="create-page-status">
-              <span className="tp-create-design-count"><Icon name="images" /> Design {activeCreateIndex + 1} of {selectedCreateImages.length}</span>
-              <strong className="tp-create-unsaved"><span aria-hidden="true" />{selectedCreateImages.length - completedCreateCount} Unsaved</strong>
-            </div>
-          )}
+          <button type="button" className="secondary-button" onClick={onBackToDesigns}>
+            <Icon name="chevronLeft" />
+            <span>Back to Designs</span>
+          </button>
         </div>
 
         <TrademarkModal
