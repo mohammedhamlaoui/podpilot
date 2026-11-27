@@ -458,3 +458,10 @@
 [data-theme="dark"] .tp-design-create-page .create-command-bar { background: #231d30; border-color: #4a395f; }
 [data-theme="dark"] .tp-design-create-page .create-config-card { border-color: #4a395f; }
 @media (prefers-reduced-motion: reduce) { .tp-design-create-page .create-command-bar button:hover:not(:disabled) { transform: none; } }
+
+.pp-uploaded-cleanup { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+.pp-uploaded-cleanup > span { color: var(--pp-text-muted, #64748b); font-size: 13px; }
+.pp-uploaded-cleanup .secondary-button { color: #b34359; border-color: #ecc5ce; }
+.pp-uploaded-cleanup .secondary-button:hover:not(:disabled) { background: #fff0f3; border-color: #c8788b; }
+[data-theme="dark"] .pp-uploaded-cleanup .secondary-button { color: #f2a0b0; border-color: #704253; }
+[data-theme="dark"] .pp-uploaded-cleanup .secondary-button:hover:not(:disabled) { background: #402536; }

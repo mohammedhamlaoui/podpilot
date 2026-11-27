@@ -1,3 +1,4 @@
+import UploadedDesignCleanup from "./UploadedDesignCleanup";
 import { useMemo, useState } from "react";
 import Icon from "./Icon";
 import { Sparkles, CircleArrowDown, Bell, CreditCard, Puzzle, UserRound, Download, Layers3, CircleCheck, Clock3, CircleAlert, ArrowUpRight } from "lucide-react";
@@ -117,7 +118,7 @@ function ExtensionUpdateButton() {
   );
 }
 
-export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNavigate, onOpenRetentionNotice, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false }) {
+export default function Dashboard({ userId, onUploadedDesignsDeleted, redbubbleDesigns, teepublicDesigns, onNavigate, onOpenRetentionNotice, isLoading = false, isRefreshing = false, theme, setTheme, platformAccess, subscriptionSummary = null, isWorkspaceLocked = false }) {
   const pricingUrl = getPricingUrl();
   const canUseRedbubble = Boolean(platformAccess?.redbubble);
   const canUseTeePublic = Boolean(platformAccess?.teepublic);
@@ -205,6 +206,8 @@ export default function Dashboard({ redbubbleDesigns, teepublicDesigns, onNaviga
       </div>
 
       <AiCreditsDashboardCard />
+
+      <UploadedDesignCleanup userId={userId} onDeleted={onUploadedDesignsDeleted} disabled={isLoading || isWorkspaceLocked} />
 
       <div className="pp-dash-section pp-dash-platform-section">
         <div className="pp-dash-section-head">
