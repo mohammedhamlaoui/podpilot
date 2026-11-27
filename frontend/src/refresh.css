@@ -388,15 +388,16 @@
   }
 }
 
-/* Create designs: keep the drop area compact, with a clear browse action. */
+/* Create designs: a generous, centered target for bulk image uploads. */
 .pp-main .create-image-dropzone {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 18px;
-  min-height: 132px;
-  padding: 24px;
-  justify-items: start;
-  text-align: left;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 20px;
+  min-height: clamp(320px, 48vh, 480px);
+  padding: 40px 24px;
+  justify-items: center;
+  text-align: center;
   border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border-color));
   background: color-mix(in oklch, var(--accent-soft) 45%, var(--card-bg));
 }
@@ -419,8 +420,10 @@
   color: var(--accent);
   transition: transform 170ms cubic-bezier(.22, 1, .36, 1);
 }
-.create-image-dropzone-copy p { margin: 4px 0 10px; color: var(--text-secondary); }
-.create-image-dropzone-details { display: flex; flex-wrap: wrap; gap: 6px; }
+.create-image-dropzone-copy { max-width: 580px; }
+.pp-main .create-image-dropzone-copy strong { font-size: 22px; line-height: 1.35; }
+.create-image-dropzone-copy p { margin: 8px 0 16px; color: var(--text-secondary); }
+.create-image-dropzone-details { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .pp-main .create-image-dropzone-details small {
   margin: 0;
   padding: 3px 8px;
@@ -431,12 +434,15 @@
   font-size: 12px;
   font-weight: 600;
 }
-.pp-main .create-image-dropzone-button { white-space: nowrap; }
+.pp-main .create-image-dropzone-button { white-space: nowrap; min-height: 42px; padding-inline: 24px; }
+.pp-main .create-image-dropzone-mark { width: 64px; height: 64px; border-radius: 18px; }
+.pp-main .create-image-dropzone-mark svg { width: 32px; height: 32px; }
 @media (prefers-reduced-motion: no-preference) {
   .create-image-dropzone[data-state="active"] .create-image-dropzone-mark { transform: translateY(-3px); }
 }
 @media (max-width: 640px) {
-  .pp-main .create-image-dropzone { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 12px; }
+  .pp-main .create-image-dropzone { min-height: 300px; padding: 28px 18px; gap: 16px; }
+  .pp-main .create-image-dropzone-copy strong { font-size: 20px; }
 }
 
 /* TeePublic creation studio: restrained color and clear editing states. */
