@@ -20,7 +20,8 @@ export default function PaymentRecoveryBanner({ summary, onRecoverPayment }) {
     } catch (recoveryError) {
       const detail = recoveryError?.response?.data?.detail;
       setError(
-        typeof detail === "string" && detail
+        detail?.code === "BILLING_ACCOUNT_RECONCILIATION_REQUIRED" ? detail.message
+        : typeof detail === "string" && detail
           ? detail
           : "Could not open the billing portal. Please try again."
       );

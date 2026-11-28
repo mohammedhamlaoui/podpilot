@@ -2,7 +2,7 @@
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 sys.modules.setdefault("app.services.supabase_service", types.ModuleType("supabase_service"))
@@ -50,6 +50,18 @@ class BillingSafetyTests(unittest.TestCase):
                 result=self.client.post('/api/billing/checkout',json={"intent_type":"ai_credits","credit_pack_id":pack})
                 self.assertEqual(result.status_code,400)
             verify.assert_not_called()
+
+    def test_missing_live_billing_record_reports_reconciliation_without_new_checkout(self):
+        response = MagicMock(status_code=404)
+        with patch.object(billing.rate_limiter, "enforce_user_limit"), \
+             patch.object(billing.config, "PADDLE_API_KEY", "synthetic"), \
+             patch.object(billing.subscription_service, "get_user_subscription", return_value={
+                 "paddle_customer_id": "ctm_existing", "paddle_subscription_id": "sub_existing"}), \
+             patch.object(billing.httpx, "AsyncClient") as external:
+            external.return_value.__aenter__.return_value.post = AsyncMock(return_value=response)
+            result = self.client.post('/api/billing/customer-portal')
+            self.assertEqual(result.status_code, 409)
+            self.assertEqual(result.json()["detail"]["code"], "BILLING_ACCOUNT_RECONCILIATION_REQUIRED")
 
 
 

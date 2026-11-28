@@ -1230,14 +1230,18 @@ def _payment_access_fields(
     if is_past_due:
         period_end = _parse_datetime((subscription or {}).get("current_period_ends_at"))
         updated_at = _parse_datetime((subscription or {}).get("updated_at"))
-        if period_end is not None and period_end <= current_time:
+        recorded_start = _parse_datetime((subscription or {}).get("past_due_since"))
+        event_time = _parse_datetime((subscription or {}).get("paddle_event_at"))
+        if recorded_start is not None:
+            grace_start = recorded_start
+        elif period_end is not None and period_end <= current_time:
             grace_start = period_end
-        elif updated_at is not None:
-            grace_start = updated_at
+        else:
+            grace_start = event_time or updated_at
         if grace_start is not None:
             lock_after = grace_start + timedelta(days=grace_days)
 
-    grace_active = bool(is_past_due and lock_after is not None and current_time < lock_after)
+    grace_active = bool(is_past_due and grace_start is not None and grace_start <= current_time < lock_after)
     active_or_trialing = _is_subscription_current(
         status,
         _as_iso((subscription or {}).get("current_period_ends_at")),
@@ -1414,6 +1418,8 @@ def get_subscription_access(user_id: str) -> dict[str, Any]:
         if status == "trialing"
         else current_period_ends_at
     )
+    if subscription.get("cancel_at_period_end") or status not in ACTIVE_UPLOAD_STATUSES:
+        next_payment_date = None
     billing_status = status
     if status in ACTIVE_UPLOAD_STATUSES and not is_active:
         billing_status = "expired"
@@ -1677,7 +1683,7 @@ def check_ai_token_availability(user_id: str) -> tuple[str, int]:
     
     status = (access.get("status") or "inactive").lower()
     current_period_ends_at = access.get("current_period_ends_at")
-    is_active = access.get("has_subscription", False) and _is_subscription_current(status, current_period_ends_at)
+    is_active = bool(access.get("has_active_subscription"))
     
     daily_limit = access.get("daily_ai_tokens", 0) if is_active else 0
     extra_tokens = access.get("ai_tokens", 0) or 0
@@ -1718,7 +1724,7 @@ def consume_ai_token_atomic(user_id: str) -> dict[str, Any]:
     try:
         response = (
             supabase_service.admin_client()
-            .rpc("consume_ai_token_atomic", {"p_user_id": user_id})
+            .rpc("consume_ai_token_atomic", {"p_user_id": user_id, "p_grace_days": config.PAST_DUE_GRACE_DAYS})
             .execute()
         )
     except Exception as error:
@@ -1781,90 +1787,18 @@ def reserve_ai_token(user_id: str) -> dict[str, Any]:
 
 
 def refund_ai_token_reservation(user_id: str, reservation: dict[str, Any]) -> None:
-    """Refund a previously reserved AI token after provider failure.
-
-    The API permits only one active AI generation per user in this process, so
-    these read-modify-write refunds are not racing with another generation from
-    the same user on the same backend worker.
-    """
-    token_source = str((reservation or {}).get("token_source") or "").lower()
-    if token_source == "daily":
-        day_key = (
-            str((reservation or {}).get("_reservation_day_key") or "").strip()
-            or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
-        usage = get_user_daily_ai_usage(user_id, day_key)
-        current_used = int(usage.get("used_count", 0) or 0)
-        next_used = max(0, current_used - 1)
-        try:
-            if usage.get("_exists"):
-                query = (
-                    supabase_service.admin_client()
-                    .table("ai_usage")
-                    .update({
-                        "used_count": next_used,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    })
-                    .eq("user_id", user_id)
-                    .eq("day_key", day_key)
-                )
-                if usage.get("id"):
-                    query = query.eq("id", usage["id"])
-                query.execute()
-            else:
-                logger.warning(
-                    "[Billing] AI token refund skipped missing daily usage row user=%s day_key=%s",
-                    short_user_id(user_id),
-                    day_key,
-                )
-                return
-        except Exception as error:
-            _raise_supabase_error("refunding daily AI token", error)
-
-        logger.info(
-            "[Billing] AI token refunded user=%s source=daily used_count=%d",
-            short_user_id(user_id),
-            next_used,
-        )
+    """Restore a provider-failure reservation atomically, including concurrent purchases."""
+    source = str((reservation or {}).get("token_source") or "").lower()
+    if source not in {"daily", "extra"}:
+        logger.warning("[Billing] unknown AI reservation source user=%s", short_user_id(user_id))
         return
-
-    if token_source == "extra":
-        subscription = get_user_subscription(user_id)
-        if not subscription:
-            logger.warning(
-                "[Billing] AI token refund skipped missing subscription user=%s source=extra",
-                short_user_id(user_id),
-            )
-            return
-        current_tokens = int(subscription.get("ai_tokens", 0) or 0)
-        next_tokens = current_tokens + 1
-        try:
-            (
-                supabase_service.admin_client()
-                .table(SUBSCRIPTION_TABLE)
-                .update({
-                    "ai_tokens": next_tokens,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                })
-                .eq("id", subscription.get("id"))
-                .eq("user_id", user_id)
-                .execute()
-            )
-        except Exception as error:
-            _raise_supabase_error("refunding extra AI token", error)
-
-        logger.info(
-            "[Billing] AI token refunded user=%s source=extra remaining_extra=%d",
-            short_user_id(user_id),
-            next_tokens,
-        )
-        return
-
-    logger.warning(
-        "[Billing] AI token refund skipped unknown source user=%s source=%s",
-        short_user_id(user_id),
-        token_source or "(none)",
-    )
+    day_key = str(reservation.get("_reservation_day_key") or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    try:
+        supabase_service.admin_client().rpc("refund_ai_token_reservation_atomic", {
+            "p_user_id": user_id, "p_source": source, "p_day_key": day_key,
+        }).execute()
+    except Exception as error:
+        _raise_supabase_error("refunding AI token reservation", error)
 
 
 def commit_ai_token_consumption(user_id: str, token_source: str) -> None:

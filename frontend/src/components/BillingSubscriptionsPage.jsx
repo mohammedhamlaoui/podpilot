@@ -270,11 +270,13 @@ export default function BillingSubscriptionsPage({
         setPortalMessage("Billing portal will be available after your subscription is synced.");
         return;
       }
-      window.open(data.url, "_blank", "noopener,noreferrer");
+      window.location.assign(data.url);
     } catch (err) {
       const detail = err?.response?.data?.detail;
       console.warn("[Billing] portal action failed:", detail || err?.message || err);
-      setPortalMessage("Billing portal will be available after your subscription is synced.");
+      setPortalMessage(typeof detail === "string" ? detail
+        : detail?.code === "BILLING_ACCOUNT_RECONCILIATION_REQUIRED" ? detail.message
+        : "Could not open your billing portal. Please try again or contact support.");
     } finally {
       setOpeningPortal("");
     }
@@ -309,9 +311,13 @@ export default function BillingSubscriptionsPage({
     ["Status", formatStatus(status)],
     ["Price", subscriptionPrice(summary)],
     ["Trial end date", status === "trialing" ? formatDate(summary?.trial_ends_at) : "Not applicable"],
-    ["Next payment date", formatDate(summary?.next_payment_date || summary?.current_period_ends_at || summary?.current_period_end)],
+    [summary?.cancel_at_period_end ? "Access until" : "Next payment date",
+      formatDate(summary?.next_payment_date ?? (summary?.cancel_at_period_end
+        ? summary?.current_period_ends_at || summary?.current_period_end
+        : null))],
     ["Renewal", summary?.renewal_behavior === "ends_at_period_close" || summary?.cancel_at_period_end
       ? "Ends at period close"
+      : summary?.renewal_behavior === "payment_recovery" ? "Payment recovery"
       : summary?.renewal_behavior === "not_renewing" ? "Not renewing" : "Renews automatically"],
   ];
 

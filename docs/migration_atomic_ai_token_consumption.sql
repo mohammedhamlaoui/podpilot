@@ -1,5 +1,7 @@
 -- PodPilot migration: Atomic AI token consumption
 -- Run this in the Supabase SQL Editor once.
+-- Historical baseline: follow with migration_billing_lifecycle_safety.sql before
+-- enabling AI. Do not replay this baseline over an upgraded lifecycle function.
 
 CREATE OR REPLACE FUNCTION public.consume_ai_token_atomic(p_user_id uuid)
 RETURNS TABLE (

@@ -393,8 +393,11 @@ function OfferCheckoutPage({ theme, setTheme }) {
       const data = await createBillingPortalSession();
       if (!data?.url) throw new Error("Missing billing portal URL");
       window.location.assign(data.url);
-    } catch {
-      setPortalError("We couldn't open your billing portal. Please try again or contact support.");
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      setPortalError(detail?.code === "BILLING_ACCOUNT_RECONCILIATION_REQUIRED"
+        ? detail.message
+        : "We couldn't open your billing portal. Please try again or contact support.");
       setOpeningPortal(false);
     }
   }

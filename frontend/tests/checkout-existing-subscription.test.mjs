@@ -10,7 +10,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const source = (await transform(await readFile(new URL('../src/components/CheckoutPage.jsx', import.meta.url), 'utf8'),
   { loader: 'jsx', jsx: 'automatic', format: 'esm' })).code;
 
-async function scenario({ status, credits = false, failPortal = false }) {
+async function scenario({ status, credits = false, failPortal = false, missingBillingAccount = false }) {
   const values = [], effects = [];
   let cursor = 0, portalOpens = 0, destination, manageClick, portalFailure = failPortal;
   const context = vm.createContext({ console, URLSearchParams,
@@ -44,7 +44,11 @@ async function scenario({ status, credits = false, failPortal = false }) {
       return { selected_price_id: 'pri_fixture' };
     }, createBillingPortalSession: async () => {
       portalOpens++;
-      if (portalFailure) throw new Error('Temporary portal outage');
+      if (portalFailure) {
+        if (missingBillingAccount) throw { response: { data: { detail: {
+          code: 'BILLING_ACCOUNT_RECONCILIATION_REQUIRED', message: 'Contact support to reconcile your subscription.' } } } };
+        throw new Error('Temporary portal outage');
+      }
       return { url: 'https://customer-portal.paddle.com/fixture' };
     } }),
     './Icon': exportsFor({ default: () => null }),
@@ -69,6 +73,7 @@ async function scenario({ status, credits = false, failPortal = false }) {
     if (failPortal) {
       assert.equal(destination, undefined);
       assert.match(render(), /role="alert"/);
+      if (missingBillingAccount) assert.match(render(), /Contact support to reconcile your subscription/);
       portalFailure = false;
       await manageClick();
       assert.equal(portalOpens, 2);
@@ -86,6 +91,7 @@ async function scenario({ status, credits = false, failPortal = false }) {
 }
 await scenario({ status: 409 });
 await scenario({ status: 409, failPortal: true });
+await scenario({ status: 409, failPortal: true, missingBillingAccount: true });
 await scenario({ status: 503 });
 await scenario({ status: 409, credits: true });
 await scenario({ status: 0 });

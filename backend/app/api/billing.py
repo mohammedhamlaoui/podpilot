@@ -314,6 +314,12 @@ async def create_customer_portal_session(
             ),
         )
 
+    if response.status_code == 404:
+        raise HTTPException(status_code=409, detail={
+            "code": "BILLING_ACCOUNT_RECONCILIATION_REQUIRED",
+            "message": "We couldn't match your existing subscription to a billing account. Contact support before starting another subscription.",
+        })
+
     if response.status_code >= 400:
         try:
             error_code = (response.json() or {}).get("error", {}).get("code")
