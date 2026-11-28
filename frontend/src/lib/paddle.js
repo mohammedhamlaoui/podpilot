@@ -233,6 +233,20 @@ function getPaddle() {
   return paddleInstancePromise;
 }
 
+// Paddle.js automatically opens the transaction supplied as _ptxn on initialization.
+// Do not resolve a new offer or call Checkout.open(items), which would override it.
+export async function initializePaddlePaymentLink(onEvent) {
+  const listener = { onEvent };
+  PADDLE_LISTENERS.add(listener);
+  try {
+    await getPaddle();
+    return () => PADDLE_LISTENERS.delete(listener);
+  } catch (error) {
+    PADDLE_LISTENERS.delete(listener);
+    throw error;
+  }
+}
+
 export function resolvePaddlePriceId(plan) {
   return getPaddlePriceId(plan);
 }

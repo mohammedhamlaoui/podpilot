@@ -6,6 +6,7 @@ import {
   closePaddleCheckout,
   isCheckoutConfigurationError,
   openPaddleCheckout,
+  initializePaddlePaymentLink,
   isPaddleConfigured,
 } from "../lib/paddle";
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
@@ -107,20 +108,30 @@ const PLANS_INFO = {
 };
 
 const AI_CREDIT_PACKS_INFO = {
-  250: {
-    id: "ai_credits_250",
-    name: "250 AI Credits",
-    price: "$1.99",
-    subtotal: "$1.99",
-    total: "$1.99",
+  1000: {
+    id: "ai_credits_1000",
+    name: "1,000 AI Credits",
+    price: "$4.99",
+    subtotal: "$4.99",
+    total: "$4.99",
     dueInterval: "one-time",
     billingPeriod: "one-time purchase",
     features: [
-      "250 AI listing credits",
+      "1,000 AI listing credits",
       "Generate Redbubble listing drafts",
       "Generate TeePublic listing drafts",
       "Use with your existing PodPilot workflow",
     ],
+  },
+  10000: {
+    id: "ai_credits_10000",
+    name: "10,000 AI Credits",
+    price: "$39.99",
+    subtotal: "$39.99",
+    total: "$39.99",
+    dueInterval: "one-time",
+    billingPeriod: "one-time purchase",
+    features: ["10,000 AI listing credits", "Generate Redbubble listing drafts", "Generate TeePublic listing drafts", "Use with your existing PodPilot workflow"],
   },
 };
 
@@ -128,10 +139,10 @@ function readCheckoutParams() {
   const searchParams = new URLSearchParams(window.location.search);
   let planParam = searchParams.get("plan") || "all-platforms";
   let billingParam = searchParams.get("billing") || "annual";
-  const creditsParam = Number(searchParams.get("credits") || 250);
+  const creditsParam = Number(searchParams.get("credits") || 1000);
 
   if (planParam === "ai-credits" || planParam === "ai_credits") {
-    const normalizedCredits = AI_CREDIT_PACKS_INFO[creditsParam] ? creditsParam : 250;
+    const normalizedCredits = AI_CREDIT_PACKS_INFO[creditsParam] ? creditsParam : 1000;
     const pack = AI_CREDIT_PACKS_INFO[normalizedCredits];
     return {
       mode: "ai_credits",
@@ -217,6 +228,45 @@ function countryCodeFromUser(user) {
 }
 
 export default function CheckoutPage({ theme, setTheme }) {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("_ptxn")) {
+    return <PaymentLinkCheckout theme={theme} setTheme={setTheme} transactionIds={params.getAll("_ptxn")} />;
+  }
+  return <OfferCheckoutPage theme={theme} setTheme={setTheme} />;
+}
+
+function PaymentLinkCheckout({ theme, setTheme, transactionIds }) {
+  const transactionId = transactionIds.length === 1 ? transactionIds[0] : "";
+  const valid = /^txn_[a-z0-9]{26}$/.test(transactionId);
+  const [message, setMessage] = useState(valid ? "Opening secure Paddle checkout…" : "This payment link is invalid.");
+  useSeo({ title: "Secure payment", canonical: "/checkout", noindex: true });
+  useEffect(() => {
+    if (!valid) return undefined;
+    let active = true;
+    let unsubscribe;
+    const timer = window.setTimeout(() => {
+      initializePaddlePaymentLink((event) => {
+        if (!active) return;
+        const name = getPaddleEventName(event);
+        if (name === "checkout.loaded") setMessage("Complete your payment or payment method update in the secure Paddle window.");
+        if (name === "checkout.closed") setMessage("Checkout closed. No payment confirmation has been received.");
+        if (name === "checkout.completed") setMessage("Paddle received your checkout. Your account will update after server verification.");
+        if (name === "checkout.error" || name === "checkout.failed") setMessage("This payment link could not be opened. Please contact support.");
+      }).then((remove) => { if (active) unsubscribe = remove; else remove(); })
+        .catch(() => { if (active) setMessage("Secure checkout is unavailable. Please try again later."); });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); unsubscribe?.(); };
+  }, [valid, transactionId]);
+  return <main className="landing-page">
+    <PublicHeader theme={theme} setTheme={setTheme} />
+    <section className="landing-section"><div className="landing-container">
+      <h1>Secure payment</h1><p role="status">{message}</p>
+      <a href="/dashboard">Return to dashboard</a>
+    </div></section><PublicFooter />
+  </main>;
+}
+
+function OfferCheckoutPage({ theme, setTheme }) {
   if (CHECKOUT_DEBUG) {
     // eslint-disable-next-line no-console
     console.log("[Checkout] mounted");
@@ -269,7 +319,7 @@ export default function CheckoutPage({ theme, setTheme }) {
     window.location.href = "/login";
   }, [authLoading, billing, isAuthenticated, plan]);
 
-  const aiCreditPackInfo = AI_CREDIT_PACKS_INFO[credits] || AI_CREDIT_PACKS_INFO[250];
+  const aiCreditPackInfo = AI_CREDIT_PACKS_INFO[credits] || AI_CREDIT_PACKS_INFO[1000];
   const planInfo = isAiCreditsCheckout ? aiCreditPackInfo : (PLANS_INFO[plan] || PLANS_INFO["all-platforms"]);
   const billingInfo = isAiCreditsCheckout ? aiCreditPackInfo : (planInfo[billing] || planInfo.annual);
   const selectedPriceId = !checkoutConfigLoading ? checkoutConfig?.selected_price_id || checkoutConfig?.price_id || "" : "";
