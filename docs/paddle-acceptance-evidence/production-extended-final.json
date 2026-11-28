@@ -1,0 +1,91 @@
+{
+  "run": "paddle-extended-1fcc4ca1f42949a79d89bff272932998",
+  "checks": [
+    {
+      "check": "fresh buyer has no subscription row",
+      "passed": true
+    },
+    {
+      "check": "LIVE resolver:redbubble:monthly",
+      "passed": true
+    },
+    {
+      "check": "LIVE resolver:redbubble:annual",
+      "passed": true
+    },
+    {
+      "check": "LIVE resolver:teepublic:monthly",
+      "passed": true
+    },
+    {
+      "check": "LIVE resolver:teepublic:annual",
+      "passed": true
+    },
+    {
+      "check": "LIVE credit resolver:tokens_1000",
+      "passed": true
+    },
+    {
+      "check": "LIVE credit resolver:tokens_10000",
+      "passed": true
+    },
+    {
+      "check": "twenty concurrent production deliveries return 200",
+      "passed": true,
+      "http_counts": {
+        "200": 20
+      }
+    },
+    {
+      "check": "new 10000-credit buyer is credited once without active plan",
+      "passed": true
+    },
+    {
+      "check": "annual subscription webhook",
+      "passed": true
+    },
+    {
+      "check": "annual metadata and credits persisted",
+      "passed": true
+    },
+    {
+      "check": "bound subscription accepts changed mapped price",
+      "passed": true
+    },
+    {
+      "check": "monthly metadata persisted without resetting credits",
+      "passed": true
+    },
+    {
+      "check": "payment failure notification",
+      "passed": true
+    },
+    {
+      "check": "failed attempt does not prematurely revoke active access",
+      "passed": true
+    },
+    {
+      "check": "past due lifecycle notification",
+      "passed": true
+    },
+    {
+      "check": "past due status persisted",
+      "passed": true
+    },
+    {
+      "check": "10000-credit refund",
+      "passed": true
+    },
+    {
+      "check": "refund counter and balance reconcile",
+      "passed": true
+    },
+    {
+      "check": "only marked canary records cleaned",
+      "passed": true
+    }
+  ],
+  "kind": "production resolver and HTTP with isolated synthetic fixtures; no paid checkout",
+  "canary_user_id": "7bec8503-599a-4b96-826a-c89e1f9b2189",
+  "passed": true
+}

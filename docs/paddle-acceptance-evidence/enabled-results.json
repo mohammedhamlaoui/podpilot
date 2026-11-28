@@ -1,0 +1,46 @@
+{
+  "kind": "actual production checkout configuration HTTP after customer enable; no Paddle payment",
+  "checks": [
+    {
+      "plan": "redbubble",
+      "cycle": "monthly",
+      "http": 200
+    },
+    {
+      "plan": "redbubble",
+      "cycle": "annual",
+      "http": 200
+    },
+    {
+      "plan": "teepublic",
+      "cycle": "monthly",
+      "http": 200
+    },
+    {
+      "plan": "teepublic",
+      "cycle": "annual",
+      "http": 200
+    },
+    {
+      "plan": "all_platforms",
+      "cycle": "monthly",
+      "http": 200
+    },
+    {
+      "plan": "all_platforms",
+      "cycle": "annual",
+      "http": 200
+    },
+    {
+      "credits": 1000,
+      "http": 200
+    },
+    {
+      "credits": 10000,
+      "http": 200
+    }
+  ],
+  "unauthenticated_http": 401,
+  "isolated_user_cleaned": true,
+  "passed": true
+}

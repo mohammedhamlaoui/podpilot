@@ -1,0 +1,219 @@
+{
+  "run": "paddle-canary-de28eac4b0ca4a84a3da9f42aef9270f",
+  "checks": [
+    {
+      "check": "Paddle test customer available without transaction",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "general customer checkout remains disabled",
+      "passed": true,
+      "http": 503
+    },
+    {
+      "check": "owned customer portal",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "portal URL belongs to Paddle HTTPS",
+      "passed": true
+    },
+    {
+      "check": "portal HTTPS loads without a purchase",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "subscription.created:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_f23ab36349cd4bcfaee289b898"
+    },
+    {
+      "check": "subscription activated; existing test credits preserved",
+      "passed": true
+    },
+    {
+      "check": "subscription.created:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_f23ab36349cd4bcfaee289b898"
+    },
+    {
+      "check": "duplicate event acknowledged without fulfillment",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_7e1df2943dcc4e82a92e15534a"
+    },
+    {
+      "check": "renewal updates period and preserves credits",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_8bf0b1cce69f40b390f95b82f9"
+    },
+    {
+      "check": "lifecycle:past_due",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_d918867e559a4b5cbd88710cc8"
+    },
+    {
+      "check": "lifecycle:active",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_b71d6a2a330a43008370101fdb"
+    },
+    {
+      "check": "lifecycle:paused",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_30ceab500e4e4e25843207b1ba"
+    },
+    {
+      "check": "lifecycle:active",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 422,
+      "expected_http": 422,
+      "event_id": "evt_92f61509c4684880ad4189ddff"
+    },
+    {
+      "check": "cross-user event cannot change ownership",
+      "passed": true
+    },
+    {
+      "check": "transaction.completed:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_2f48d641f54a419da55731da31"
+    },
+    {
+      "check": "one thousand credits granted atomically",
+      "passed": true
+    },
+    {
+      "check": "transaction.completed:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_2f48d641f54a419da55731da31"
+    },
+    {
+      "check": "transaction.completed:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_074209e438f84197855f5794db"
+    },
+    {
+      "check": "same transaction across deliveries grants only once",
+      "passed": true
+    },
+    {
+      "check": "adjustment.created:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_ddcdcce056be4d428a569e7a6a"
+    },
+    {
+      "check": "unapproved refund does not revoke credits",
+      "passed": true
+    },
+    {
+      "check": "adjustment.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_5b489d2a3b9e47f09d19433c86"
+    },
+    {
+      "check": "partial refund revokes proportional credits",
+      "passed": true
+    },
+    {
+      "check": "adjustment.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_201d9f6fd001426a901a4c4501"
+    },
+    {
+      "check": "adjustment.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_201d9f6fd001426a901a4c4501"
+    },
+    {
+      "check": "adjustment.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_01000891b9244e8b87cdde4298"
+    },
+    {
+      "check": "full refund and duplicate refund preserve prior credits",
+      "passed": true
+    },
+    {
+      "check": "subscription.canceled:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_2628ca885b1647a28ff17465f4"
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "actual_http": 200,
+      "expected_http": 200,
+      "event_id": "evt_72a38da52b8b4ce09233051ce8"
+    },
+    {
+      "check": "cancellation cannot be undone by an older event",
+      "passed": true
+    },
+    {
+      "check": "isolated canary records cleaned; Paddle test customer archived",
+      "passed": true
+    }
+  ],
+  "kind": "production HTTP with synthetic fixtures; no paid checkout",
+  "canary_user_id": "d0a469c0-2206-42f4-b186-ef8b538d92c8",
+  "canary_customer_id": "ctm_01m8fpcgb1afgmgt9shst00w2r",
+  "passed": true
+}

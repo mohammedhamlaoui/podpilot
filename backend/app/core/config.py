@@ -154,6 +154,8 @@ MARKERAPI_BASE_URL = _optional(
 PADDLE_ENVIRONMENT = _optional("PADDLE_ENVIRONMENT", "sandbox")
 PADDLE_API_KEY = _optional("PADDLE_API_KEY", "")
 PADDLE_WEBHOOK_SECRET = _optional("PADDLE_WEBHOOK_SECRET", "")
+PADDLE_CHECKOUT_ENABLED = _optional("PADDLE_CHECKOUT_ENABLED", "false" if PADDLE_ENVIRONMENT == "production" else "true").lower() == "true"
+PADDLE_CANARY_USER_IDS = {value.strip() for value in _optional("PADDLE_CANARY_USER_IDS", "").split(",") if value.strip()}
 PAST_DUE_GRACE_DAYS = max(0, int(_optional("PAST_DUE_GRACE_DAYS", "3")))
 
 # Paddle price IDs must be supplied through environment variables in

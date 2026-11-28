@@ -32,9 +32,10 @@ class RelaunchRefundTests(unittest.TestCase):
         with (
             patch.object(paddle_webhook.affiliate_service, "reverse_commission", return_value=None),
             patch.object(paddle_webhook, "_cancel_fully_refunded_subscription") as cancel,
+            patch.object(paddle_webhook.supabase_service, "admin_client", return_value=MagicMock(), create=True),
         ):
             paddle_webhook._handle_adjustment_event("adjustment.updated", {
-                "status": "approved", "action": "refund", "type": "partial", "transaction_id": "txn_partial",
+                "id": "adj_partial", "status": "approved", "action": "refund", "type": "partial", "transaction_id": "txn_partial", "totals": {"total": "100"},
             })
         cancel.assert_not_called()
 

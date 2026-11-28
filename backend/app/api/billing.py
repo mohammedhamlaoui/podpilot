@@ -1,7 +1,13 @@
 """Billing and upload access endpoints."""
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import logging
+import time
+import uuid
 from typing import Optional
 
 import httpx
@@ -10,12 +16,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.core import config
 from app.core.auth import AuthUser, get_current_user
-from app.services import affiliate_service, rate_limiter, subscription_service
+from app.services import affiliate_service, rate_limiter, subscription_service, supabase_service
 from app.services.logging_utils import error_type as safe_error_type, request_id, short_id, short_user_id
 
 
 router = APIRouter()
 logger = logging.getLogger("podpilot.billing")
+
+
+def _require_checkout_enabled(user_id: str) -> None:
+    if not config.PADDLE_CHECKOUT_ENABLED and user_id not in config.PADDLE_CANARY_USER_IDS:
+        raise HTTPException(status_code=503, detail="Purchases are temporarily unavailable while billing verification is completed.")
 
 
 PADDLE_API_BASES = {
@@ -450,6 +461,26 @@ def _verify_relaunch_subscription_price(price_id: str, plan: str, cycle: str) ->
         raise HTTPException(status_code=503, detail="Subscription checkout is temporarily unavailable.")
 
 
+def _verify_credit_pack_price(price_id: str, pack: str) -> None:
+    api_key = _normalize_paddle_api_key(config.PADDLE_API_KEY)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Credit checkout is not configured.")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{_paddle_api_base()}/prices/{price_id}",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"})
+        response.raise_for_status()
+        price = response.json()["data"]
+        valid = (price.get("id") == price_id and price.get("status") == "active"
+            and price.get("billing_cycle") is None and price.get("trial_period") is None
+            and price.get("unit_price", {}).get("currency_code") == "USD"
+            and str(price.get("unit_price", {}).get("amount")) == {"tokens_1000": "499", "tokens_10000": "3999"}[pack])
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+        raise HTTPException(status_code=503, detail="Credit checkout is temporarily unavailable.") from error
+    if not valid:
+        raise HTTPException(status_code=503, detail="Credit checkout is temporarily unavailable.")
+
+
 def _resolve_credit_pack_price_id(credit_pack_id: str) -> str:
     pack = config.AI_TOKEN_PACKS.get(credit_pack_id)
     if not pack:
@@ -492,6 +523,7 @@ def get_checkout_price_id(
         alias="X-PodPilot-Device-Id",
     ),
 ) -> dict:
+    _require_checkout_enabled(user.id)
     rate_limiter.enforce_user_limit(user.id, rate_limiter.CHECKOUT)
     intent_type = str(payload.intent_type or "subscription").strip().lower()
     if intent_type not in {"subscription", "ai_credits"}:
@@ -502,7 +534,7 @@ def get_checkout_price_id(
     credit_pack_id = _normalize_credit_pack_id(payload.credit_pack_id)
 
     if intent_type == "ai_credits":
-        if credit_pack_id not in config.AI_TOKEN_PACKS:
+        if credit_pack_id not in {"tokens_1000", "tokens_10000"}:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown credit pack: '{payload.credit_pack_id}'",
@@ -514,6 +546,7 @@ def get_checkout_price_id(
             intent_type="ai_credits",
             plan=credit_pack_id,
         )
+        _verify_credit_pack_price(resolved_id, credit_pack_id)
         intent, reused = subscription_service.create_or_reuse_checkout_intent(
             user_id=user.id,
             intent_type="ai_credits",
@@ -546,6 +579,10 @@ def get_checkout_price_id(
             status_code=400,
             detail=f"Invalid billing cycle: '{payload.billing_cycle}'",
         )
+
+    existing = subscription_service.get_user_subscription(user.id) or {}
+    if existing.get("paddle_subscription_id") and existing.get("status") in {"active", "trialing", "past_due", "paused"}:
+        raise HTTPException(status_code=409, detail="Manage your existing subscription to change plans instead of starting another subscription.")
 
     resolved_id = _resolve_subscription_price_id(plan=plan, cycle=cycle)
 

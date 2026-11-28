@@ -1,0 +1,73 @@
+{
+  "run": "paddle-bundle-97b6a033a6ec4f1a8afc9f57f6679a5e",
+  "checks": [
+    {
+      "check": "inactive user cannot access either platform",
+      "passed": true
+    },
+    {
+      "check": "LIVE bundle monthly price resolution",
+      "passed": true
+    },
+    {
+      "check": "LIVE bundle annual price resolution",
+      "passed": true
+    },
+    {
+      "check": "subscription.created:HTTP",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "monthly bundle metadata persisted",
+      "passed": true
+    },
+    {
+      "check": "authenticated monthly bundle unlocks both platforms",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "annual bundle metadata persisted",
+      "passed": true
+    },
+    {
+      "check": "authenticated subscription summary sees active bundle",
+      "passed": true
+    },
+    {
+      "check": "subscription.updated:HTTP",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "scheduled cancellation keeps access until period end",
+      "passed": true
+    },
+    {
+      "check": "subscription.canceled:HTTP",
+      "passed": true,
+      "http": 200
+    },
+    {
+      "check": "completed cancellation locks both platforms",
+      "passed": true
+    },
+    {
+      "check": "general customer bundle checkout still disabled",
+      "passed": true,
+      "http": 503
+    },
+    {
+      "check": "bundle canary records cleaned",
+      "passed": true
+    }
+  ],
+  "kind": "production bundle resolver and authenticated entitlement HTTP; synthetic subscription",
+  "canary_user_id": "d07cefe3-0563-4389-b790-ca6e34822505",
+  "passed": true
+}

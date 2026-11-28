@@ -1,0 +1,134 @@
+{
+  "products": [
+    {
+      "id": "pro_01m8fq6vaxtx2mx9zzkqcd2caf",
+      "name": "PodPilot \u2013 Redbubble + TeePublic",
+      "status": "active"
+    },
+    {
+      "id": "pro_01m8fghvdvfcxzww6kxnj2egyr",
+      "name": "PodPilot \u2013 AI Listing Credits",
+      "status": "active"
+    },
+    {
+      "id": "pro_01m8d1p8dxhyq0287endw46tkf",
+      "name": "PodPilot \u2013 TeePublic",
+      "status": "active"
+    },
+    {
+      "id": "pro_01m8d1axz560tf7mh96cree2zr",
+      "name": "PodPilot \u2013 Redbubble",
+      "status": "active"
+    }
+  ],
+  "prices": [
+    {
+      "id": "pri_01m8fq96q25k372e4ddp1n5r21",
+      "product_id": "pro_01m8fq6vaxtx2mx9zzkqcd2caf",
+      "status": "active",
+      "unit_price": {
+        "amount": "10990",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8fq8b88syw517471awea15w",
+      "product_id": "pro_01m8fq6vaxtx2mx9zzkqcd2caf",
+      "status": "active",
+      "unit_price": {
+        "amount": "1099",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8fgrnygpsbj2w5xh395f7mx",
+      "product_id": "pro_01m8fghvdvfcxzww6kxnj2egyr",
+      "status": "active",
+      "unit_price": {
+        "amount": "499",
+        "currency_code": "USD"
+      },
+      "billing_cycle": null
+    },
+    {
+      "id": "pri_01m8fgps0d0756x178kzbvrnah",
+      "product_id": "pro_01m8fghvdvfcxzww6kxnj2egyr",
+      "status": "active",
+      "unit_price": {
+        "amount": "3999",
+        "currency_code": "USD"
+      },
+      "billing_cycle": null
+    },
+    {
+      "id": "pri_01m8fgfn9b2dakf4s4qcrndnpa",
+      "product_id": "pro_01m8d1p8dxhyq0287endw46tkf",
+      "status": "active",
+      "unit_price": {
+        "amount": "8990",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8fge52r6zq4mymhvmdt3dt0",
+      "product_id": "pro_01m8d1p8dxhyq0287endw46tkf",
+      "status": "active",
+      "unit_price": {
+        "amount": "899",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8d1m5t7bgp0e9hnnb7yqja2",
+      "product_id": "pro_01m8d1axz560tf7mh96cree2zr",
+      "status": "active",
+      "unit_price": {
+        "amount": "8990",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8d1j3a799cercfa8dvthahv",
+      "product_id": "pro_01m8d1axz560tf7mh96cree2zr",
+      "status": "active",
+      "unit_price": {
+        "amount": "899",
+        "currency_code": "USD"
+      },
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "pri_01m8fgqh35kap7z4qhvmbywmr9",
+      "product_id": "pro_01m8fghvdvfcxzww6kxnj2egyr",
+      "status": "archived",
+      "unit_price": {
+        "amount": "299",
+        "currency_code": "USD"
+      },
+      "billing_cycle": null
+    }
+  ]
+}

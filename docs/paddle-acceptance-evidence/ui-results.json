@@ -1,0 +1,82 @@
+[
+  {
+    "plan": "redbubble",
+    "cycle": "monthly",
+    "amount": "$8.99",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $8.99 now, then $8.99/month from 28 Dec 2026."
+    ]
+  },
+  {
+    "plan": "redbubble",
+    "cycle": "annual",
+    "amount": "$89.90",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $89.90 now, then $89.90/year from 28 Nov 2027."
+    ]
+  },
+  {
+    "plan": "teepublic",
+    "cycle": "monthly",
+    "amount": "$8.99",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $8.99 now, then $8.99/month from 28 Dec 2026."
+    ]
+  },
+  {
+    "plan": "teepublic",
+    "cycle": "annual",
+    "amount": "$89.90",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $89.90 now, then $89.90/year from 28 Nov 2027."
+    ]
+  },
+  {
+    "plan": "all-platforms",
+    "cycle": "monthly",
+    "amount": "$10.99",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $10.99 now, then $10.99/month from 28 Dec 2026."
+    ]
+  },
+  {
+    "plan": "all-platforms",
+    "cycle": "annual",
+    "amount": "$109.90",
+    "cardForm": true,
+    "price": true,
+    "terms": [
+      "- paragraph: $109.90 now, then $109.90/year from 28 Nov 2027."
+    ]
+  },
+  {
+    "credits": 1000,
+    "amount": "$4.99",
+    "cardForm": true,
+    "price": true,
+    "oneTime": true,
+    "terms": [
+      "- button \"Pay $4.99\""
+    ]
+  },
+  {
+    "credits": 10000,
+    "amount": "$39.99",
+    "cardForm": true,
+    "price": true,
+    "oneTime": true,
+    "terms": [
+      "- button \"Pay $39.99\""
+    ]
+  }
+]
