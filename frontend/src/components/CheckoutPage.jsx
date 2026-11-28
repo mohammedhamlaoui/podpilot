@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ShieldCheck, Check, Sparkles, Mail, HelpCircle, Settings2 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import {
   CHECKOUT_CONFIGURATION_ERROR_MESSAGE,
@@ -10,7 +10,7 @@ import {
   isPaddleConfigured,
 } from "../lib/paddle";
 import { setPendingCheckoutPlan } from "../lib/pendingCheckout";
-import { getCheckoutConfig } from "../api/client";
+import { getCheckoutConfig, createBillingPortalSession } from "../api/client";
 import Icon from "./Icon";
 import { GUARANTEE_CONFIRMED } from "../config/commercial";
 import PublicHeader from "./PublicHeader";
@@ -289,6 +289,9 @@ function OfferCheckoutPage({ theme, setTheme }) {
   const [paddleErrorMessage, setPaddleErrorMessage] = useState("");
   const [checkoutConfig, setCheckoutConfig] = useState(null);
   const [checkoutConfigError, setCheckoutConfigError] = useState("");
+  const [hasExistingSubscription, setHasExistingSubscription] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const [portalError, setPortalError] = useState("");
   const [checkoutConfigLoading, setCheckoutConfigLoading] = useState(true);
   const [inlineAttempt, setInlineAttempt] = useState(0);
   const checkoutFrameRef = useRef(null);
@@ -353,6 +356,8 @@ function OfferCheckoutPage({ theme, setTheme }) {
       try {
         setCheckoutConfigLoading(true);
         setCheckoutConfigError("");
+        setHasExistingSubscription(false);
+        setPortalError("");
         const data = isAiCreditsCheckout
           ? await getCheckoutConfig({
               intent_type: "ai_credits",
@@ -364,10 +369,11 @@ function OfferCheckoutPage({ theme, setTheme }) {
           setCheckoutConfigLoading(false);
         }
       } catch (err) {
-        console.warn("[Checkout] checkout config failed:", err);
         if (active) {
+          const existingSubscription = !isAiCreditsCheckout && err?.response?.status === 409;
           setCheckoutConfig(null);
-          setCheckoutConfigError(err?.response?.data?.detail || err?.message || "Could not prepare checkout.");
+          setHasExistingSubscription(existingSubscription);
+          setCheckoutConfigError(existingSubscription ? "" : err?.response?.data?.detail || err?.message || "Could not prepare checkout.");
           setCheckoutConfigLoading(false);
         }
       }
@@ -378,6 +384,20 @@ function OfferCheckoutPage({ theme, setTheme }) {
       active = false;
     };
   }, [aiCreditPackInfo.id, billing, creditPackId, customerUserId, isAiCreditsCheckout, plan]);
+
+  async function handleManageSubscription() {
+    if (openingPortal) return;
+    setOpeningPortal(true);
+    setPortalError("");
+    try {
+      const data = await createBillingPortalSession();
+      if (!data?.url) throw new Error("Missing billing portal URL");
+      window.location.assign(data.url);
+    } catch {
+      setPortalError("We couldn't open your billing portal. Please try again or contact support.");
+      setOpeningPortal(false);
+    }
+  }
 
   const showInlineError = useCallback((error, fallback = "Checkout could not load. Please try again.") => {
     const cleanMessage = checkoutMessageForError(error, fallback);
@@ -668,8 +688,23 @@ function OfferCheckoutPage({ theme, setTheme }) {
 
               {/* RIGHT COLUMN: PADDLE FRAME */}
               <div className="checkout-right-column">
-                <div className="paddle-checkout-frame-wrapper" style={{ position: "relative" }}>
-                  <div ref={checkoutFrameRef} className="paddle-checkout-frame" style={{ minHeight: 450, width: "100%" }} />
+                <div className="paddle-checkout-frame-wrapper" style={{ position: "relative", ...(hasExistingSubscription ? { minHeight: 0 } : {}) }}>
+                  {hasExistingSubscription ? (
+                    <div className="paddle-error-state" style={{ minHeight: 360, gap: 16 }}>
+                      <Settings2 size={36} aria-hidden="true" />
+                      <h4>Manage your subscription</h4>
+                      <p>You already have a subscription. Open your secure Paddle billing portal to view your plan, update payment details or manage cancellation.</p>
+                      <button type="button" onClick={handleManageSubscription} disabled={openingPortal}
+                        className="landing-btn landing-btn-primary" aria-busy={openingPortal}>
+                        <Settings2 size={18} aria-hidden="true" />
+                        {openingPortal ? "Opening billing portal…" : "Manage subscription"}
+                      </button>
+                      {portalError && <p role="alert">{portalError}</p>}
+                      <a href="/contact">Contact support</a>
+                    </div>
+                  ) : (
+                    <div ref={checkoutFrameRef} className="paddle-checkout-frame" style={{ minHeight: 450, width: "100%" }} />
+                  )}
 
 
                   {paddleLoadError && (
@@ -716,7 +751,7 @@ function OfferCheckoutPage({ theme, setTheme }) {
                     </div>
                   )}
 
-                  {!checkoutConfigLoading && !hasValidSelectedPriceId && (
+                  {!checkoutConfigLoading && !hasValidSelectedPriceId && !hasExistingSubscription && (
                     <div className="paddle-error-state">
                       <HelpCircle size={36} />
                       <h4>Checkout is temporarily unavailable.</h4>
